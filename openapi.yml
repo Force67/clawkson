@@ -64,6 +64,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Agent"
+        "404":
+          description: Not found
+    patch:
+      summary: Update an agent
+      operationId: patchAgent
+      tags: [Agents]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAgentRequest"
+      responses:
+        "200":
+          description: Updated agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          description: Not found
+    delete:
+      summary: Delete an agent
+      operationId: deleteAgent
+      tags: [Agents]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
 
   # ── Conversations ───────────────────────────────────────────
 
@@ -165,6 +199,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/Message"
 
+  /api/conversations/{id}/chat:
+    post:
+      summary: Send a message and get an AI response (blocking)
+      operationId: chat
+      tags: [Conversations]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: User message and assistant response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "404":
+          description: Conversation not found
+
+  /api/conversations/{id}/chat/stream:
+    post:
+      summary: Send a message and stream the AI response as SSE
+      operationId: chatStream
+      tags: [Conversations]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: SSE stream – each event is JSON with `delta`, `done`, or `error`
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
   # ── Connectors ──────────────────────────────────────────────
 
   /api/connectors:
@@ -218,6 +296,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Connector"
+        "404":
+          description: Not found
+    patch:
+      summary: Update a connector (e.g. toggle enabled)
+      operationId: patchConnector
+      tags: [Connectors]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchConnectorRequest"
+      responses:
+        "200":
+          description: The updated connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connector"
+        "404":
+          description: Not found
+    delete:
+      summary: Delete a connector
+      operationId: deleteConnector
+      tags: [Connectors]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
 
   # ── Knowledge Base ──────────────────────────────────────────
 
@@ -327,6 +449,121 @@ paths:
               schema:
                 $ref: "#/components/schemas/Tool"
 
+  # ── LLM Connectors ──────────────────────────────────────────────
+
+  /api/llm-connectors:
+    get:
+      summary: List all LLM connectors (API keys masked)
+      operationId: listLlmConnectors
+      tags: [LLM Connectors]
+      responses:
+        "200":
+          description: List of connectors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LlmConnector"
+    post:
+      summary: Create an LLM connector
+      operationId: createLlmConnector
+      tags: [LLM Connectors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLlmConnectorRequest"
+      responses:
+        "200":
+          description: Created connector (API key masked)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmConnector"
+
+  /api/llm-connectors/{id}:
+    get:
+      summary: Get an LLM connector
+      operationId: getLlmConnector
+      tags: [LLM Connectors]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmConnector"
+        "404":
+          description: Not found
+    patch:
+      summary: Update an LLM connector
+      operationId: patchLlmConnector
+      tags: [LLM Connectors]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchLlmConnectorRequest"
+      responses:
+        "200":
+          description: Updated connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LlmConnector"
+        "404":
+          description: Not found
+    delete:
+      summary: Delete an LLM connector
+      operationId: deleteLlmConnector
+      tags: [LLM Connectors]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Settings ────────────────────────────────────────────────────
+
+  /api/settings:
+    get:
+      summary: Get application settings
+      operationId: getSettings
+      tags: [Settings]
+      responses:
+        "200":
+          description: Application settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    patch:
+      summary: Update application settings
+      operationId: patchSettings
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchSettingsRequest"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
 components:
   schemas:
     # ── Agent ──────────────────────────────────────────────────
@@ -344,6 +581,22 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/AgentStatus"
+        llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+        system_prompt:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 2
+        max_tokens:
+          type: integer
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -363,6 +616,42 @@ components:
           type: string
         description:
           type: string
+        llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+        system_prompt:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+          nullable: true
+        max_tokens:
+          type: integer
+          nullable: true
+
+    PatchAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+        system_prompt:
+          type: string
+          nullable: true
+        temperature:
+          type: number
+          nullable: true
+        max_tokens:
+          type: integer
+          nullable: true
+        status:
+          $ref: "#/components/schemas/AgentStatus"
 
     # ── Conversation ───────────────────────────────────────────
 
@@ -462,6 +751,21 @@ components:
         config:
           type: object
 
+    PatchConnectorRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+
+    TelegramConnectorConfig:
+      type: object
+      required: [bot_token]
+      description: Configuration fields for a Telegram connector
+      properties:
+        bot_token:
+          type: string
+          description: Telegram Bot API token (from @BotFather)
+
     # ── Knowledge Entry ────────────────────────────────────────
 
     KnowledgeEntry:
@@ -536,28 +840,119 @@ components:
 
     # ── LLM Connector ──────────────────────────────────────────
 
+    LlmProviderType:
+      type: string
+      enum: [azure, open_router, open_ai, custom]
+      description: The LLM provider backend type
+
     LlmConnector:
       type: object
-      required: [id, name, provider, api_base_url, model, created_at]
+      required: [id, name, provider_type, model, created_at]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
-        provider:
+        provider_type:
+          $ref: "#/components/schemas/LlmProviderType"
+        model:
           type: string
         api_base_url:
           type: string
-        model:
+          nullable: true
+          description: Required for custom provider; optional for others
+        azure_deployment:
           type: string
+          nullable: true
+          description: Azure OpenAI deployment name
+        azure_api_version:
+          type: string
+          nullable: true
+          description: Azure OpenAI API version (e.g. 2024-02-01)
+        api_key_masked:
+          type: string
+          nullable: true
+          description: Masked API key (e.g. sk-or-••••1234); never the real key
         created_at:
           type: string
           format: date-time
 
+    CreateLlmConnectorRequest:
+      type: object
+      required: [name, provider_type, model, api_key]
+      properties:
+        name:
+          type: string
+        provider_type:
+          $ref: "#/components/schemas/LlmProviderType"
+        model:
+          type: string
+        api_key:
+          type: string
+          description: Plain-text API key (stored in-memory, never persisted)
+        api_base_url:
+          type: string
+          nullable: true
+        azure_deployment:
+          type: string
+          nullable: true
+        azure_api_version:
+          type: string
+          nullable: true
+
+    PatchLlmConnectorRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        provider_type:
+          $ref: "#/components/schemas/LlmProviderType"
+        model:
+          type: string
+        api_key:
+          type: string
+          nullable: true
+        api_base_url:
+          type: string
+          nullable: true
+        azure_deployment:
+          type: string
+          nullable: true
+        azure_api_version:
+          type: string
+          nullable: true
+
+    ChatRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: The user message content
+
+    ChatResponse:
+      type: object
+      required: [user_message, assistant_message]
+      properties:
+        user_message:
+          $ref: "#/components/schemas/Message"
+        assistant_message:
+          $ref: "#/components/schemas/Message"
+
     # ── Settings ───────────────────────────────────────────────
 
     Settings:
+      type: object
+      properties:
+        default_llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+        theme:
+          type: string
+
+    PatchSettingsRequest:
       type: object
       properties:
         default_llm_connector_id:

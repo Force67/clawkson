@@ -10,6 +10,14 @@ pub struct Agent {
     pub name: String,
     pub description: String,
     pub status: AgentStatus,
+    /// Which LLM connector this agent uses. Falls back to the default connector in Settings.
+    pub llm_connector_id: Option<Uuid>,
+    /// System prompt prepended to every conversation with this agent.
+    pub system_prompt: Option<String>,
+    /// Sampling temperature (0.0–2.0). None uses the provider default.
+    pub temperature: Option<f64>,
+    /// Maximum tokens in the response. None uses the provider default.
+    pub max_tokens: Option<u32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -99,13 +107,39 @@ pub struct Tool {
 
 // ── LLM Connector (bring your own) ────────────────────────────────
 
+/// The inference backend type, used to select the correct API format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmProviderType {
+    /// Azure OpenAI Service — uses `api-key` header + deployment URL.
+    Azure,
+    /// OpenRouter — OpenAI-compatible with `Authorization: Bearer` header.
+    OpenRouter,
+    /// OpenAI — standard API at api.openai.com.
+    OpenAi,
+    /// Any OpenAI-compatible endpoint (e.g. Ollama, LM Studio, etc.).
+    Custom,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConnector {
     pub id: Uuid,
     pub name: String,
-    pub provider: String,
+    pub provider_type: LlmProviderType,
+    /// API key. Stored in-memory only (never persisted to disk in this MVP).
+    pub api_key: String,
+    /// Base URL for the provider.
+    /// - Azure: `https://<resource>.openai.azure.com`
+    /// - OpenRouter: `https://openrouter.ai/api/v1` (auto-filled)
+    /// - OpenAI: `https://api.openai.com/v1` (auto-filled)
+    /// - Custom: user-supplied
     pub api_base_url: String,
+    /// Model / deployment name.
     pub model: String,
+    /// Azure-specific: deployment name (defaults to `model` if blank).
+    pub azure_deployment: Option<String>,
+    /// Azure-specific: API version string (e.g. `2024-02-01`).
+    pub azure_api_version: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 

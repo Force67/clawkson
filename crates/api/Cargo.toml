@@ -16,3 +16,8 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 anyhow.workspace = true
+reqwest.workspace = true
+futures.workspace = true
+tokio-stream.workspace = true
+async-stream = "0.3"
+denkwerk = { path = "../../../denkwerk" }

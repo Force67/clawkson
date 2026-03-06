@@ -169,3 +169,21 @@
     grid-template-columns: 1fr;
   }
 }
+
+.emptyMsg {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 8px 0;
+}
+
+.emptyLink {
+  background: none;
+  border: none;
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.emptyLink:hover { color: var(--accent-hover); }

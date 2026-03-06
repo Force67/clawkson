@@ -1,5 +1,6 @@
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -13,7 +14,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_connectors).post(create_connector))
-        .route("/{id}", get(get_connector))
+        .route("/{id}", get(get_connector).patch(patch_connector).delete(delete_connector))
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,4 +54,40 @@ async fn create_connector(
     let mut inner = state.inner.write().await;
     inner.connectors.push(connector.clone());
     Json(connector)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchConnectorRequest {
+    pub enabled: Option<bool>,
+}
+
+async fn patch_connector(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<PatchConnectorRequest>,
+) -> Result<Json<Connector>, StatusCode> {
+    let mut inner = state.inner.write().await;
+    let connector = inner
+        .connectors
+        .iter_mut()
+        .find(|c| c.id == id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if let Some(enabled) = req.enabled {
+        connector.enabled = enabled;
+    }
+    Ok(Json(connector.clone()))
+}
+
+async fn delete_connector(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
+    let mut inner = state.inner.write().await;
+    let before = inner.connectors.len();
+    inner.connectors.retain(|c| c.id != id);
+    if inner.connectors.len() < before {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }

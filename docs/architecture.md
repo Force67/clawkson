@@ -28,11 +28,12 @@ Clawkson is a multi-agent AI assistant platform with a clean separation between 
 | Route | Page | Description |
 |---|---|---|
 | `/dashboard` | Dashboard | Agent overview, stats, activity feed |
-| `/conversations` | Conversations | Chat interface with agents |
+| `/conversations` | Conversations | Real-time chat interface with SSE streaming |
+| `/agents` | Agents | Create, configure, and manage agents |
 | `/knowledge` | Knowledge Base | Manage shared knowledge entries |
 | `/connectors` | Connectors | Platform integrations (Telegram, Gmail, etc.) |
 | `/tools` | Tools | Tools provided by connectors, `@toolname` invocation |
-| `/settings` | Settings | LLM config, appearance, general settings |
+| `/settings` | Settings | LLM connector management, appearance, general settings |
 | `/docs` | Documentation | Rendered documentation |
 
 ## Backend (`crates/`)
@@ -49,20 +50,31 @@ All routes are prefixed with `/api/`:
 | Method | Path | Description |
 |---|---|---|
 | GET/POST | `/agents` | List/create agents |
-| GET | `/agents/{id}` | Get agent by ID |
+| GET/PATCH/DELETE | `/agents/{id}` | Get/update/delete agent |
 | GET/POST | `/conversations` | List/create conversations |
 | GET | `/conversations/{id}` | Get conversation by ID |
-| GET/POST | `/conversations/{id}/messages` | List/send messages |
-| GET/POST | `/connectors` | List/create connectors |
+| GET/POST | `/conversations/{id}/messages` | List/send raw messages |
+| POST | `/conversations/{id}/chat` | Send message + get AI response (blocking) |
+| POST | `/conversations/{id}/chat/stream` | Send message + stream AI response (SSE) |
+| GET/POST | `/llm-connectors` | List/create LLM connectors |
+| GET/PATCH/DELETE | `/llm-connectors/{id}` | Get/update/delete LLM connector |
+| GET/PATCH | `/settings` | Get/update application settings |
+| GET/POST | `/connectors` | List/create platform connectors |
 | GET | `/connectors/{id}` | Get connector by ID |
 | GET/POST | `/knowledge` | List/create knowledge entries |
 | GET | `/knowledge/{id}` | Get knowledge entry by ID |
 | GET/POST | `/tools` | List/create tools |
 | GET | `/tools/{id}` | Get tool by ID |
 
-## Orchestration
+## LLM Provider Layer
 
-Multi-agent orchestration is handled by [Denkwerk](https://github.com/Force67/denkwerk). Agents run in isolated Docker containers for security.
+The `crates/api/src/llm.rs` module is a thin adapter over a local `denkwerk` dependency:
+- `complete(connector, messages)` — blocking chat completion
+- `stream_complete(connector, messages, callback)` — streaming via delta callback
+
+Supported providers: **Azure OpenAI**, **OpenRouter**, **OpenAI**, **Custom (OpenAI-compatible)**.
+
+Clawkson currently depends on a local Denkwerk checkout with the GUI/editor path feature-gated so the backend can use provider implementations without pulling `iced` into the API server build.
 
 ## API Specification
 

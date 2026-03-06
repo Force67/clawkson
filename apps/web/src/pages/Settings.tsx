@@ -1,100 +1,76 @@
-import { Save, Moon, Globe, Key } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { ChevronDown, Settings as SettingsIcon, Link } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
-import { Button } from '../components/Button'
+import { api, type Settings } from '../lib/api'
 import styles from './Settings.module.css'
 
 export function SettingsPage() {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    api.settings.get().then(setSettings)
+  }, [])
+
   return (
     <div className="fade-in">
       <PageHeader
         title="Settings"
-        description="Configure agents, connectors, and application preferences."
+        description="Application preferences and display options."
       />
 
       <div className={styles.sections}>
-        {/* LLM Configuration */}
+        {/* ── Inference Connectors shortcut ── */}
         <Card>
           <div className={styles.sectionHeader}>
-            <Key size={18} className={styles.sectionIcon} />
-            <div>
-              <h3 className={styles.sectionTitle}>LLM Configuration</h3>
-              <p className={styles.sectionDesc}>Bring your own LLM connectors for inference.</p>
+            <div className={styles.sectionHeaderLeft}>
+              <div className={styles.sectionIconWrap}><Link size={16} /></div>
+              <div>
+                <h3 className={styles.sectionTitle}>Inference Connectors</h3>
+                <p className={styles.sectionDesc}>
+                  Manage LLM providers (Azure OpenAI, OpenRouter, OpenAI, Custom) from the Connectors page.
+                </p>
+              </div>
             </div>
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>Provider</label>
-            <select className={styles.select}>
-              <option>OpenAI</option>
-              <option>Anthropic</option>
-              <option>Local (Ollama)</option>
-              <option>Custom</option>
-            </select>
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>API Base URL</label>
-            <input className={styles.input} type="text" placeholder="https://api.openai.com/v1" />
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>API Key</label>
-            <input className={styles.input} type="password" placeholder="sk-..." />
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>Model</label>
-            <input className={styles.input} type="text" placeholder="gpt-4o" />
+            <button className={styles.linkBtn} onClick={() => navigate('/connectors')}>
+              Go to Connectors →
+            </button>
           </div>
         </Card>
 
-        {/* Appearance */}
+        {/* ── Appearance ── */}
         <Card>
           <div className={styles.sectionHeader}>
-            <Moon size={18} className={styles.sectionIcon} />
-            <div>
-              <h3 className={styles.sectionTitle}>Appearance</h3>
-              <p className={styles.sectionDesc}>Customize the look and feel.</p>
+            <div className={styles.sectionHeaderLeft}>
+              <div className={styles.sectionIconWrap}><SettingsIcon size={16} /></div>
+              <div>
+                <h3 className={styles.sectionTitle}>Appearance</h3>
+                <p className={styles.sectionDesc}>Interface theme and display preferences.</p>
+              </div>
             </div>
           </div>
 
           <div className={styles.formGroup}>
             <label className={styles.label}>Theme</label>
-            <select className={styles.select}>
-              <option>Dark</option>
-              <option>Light</option>
-              <option>System</option>
-            </select>
-          </div>
-        </Card>
-
-        {/* General */}
-        <Card>
-          <div className={styles.sectionHeader}>
-            <Globe size={18} className={styles.sectionIcon} />
-            <div>
-              <h3 className={styles.sectionTitle}>General</h3>
-              <p className={styles.sectionDesc}>Backend and runtime configuration.</p>
+            <div className={styles.selectWrap}>
+              <select
+                className={styles.select}
+                value={settings?.theme ?? 'dark'}
+                onChange={async e => {
+                  const s = await api.settings.patch({ theme: e.target.value })
+                  setSettings(s)
+                }}
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="system">System</option>
+              </select>
+              <ChevronDown size={14} className={styles.selectChevron} />
             </div>
           </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>API Endpoint</label>
-            <input className={styles.input} type="text" defaultValue="http://localhost:47821" />
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.label}>Denkwerk Orchestrator URL</label>
-            <input className={styles.input} type="text" placeholder="http://localhost:8080" />
-          </div>
         </Card>
-
-        <div className={styles.actions}>
-          <Button>
-            <Save size={16} /> Save Changes
-          </Button>
-        </div>
       </div>
     </div>
   )

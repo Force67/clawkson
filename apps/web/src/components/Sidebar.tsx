@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Cat,
+  Bot,
 } from 'lucide-react'
 import styles from './Sidebar.module.css'
 
@@ -20,6 +21,7 @@ interface SidebarProps {
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/agents', label: 'Agents', icon: Bot },
   { path: '/conversations', label: 'Conversations', icon: MessageCircle },
   { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
   { path: '/connectors', label: 'Connectors', icon: Plug },

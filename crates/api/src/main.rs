@@ -1,5 +1,6 @@
 mod routes;
 mod state;
+mod llm;
 
 use anyhow::Result;
 use axum::Router;

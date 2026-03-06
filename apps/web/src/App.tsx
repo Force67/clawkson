@@ -7,6 +7,7 @@ import { ConnectorsPage } from './pages/Connectors'
 import { ToolsPage } from './pages/Tools'
 import { SettingsPage } from './pages/Settings'
 import { DocsPage } from './pages/Docs'
+import { AgentsPage } from './pages/Agents'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/agents" element={<AgentsPage />} />
         <Route path="/conversations" element={<ConversationsPage />} />
         <Route path="/conversations/:id" element={<ConversationsPage />} />
         <Route path="/knowledge" element={<KnowledgeBasePage />} />
