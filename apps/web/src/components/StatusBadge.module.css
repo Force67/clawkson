@@ -1,0 +1,31 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-transform: capitalize;
+}
+
+.online {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+}
+
+.offline {
+  background: rgba(107, 111, 123, 0.12);
+  color: #6b6f7b;
+}
+
+.busy {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
+
+.error {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}

@@ -1,0 +1,568 @@
+openapi: "3.1.0"
+info:
+  title: Clawkson API
+  description: API for the Clawkson AI assistant platform
+  version: 0.1.0
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:47821
+    description: Local development server
+
+paths:
+  # ── Agents ──────────────────────────────────────────────────
+
+  /api/agents:
+    get:
+      summary: List all agents
+      operationId: listAgents
+      tags: [Agents]
+      responses:
+        "200":
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+    post:
+      summary: Create a new agent
+      operationId: createAgent
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+      responses:
+        "200":
+          description: The created agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  /api/agents/{id}:
+    get:
+      summary: Get an agent by ID
+      operationId: getAgent
+      tags: [Agents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+
+  # ── Conversations ───────────────────────────────────────────
+
+  /api/conversations:
+    get:
+      summary: List all conversations
+      operationId: listConversations
+      tags: [Conversations]
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Conversation"
+    post:
+      summary: Create a new conversation
+      operationId: createConversation
+      tags: [Conversations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "200":
+          description: The created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /api/conversations/{id}:
+    get:
+      summary: Get a conversation by ID
+      operationId: getConversation
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /api/conversations/{id}/messages:
+    get:
+      summary: List messages in a conversation
+      operationId: listMessages
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      summary: Send a message in a conversation
+      operationId: sendMessage
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: The sent message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ── Connectors ──────────────────────────────────────────────
+
+  /api/connectors:
+    get:
+      summary: List all connectors
+      operationId: listConnectors
+      tags: [Connectors]
+      responses:
+        "200":
+          description: List of connectors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Connector"
+    post:
+      summary: Create a connector
+      operationId: createConnector
+      tags: [Connectors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectorRequest"
+      responses:
+        "200":
+          description: The created connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connector"
+
+  /api/connectors/{id}:
+    get:
+      summary: Get a connector by ID
+      operationId: getConnector
+      tags: [Connectors]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connector"
+
+  # ── Knowledge Base ──────────────────────────────────────────
+
+  /api/knowledge:
+    get:
+      summary: List all knowledge entries
+      operationId: listKnowledgeEntries
+      tags: [Knowledge Base]
+      responses:
+        "200":
+          description: List of knowledge entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeEntry"
+    post:
+      summary: Create a knowledge entry
+      operationId: createKnowledgeEntry
+      tags: [Knowledge Base]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeEntryRequest"
+      responses:
+        "200":
+          description: The created entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeEntry"
+
+  /api/knowledge/{id}:
+    get:
+      summary: Get a knowledge entry by ID
+      operationId: getKnowledgeEntry
+      tags: [Knowledge Base]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The knowledge entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeEntry"
+
+  # ── Tools ───────────────────────────────────────────────────
+
+  /api/tools:
+    get:
+      summary: List all tools
+      operationId: listTools
+      tags: [Tools]
+      responses:
+        "200":
+          description: List of tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tool"
+    post:
+      summary: Create a tool
+      operationId: createTool
+      tags: [Tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateToolRequest"
+      responses:
+        "200":
+          description: The created tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+
+  /api/tools/{id}:
+    get:
+      summary: Get a tool by ID
+      operationId: getTool
+      tags: [Tools]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+
+components:
+  schemas:
+    # ── Agent ──────────────────────────────────────────────────
+
+    Agent:
+      type: object
+      required: [id, name, description, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/AgentStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AgentStatus:
+      type: string
+      enum: [online, offline, busy, error]
+
+    CreateAgentRequest:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    # ── Conversation ───────────────────────────────────────────
+
+    Conversation:
+      type: object
+      required: [id, title, agent_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        agent_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateConversationRequest:
+      type: object
+      required: [title, agent_id]
+      properties:
+        title:
+          type: string
+        agent_id:
+          type: string
+          format: uuid
+
+    Message:
+      type: object
+      required: [id, conversation_id, role, content, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/MessageRole"
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    MessageRole:
+      type: string
+      enum: [user, assistant, system, tool]
+
+    SendMessageRequest:
+      type: object
+      required: [content, role]
+      properties:
+        content:
+          type: string
+        role:
+          $ref: "#/components/schemas/MessageRole"
+
+    # ── Connector ──────────────────────────────────────────────
+
+    Connector:
+      type: object
+      required: [id, name, connector_type, enabled, config, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        connector_type:
+          $ref: "#/components/schemas/ConnectorType"
+        enabled:
+          type: boolean
+        config:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    ConnectorType:
+      type: string
+      enum: [telegram, gmail, slack, custom]
+
+    CreateConnectorRequest:
+      type: object
+      required: [name, connector_type, config]
+      properties:
+        name:
+          type: string
+        connector_type:
+          $ref: "#/components/schemas/ConnectorType"
+        config:
+          type: object
+
+    # ── Knowledge Entry ────────────────────────────────────────
+
+    KnowledgeEntry:
+      type: object
+      required: [id, title, content, tags, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateKnowledgeEntryRequest:
+      type: object
+      required: [title, content, tags]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    # ── Tool ───────────────────────────────────────────────────
+
+    Tool:
+      type: object
+      required: [id, name, description, connector_id, schema, enabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        connector_id:
+          type: string
+          format: uuid
+        schema:
+          type: object
+        enabled:
+          type: boolean
+
+    CreateToolRequest:
+      type: object
+      required: [name, description, connector_id, schema]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        connector_id:
+          type: string
+          format: uuid
+        schema:
+          type: object
+
+    # ── LLM Connector ──────────────────────────────────────────
+
+    LlmConnector:
+      type: object
+      required: [id, name, provider, api_base_url, model, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        provider:
+          type: string
+        api_base_url:
+          type: string
+        model:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Settings ───────────────────────────────────────────────
+
+    Settings:
+      type: object
+      properties:
+        default_llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+        theme:
+          type: string

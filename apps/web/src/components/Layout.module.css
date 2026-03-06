@@ -1,0 +1,33 @@
+.layout {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  height: 100%;
+  overflow: hidden;
+  transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mainCollapsed {
+  margin-left: var(--sidebar-collapsed-width);
+}
+
+.content {
+  height: 100%;
+  overflow-y: auto;
+  padding: 32px 40px;
+}
+
+@media (max-width: 768px) {
+  .main {
+    margin-left: 0;
+  }
+  .content {
+    padding: 20px 16px;
+  }
+}
