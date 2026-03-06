@@ -11,8 +11,9 @@ Clawkson is a multi-agent AI assistant platform with a clean separation between 
 └─────────────┘     └─────────────────┘     └──────────────┘
                             │                       │
                     ┌───────┴───────┐       ┌───────┴───────┐
-                    │  In-Memory    │       │  Docker       │
-                    │  State (MVP)  │       │  Containers   │
+                    │  In-Memory /  │       │  Docker       │
+                    │  PostgreSQL   │       │  Containers   │
+                    │  + VectorChord│       │               │
                     └───────────────┘       └───────────────┘
 ```
 
@@ -65,6 +66,15 @@ All routes are prefixed with `/api/`:
 | GET | `/knowledge/{id}` | Get knowledge entry by ID |
 | GET/POST | `/tools` | List/create tools |
 | GET | `/tools/{id}` | Get tool by ID |
+
+## Data Layer
+
+Clawkson currently runs primarily in an MVP-style in-memory mode, but the repository now includes a local Docker Compose setup for PostgreSQL with VectorChord.
+
+- **Purpose:** local vector search development and future knowledge-store persistence
+- **Image:** `ghcr.io/tensorchord/vchord-postgres:pg18-v1.1.1`
+- **Default host binding:** `127.0.0.1:55435`
+- **Bootstrap:** handled by the `clawkson-db` crate via SQLx bootstrap + migrations
 
 ## LLM Provider Layer
 

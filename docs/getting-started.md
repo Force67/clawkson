@@ -38,6 +38,19 @@ cargo run -p clawkson-api
 cd apps/web && bun run dev
 ```
 
+### VectorChord (Optional)
+
+Clawkson includes a local VectorChord Docker Compose setup for vector search experiments and future knowledge storage work.
+
+```bash
+cp .env.vectorchord.example .env
+docker compose up -d vectorchord
+cargo run -p clawkson-db
+# PostgreSQL + VectorChord will be available at 127.0.0.1:55435 by default
+```
+
+See [VectorChord](./vectorchord.md) for environment variables, credentials, and first-boot behavior.
+
 ## Project Structure
 
 ```
@@ -52,6 +65,7 @@ clawkson/
 │           └── pages/      # Page components (one per route)
 └── crates/
     ├── clawkson-core/      # Domain models
+    ├── clawkson-db/        # Database bootstrap + SQLx migrations
     └── clawkson-api/       # HTTP API server
 ```
 

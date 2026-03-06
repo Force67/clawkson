@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/api",
     "crates/core",
+    "crates/db",
+    "crates/server",
 ]
 
 [workspace.package]
@@ -26,3 +28,5 @@ anyhow = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 futures = "0.3"
 tokio-stream = "0.1"
+dotenvy = "0.15"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "migrate", "macros"] }
