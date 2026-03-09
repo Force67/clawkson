@@ -25,3 +25,6 @@ argon2.workspace = true
 rand.workspace = true
 hex = "0.4"
 pdf-extract = "0.7"
+aws-sdk-s3.workspace = true
+aws-config.workspace = true
+aws-types.workspace = true

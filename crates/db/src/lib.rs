@@ -9,6 +9,7 @@ pub mod user;
 pub mod session;
 pub mod share;
 pub mod knowledge_base;
+pub mod knowledge_document;
 pub mod knowledge_entry;
 pub mod llm_connector;
 pub mod settings;

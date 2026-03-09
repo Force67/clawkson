@@ -19,13 +19,14 @@ import {
   Container,
   Play,
   Square,
+  BookOpen,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
-import { api, type Agent, type Conversation, type LlmConnector, type AgentStatus, type ContainerStatus } from '../lib/api'
+import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type AgentStatus, type ContainerStatus } from '../lib/api'
 import styles from './Dashboard.module.css'
 
 // ── Agent Config Panel ────────────────────────────────────────────
@@ -33,11 +34,12 @@ import styles from './Dashboard.module.css'
 interface ConfigPanelProps {
   agent: Agent
   connectors: LlmConnector[]
+  knowledgeBases: KnowledgeBase[]
   onSave: (updated: Agent) => void
   onClose: () => void
 }
 
-function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
+function ConfigPanel({ agent, connectors, knowledgeBases, onSave, onClose }: ConfigPanelProps) {
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
@@ -56,8 +58,47 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
     agent.container_config?.memory_limit_mb != null ? String(agent.container_config.memory_limit_mb) : ''
   )
   const [networkEnabled, setNetworkEnabled] = useState(agent.container_config?.network_enabled ?? false)
+  const [linkedKbIds, setLinkedKbIds] = useState<Set<string>>(new Set())
+  const [kbLoading, setKbLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  // Fetch which KBs are currently linked to this agent
+  useEffect(() => {
+    let cancelled = false
+    const fetchLinked = async () => {
+      setKbLoading(true)
+      try {
+        const linked = new Set<string>()
+        await Promise.all(
+          knowledgeBases.map(async (kb) => {
+            const agentIds = await api.knowledge.listAgents(kb.id)
+            if (agentIds.includes(agent.id)) linked.add(kb.id)
+          })
+        )
+        if (!cancelled) setLinkedKbIds(linked)
+      } finally {
+        if (!cancelled) setKbLoading(false)
+      }
+    }
+    fetchLinked()
+    return () => { cancelled = true }
+  }, [agent.id, knowledgeBases])
+
+  const handleKbToggle = async (kbId: string) => {
+    const isLinked = linkedKbIds.has(kbId)
+    try {
+      if (isLinked) {
+        await api.knowledge.unlinkAgent(kbId, agent.id)
+        setLinkedKbIds(prev => { const next = new Set(prev); next.delete(kbId); return next })
+      } else {
+        await api.knowledge.linkAgent(kbId, agent.id)
+        setLinkedKbIds(prev => new Set(prev).add(kbId))
+      }
+    } catch (err) {
+      console.error('Failed to toggle KB access:', err)
+    }
+  }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -261,6 +302,42 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
             )}
           </div>
 
+          <div className={styles.fieldSection}>
+            <h4 className={styles.fieldSectionTitle}>Knowledge Bases</h4>
+            {knowledgeBases.length === 0 ? (
+              <p className={styles.fieldHint}>No knowledge bases available. Create one in the Knowledge Base page.</p>
+            ) : kbLoading ? (
+              <div className={styles.kbLoading}>
+                <Loader2 size={13} className="spinning" />
+                <span>Loading...</span>
+              </div>
+            ) : (
+              <div className={styles.kbList}>
+                {knowledgeBases.map(kb => (
+                  <label key={kb.id} className={styles.kbItem}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={linkedKbIds.has(kb.id)}
+                      onChange={() => handleKbToggle(kb.id)}
+                    />
+                    <div className={styles.kbItemInfo}>
+                      <span className={styles.kbItemName}>
+                        <BookOpen size={11} /> {kb.name}
+                      </span>
+                      <span className={styles.kbItemMeta}>
+                        {kb.entry_count} {kb.entry_count === 1 ? 'entry' : 'entries'}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className={styles.fieldHint}>
+              Linked knowledge bases are searched during conversations for relevant context.
+            </p>
+          </div>
+
           {error && <p className={styles.errorMsg}>{error}</p>}
 
           <div className={styles.panelActions}>
@@ -426,6 +503,7 @@ export function DashboardPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [connectors, setConnectors] = useState<LlmConnector[]>([])
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
@@ -447,11 +525,12 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
-    Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list()])
-      .then(([agts, convos, conns]) => {
+    Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list(), api.knowledge.listBases()])
+      .then(([agts, convos, conns, kbs]) => {
         setAgents(agts)
         setConversations(convos)
         setConnectors(conns)
+        setKnowledgeBases(kbs)
         fetchContainerStatuses(agts)
       })
       .finally(() => setLoading(false))
@@ -632,6 +711,7 @@ export function DashboardPage() {
         <ConfigPanel
           agent={configuring}
           connectors={connectors}
+          knowledgeBases={knowledgeBases}
           onSave={handleUpdate}
           onClose={() => setConfiguring(null)}
         />

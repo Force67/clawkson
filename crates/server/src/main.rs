@@ -64,8 +64,14 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ── S3 storage ─────────────────────────────────────────────────
+    let s3 = clawkson_api::s3::S3Storage::try_connect().await;
+    if s3.is_none() {
+        tracing::warn!("S3 storage unavailable — document storage disabled (is RustFS running?)");
+    }
+
     // ── HTTP server ───────────────────────────────────────────────
-    let state = clawkson_api::state::AppState::new(db, container_manager.clone());
+    let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3);
 
     let frontend_origin = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| "http://localhost:5173".to_string());

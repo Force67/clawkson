@@ -328,13 +328,11 @@ async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<(MessageRol
     }).collect())
 }
 
-/// Run LLM completion with optional tool-calling.
-async fn run_completion(
-    state: &AppState,
-    connector: &clawkson_core::LlmConnector,
-    agent_cfg: &AgentConfig,
-    history: &[(MessageRole, String)],
-) -> anyhow::Result<String> {
+/// Build the tool registry for an agent (code execution + knowledge search).
+async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig) -> denkwerk::FunctionRegistry {
+    let mut registry = denkwerk::FunctionRegistry::new();
+
+    // Code execution tool (requires container)
     if agent_cfg.container_enabled {
         if let Some(cm) = &state.container_manager {
             // Auto-start container if needed
@@ -352,22 +350,47 @@ async fn run_completion(
                     tracing::error!("failed to auto-start container: {e}");
                 }
             }
-
             let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, cm.clone());
-            let mut registry = denkwerk::FunctionRegistry::new();
             registry.register(tool.into_dyn());
-
-            return crate::llm::complete_with_tools(
-                connector,
-                agent_cfg.system_prompt.as_deref(),
-                history,
-                agent_cfg.temperature,
-                agent_cfg.max_tokens,
-                &registry,
-                5,
-            )
-            .await;
         }
+    }
+
+    // Knowledge search tool (available if agent has linked KBs)
+    let has_kbs = clawkson_db::knowledge_base::agent_list_kbs(state.db.pool(), agent_cfg.agent_id)
+        .await
+        .map(|kbs| !kbs.is_empty())
+        .unwrap_or(false);
+
+    if has_kbs {
+        let list_tool = crate::tools::KnowledgeListTool::new(agent_cfg.agent_id, state.db.clone());
+        registry.register(list_tool.into_dyn());
+        let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone());
+        registry.register(search_tool.into_dyn());
+    }
+
+    registry
+}
+
+/// Run LLM completion with optional tool-calling.
+async fn run_completion(
+    state: &AppState,
+    connector: &clawkson_core::LlmConnector,
+    agent_cfg: &AgentConfig,
+    history: &[(MessageRole, String)],
+) -> anyhow::Result<String> {
+    let registry = build_tool_registry(state, agent_cfg).await;
+
+    if !registry.definitions().is_empty() {
+        return crate::llm::complete_with_tools(
+            connector,
+            agent_cfg.system_prompt.as_deref(),
+            history,
+            agent_cfg.temperature,
+            agent_cfg.max_tokens,
+            &registry,
+            5,
+        )
+        .await;
     }
 
     crate::llm::complete(
@@ -539,65 +562,42 @@ async fn chat_stream(
         }
     };
 
-    let container_enabled = agent_cfg.as_ref().map(|c| c.container_enabled).unwrap_or(false);
-    let container_config = agent_cfg.as_ref().and_then(|c| c.container_config.clone());
-    let system_prompt = agent_cfg.as_ref().and_then(|c| c.system_prompt.clone());
-    let temperature = agent_cfg.as_ref().and_then(|c| c.temperature);
-    let max_tokens = agent_cfg.as_ref().and_then(|c| c.max_tokens);
+    let default_cfg = AgentConfig {
+        agent_id,
+        system_prompt: None,
+        temperature: None,
+        max_tokens: None,
+        container_enabled: false,
+        container_config: None,
+    };
+    let cfg = agent_cfg.unwrap_or(default_cfg);
+    let registry = build_tool_registry(&state, &cfg).await;
+    let system_prompt = cfg.system_prompt.clone();
+    let temperature = cfg.temperature;
+    let max_tokens = cfg.max_tokens;
 
     // Stream via channel
     let (tx, mut rx) = mpsc::channel::<String>(64);
     let state2 = state.clone();
 
     tokio::spawn(async move {
-        let result = if container_enabled {
-            if let Some(cm) = &state2.container_manager {
-                // Auto-start container if needed
-                if cm.get_container(agent_id).await.is_none() {
-                    let config = container_config
-                        .as_ref()
-                        .map(|ac| clawkson_container::ContainerConfig {
-                            image: "python:3.12-slim".to_string(),
-                            cpu_limit: ac.cpu_limit,
-                            memory_limit_mb: ac.memory_limit_mb,
-                            network_enabled: ac.network_enabled,
-                        })
-                        .unwrap_or_default();
-                    if let Err(e) = cm.start_container(agent_id, &config).await {
-                        tracing::error!("failed to auto-start container: {e}");
-                    }
-                }
+        let has_tools = !registry.definitions().is_empty();
+        let result = if has_tools {
+            let tool_result = crate::llm::complete_with_tools(
+                &connector,
+                system_prompt.as_deref(),
+                &history,
+                temperature,
+                max_tokens,
+                &registry,
+                5,
+            )
+            .await;
 
-                let tool = crate::tools::CodeExecutionTool::new(agent_id, cm.clone());
-                let mut registry = denkwerk::FunctionRegistry::new();
-                registry.register(tool.into_dyn());
-
-                let tool_result = crate::llm::complete_with_tools(
-                    &connector,
-                    system_prompt.as_deref(),
-                    &history,
-                    temperature,
-                    max_tokens,
-                    &registry,
-                    5,
-                )
-                .await;
-
-                if let Ok(ref text) = tool_result {
-                    let _ = tx.try_send(text.clone());
-                }
-                tool_result
-            } else {
-                crate::llm::stream_complete(
-                    &connector,
-                    system_prompt.as_deref(),
-                    &history,
-                    temperature,
-                    max_tokens,
-                    |chunk| { let _ = tx.try_send(chunk); },
-                )
-                .await
+            if let Ok(ref text) = tool_result {
+                let _ = tx.try_send(text.clone());
             }
+            tool_result
         } else {
             crate::llm::stream_complete(
                 &connector,

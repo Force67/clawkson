@@ -33,3 +33,6 @@ dotenvy = "0.15"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "migrate", "macros"] }
 argon2 = "0.5"
 rand = "0.8"
+aws-sdk-s3 = "1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-types = "1"

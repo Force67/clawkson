@@ -16,7 +16,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* no JSON body */ }
     throw new Error(`${res.status} ${detail}`)
   }
-  if (res.status === 204) return undefined as T
+  if (res.status === 204 || res.status === 201) {
+    // Try to parse JSON body if present, otherwise return undefined
+    const text = await res.text()
+    if (!text) return undefined as T
+    try { return JSON.parse(text) as T } catch { return undefined as T }
+  }
   return res.json() as Promise<T>
 }
 
@@ -112,6 +117,7 @@ export interface KnowledgeEntry {
   content: string
   token_count: number | null
   has_embedding: boolean
+  source_document_id?: string
   created_at: string
   updated_at: string
 }
@@ -119,6 +125,7 @@ export interface KnowledgeEntry {
 export interface KnowledgeSearchResult {
   entry: KnowledgeEntry
   score: number
+  document_url?: string
 }
 
 export interface UploadResult {

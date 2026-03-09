@@ -10,6 +10,7 @@ pub struct KnowledgeEntryRow {
     pub content: String,
     pub token_count: Option<i32>,
     pub has_embedding: bool,
+    pub source_document_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -19,18 +20,20 @@ pub async fn create(
     knowledge_base_id: Uuid,
     title: &str,
     content: &str,
+    source_document_id: Option<Uuid>,
 ) -> Result<KnowledgeEntryRow, sqlx::Error> {
     sqlx::query_as::<_, KnowledgeEntryRow>(
         r#"
-        INSERT INTO knowledge_entries (knowledge_base_id, title, content)
-        VALUES ($1, $2, $3)
+        INSERT INTO knowledge_entries (knowledge_base_id, title, content, source_document_id)
+        VALUES ($1, $2, $3, $4)
         RETURNING id, knowledge_base_id, title, content, token_count,
-                  (embedding IS NOT NULL) AS has_embedding, created_at, updated_at
+                  (embedding IS NOT NULL) AS has_embedding, source_document_id, created_at, updated_at
         "#,
     )
     .bind(knowledge_base_id)
     .bind(title)
     .bind(content)
+    .bind(source_document_id)
     .fetch_one(pool)
     .await
 }
@@ -39,7 +42,7 @@ pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Option<KnowledgeEntryR
     sqlx::query_as::<_, KnowledgeEntryRow>(
         r#"
         SELECT id, knowledge_base_id, title, content, token_count,
-               (embedding IS NOT NULL) AS has_embedding, created_at, updated_at
+               (embedding IS NOT NULL) AS has_embedding, source_document_id, created_at, updated_at
         FROM knowledge_entries WHERE id = $1
         "#,
     )
@@ -52,7 +55,7 @@ pub async fn list_for_kb(pool: &PgPool, knowledge_base_id: Uuid) -> Result<Vec<K
     sqlx::query_as::<_, KnowledgeEntryRow>(
         r#"
         SELECT id, knowledge_base_id, title, content, token_count,
-               (embedding IS NOT NULL) AS has_embedding, created_at, updated_at
+               (embedding IS NOT NULL) AS has_embedding, source_document_id, created_at, updated_at
         FROM knowledge_entries WHERE knowledge_base_id = $1
         ORDER BY created_at DESC
         "#,
@@ -125,7 +128,7 @@ pub async fn list_without_embedding(pool: &PgPool, knowledge_base_id: Uuid) -> R
     sqlx::query_as::<_, KnowledgeEntryRow>(
         r#"
         SELECT id, knowledge_base_id, title, content, token_count,
-               (embedding IS NOT NULL) AS has_embedding, created_at, updated_at
+               (embedding IS NOT NULL) AS has_embedding, source_document_id, created_at, updated_at
         FROM knowledge_entries
         WHERE knowledge_base_id = $1 AND embedding IS NULL
         ORDER BY created_at
@@ -143,6 +146,7 @@ pub struct SearchResult {
     pub title: String,
     pub content: String,
     pub token_count: Option<i32>,
+    pub source_document_id: Option<Uuid>,
     pub score: f64,
 }
 
@@ -159,7 +163,7 @@ pub async fn search(
     );
     sqlx::query_as::<_, SearchResult>(
         r#"
-        SELECT id, knowledge_base_id, title, content, token_count,
+        SELECT id, knowledge_base_id, title, content, token_count, source_document_id,
                1 - (embedding <=> $2::vector) AS score
         FROM knowledge_entries
         WHERE knowledge_base_id = ANY($1) AND embedding IS NOT NULL

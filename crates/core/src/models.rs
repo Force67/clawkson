@@ -103,14 +103,28 @@ pub struct KnowledgeEntry {
     pub content: String,
     pub token_count: Option<i32>,
     pub has_embedding: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_document_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeDocument {
+    pub id: Uuid,
+    pub knowledge_base_id: Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeSearchResult {
     pub entry: KnowledgeEntry,
     pub score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_url: Option<String>,
 }
 
 // ── Connector ──────────────────────────────────────────────────────

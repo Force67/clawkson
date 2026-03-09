@@ -1,10 +1,12 @@
 use axum::{
+    body::Body,
     extract::{Multipart, Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::Response,
     routing::get,
     Json, Router,
 };
-use clawkson_core::{KnowledgeBase, KnowledgeEntry, KnowledgeSearchResult, SharePermission};
+use clawkson_core::{KnowledgeBase, KnowledgeDocument, KnowledgeEntry, KnowledgeSearchResult, SharePermission};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -20,6 +22,10 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/entries", get(list_entries).post(create_entry))
         .route("/{id}/upload", axum::routing::post(upload_files))
         .route("/{kb_id}/entries/{entry_id}", axum::routing::patch(patch_entry).delete(delete_entry))
+        // Documents (original files in S3)
+        .route("/{kb_id}/documents", get(list_documents))
+        .route("/{kb_id}/documents/{doc_id}/download", get(download_document))
+        .route("/{kb_id}/documents/{doc_id}", axum::routing::delete(delete_document))
         // Embedding generation
         .route("/{id}/embed", axum::routing::post(embed_entries))
         // Search
@@ -123,8 +129,32 @@ fn row_to_entry(row: &clawkson_db::knowledge_entry::KnowledgeEntryRow) -> Knowle
         content: row.content.clone(),
         token_count: row.token_count,
         has_embedding: row.has_embedding,
+        source_document_id: row.source_document_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
+    }
+}
+
+fn row_to_document(row: &clawkson_db::knowledge_document::KnowledgeDocumentRow) -> KnowledgeDocument {
+    KnowledgeDocument {
+        id: row.id,
+        knowledge_base_id: row.knowledge_base_id,
+        filename: row.filename.clone(),
+        content_type: row.content_type.clone(),
+        size_bytes: row.size_bytes,
+        created_at: row.created_at,
+    }
+}
+
+fn guess_content_type(filename: &str) -> &'static str {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        _ => "application/octet-stream",
     }
 }
 
@@ -255,6 +285,24 @@ async fn delete_base(
     if check_owner(pool, id, auth.id(), auth.is_admin()).await.is_err() {
         return StatusCode::FORBIDDEN;
     }
+
+    // Best-effort cleanup of S3 objects before DB cascade delete
+    if let Some(ref s3) = state.s3 {
+        if let Ok(docs) = clawkson_db::knowledge_document::list_for_kb(pool, id).await {
+            for doc in &docs {
+                if let Err(e) = s3.delete_object(&doc.s3_key).await {
+                    tracing::warn!(
+                        kb_id = %id,
+                        doc_id = %doc.id,
+                        s3_key = %doc.s3_key,
+                        error = %e,
+                        "Failed to delete S3 object during KB deletion"
+                    );
+                }
+            }
+        }
+    }
+
     match clawkson_db::knowledge_base::delete(pool, id).await {
         Ok(true) => StatusCode::NO_CONTENT,
         Ok(false) => StatusCode::NOT_FOUND,
@@ -306,7 +354,7 @@ async fn create_entry(
 
     tracing::info!(kb_id = %kb_id, title = %req.title, content_len = req.content.len(), "Creating knowledge entry");
 
-    let row = clawkson_db::knowledge_entry::create(pool, kb_id, &req.title, &req.content)
+    let row = clawkson_db::knowledge_entry::create(pool, kb_id, &req.title, &req.content, None)
         .await
         .map_err(|e| {
             tracing::error!(kb_id = %kb_id, title = %req.title, error = %e, "Failed to create knowledge entry");
@@ -510,6 +558,53 @@ async fn upload_files(
             "File data received, extracting text"
         );
 
+        // ── Store original document in S3 ─────────────────────────
+        let doc_id = Uuid::new_v4();
+        let content_type = guess_content_type(&filename);
+        let s3_key = format!("{kb_id}/{doc_id}/{filename}");
+        let size_bytes = bytes.len() as i64;
+
+        let mut source_document_id: Option<Uuid> = None;
+
+        if let Some(ref s3) = state.s3 {
+            match s3.put_object(&s3_key, bytes.to_vec(), content_type).await {
+                Ok(()) => {
+                    match clawkson_db::knowledge_document::create(
+                        pool, doc_id, kb_id, &filename, content_type, &s3_key, size_bytes,
+                    )
+                    .await
+                    {
+                        Ok(_doc_row) => {
+                            tracing::info!(
+                                kb_id = %kb_id,
+                                doc_id = %doc_id,
+                                filename = %filename,
+                                "Document stored in S3"
+                            );
+                            source_document_id = Some(doc_id);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                kb_id = %kb_id,
+                                doc_id = %doc_id,
+                                error = %e,
+                                "Failed to create document record, S3 object orphaned"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        kb_id = %kb_id,
+                        filename = %filename,
+                        error = %e,
+                        "S3 upload failed, proceeding without document storage"
+                    );
+                }
+            }
+        }
+
+        // ── Extract text and chunk ────────────────────────────────
         let text = match extract_text(&filename, &bytes) {
             Ok(t) => t,
             Err(e) => {
@@ -556,7 +651,7 @@ async fn upload_files(
                 format!("{base_title} ({}/{})", i + 1, total_chunks)
             };
 
-            match clawkson_db::knowledge_entry::create(pool, kb_id, &title, chunk).await {
+            match clawkson_db::knowledge_entry::create(pool, kb_id, &title, chunk, source_document_id).await {
                 Ok(row) => {
                     tracing::info!(
                         kb_id = %kb_id,
@@ -809,22 +904,116 @@ async fn search_entries(
 
     let out: Vec<KnowledgeSearchResult> = results
         .iter()
-        .map(|r| KnowledgeSearchResult {
-            entry: KnowledgeEntry {
-                id: r.id,
-                knowledge_base_id: r.knowledge_base_id,
-                title: r.title.clone(),
-                content: r.content.clone(),
-                token_count: r.token_count,
-                has_embedding: true,
-                created_at: chrono::Utc::now(), // not in search result
-                updated_at: chrono::Utc::now(),
-            },
-            score: r.score,
+        .map(|r| {
+            let document_url = r.source_document_id.map(|doc_id| {
+                format!("/api/knowledge/{}/documents/{doc_id}/download", r.knowledge_base_id)
+            });
+            KnowledgeSearchResult {
+                entry: KnowledgeEntry {
+                    id: r.id,
+                    knowledge_base_id: r.knowledge_base_id,
+                    title: r.title.clone(),
+                    content: r.content.clone(),
+                    token_count: r.token_count,
+                    has_embedding: true,
+                    source_document_id: r.source_document_id,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                },
+                score: r.score,
+                document_url,
+            }
         })
         .collect();
 
     Ok(Json(out))
+}
+
+// ── Documents (original files) ────────────────────────────────────
+
+async fn list_documents(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(kb_id): Path<Uuid>,
+) -> Result<Json<Vec<KnowledgeDocument>>, StatusCode> {
+    let pool = state.db.pool();
+    let has_access = check_access(pool, kb_id, auth.id(), auth.is_admin()).await?;
+    if !has_access {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let rows = clawkson_db::knowledge_document::list_for_kb(pool, kb_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows.iter().map(row_to_document).collect()))
+}
+
+async fn download_document(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((kb_id, doc_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, StatusCode> {
+    let pool = state.db.pool();
+    let has_access = check_access(pool, kb_id, auth.id(), auth.is_admin()).await?;
+    if !has_access {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let s3 = state.s3.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let doc = clawkson_db::knowledge_document::get_by_id(pool, doc_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if doc.knowledge_base_id != kb_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let (bytes, content_type) = s3
+        .get_object(&doc.s3_key)
+        .await
+        .map_err(|e| {
+            tracing::error!(doc_id = %doc_id, s3_key = %doc.s3_key, error = %e, "S3 download failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let disposition = format!("attachment; filename=\"{}\"", doc.filename);
+
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_DISPOSITION, disposition)
+        .body(Body::from(bytes))
+        .unwrap())
+}
+
+async fn delete_document(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((kb_id, doc_id)): Path<(Uuid, Uuid)>,
+) -> StatusCode {
+    let pool = state.db.pool();
+    if check_owner(pool, kb_id, auth.id(), auth.is_admin()).await.is_err() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    let doc = match clawkson_db::knowledge_document::get_by_id(pool, doc_id).await {
+        Ok(Some(d)) if d.knowledge_base_id == kb_id => d,
+        Ok(_) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    // Delete from S3 (best-effort)
+    if let Some(ref s3) = state.s3 {
+        if let Err(e) = s3.delete_object(&doc.s3_key).await {
+            tracing::warn!(doc_id = %doc_id, error = %e, "Failed to delete S3 object");
+        }
+    }
+
+    match clawkson_db::knowledge_document::delete(pool, doc_id).await {
+        Ok(true) => StatusCode::NO_CONTENT,
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 // ── Sharing ───────────────────────────────────────────────────────

@@ -20,5 +20,19 @@ services:
       retries: 12
       start_period: 20s
 
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:${CLAWKSON_S3_PORT:-9100}:9000"
+      - "127.0.0.1:${CLAWKSON_S3_CONSOLE_PORT:-9101}:9001"
+    environment:
+      MINIO_ROOT_USER: ${CLAWKSON_S3_ACCESS_KEY:-clawkson}
+      MINIO_ROOT_PASSWORD: ${CLAWKSON_S3_SECRET_KEY:-clawkson-secret-key}
+    volumes:
+      - minio-data:/data
+
 volumes:
   vectorchord-data:
+  minio-data:
