@@ -4,8 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::Utc;
-use clawkson_core::{Agent, AgentStatus};
+use clawkson_core::{Agent, AgentContainerConfig, AgentStatus};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -26,6 +25,8 @@ pub struct CreateAgentRequest {
     pub system_prompt: Option<String>,
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
+    pub container_enabled: Option<bool>,
+    pub container_config: Option<AgentContainerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,11 +38,47 @@ pub struct PatchAgentRequest {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
     pub status: Option<AgentStatus>,
+    pub container_enabled: Option<bool>,
+    pub container_config: Option<AgentContainerConfig>,
 }
 
-async fn list_agents(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<Agent>> {
-    let inner = state.inner.read().await;
-    Json(inner.agents.clone())
+/// Map DB row to API type.
+fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
+    Agent {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        status: match row.status {
+            clawkson_db::agent::AgentStatus::Online => AgentStatus::Online,
+            clawkson_db::agent::AgentStatus::Offline => AgentStatus::Offline,
+            clawkson_db::agent::AgentStatus::Busy => AgentStatus::Busy,
+            clawkson_db::agent::AgentStatus::Error => AgentStatus::Error,
+        },
+        llm_connector_id: row.llm_connector_id,
+        system_prompt: row.system_prompt,
+        temperature: row.temperature,
+        max_tokens: row.max_tokens.map(|v| v as u32),
+        container_enabled: row.container_enabled,
+        container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
+}
+
+fn status_to_db(s: &AgentStatus) -> clawkson_db::agent::AgentStatus {
+    match s {
+        AgentStatus::Online => clawkson_db::agent::AgentStatus::Online,
+        AgentStatus::Offline => clawkson_db::agent::AgentStatus::Offline,
+        AgentStatus::Busy => clawkson_db::agent::AgentStatus::Busy,
+        AgentStatus::Error => clawkson_db::agent::AgentStatus::Error,
+    }
+}
+
+async fn list_agents(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
+    let rows = clawkson_db::agent::list_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(rows.into_iter().map(row_to_agent).collect()))
 }
 
 async fn get_agent(
@@ -49,14 +86,11 @@ async fn get_agent(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Agent>, StatusCode> {
-    let inner = state.inner.read().await;
-    inner
-        .agents
-        .iter()
-        .find(|a| a.id == id)
-        .cloned()
-        .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+    let row = clawkson_db::agent::get_by_id(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(row_to_agent(row)))
 }
 
 async fn create_agent(
@@ -68,23 +102,26 @@ async fn create_agent(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let now = Utc::now();
-    let agent = Agent {
-        id: Uuid::new_v4(),
-        name: req.name,
-        description: req.description,
-        status: AgentStatus::Offline,
-        llm_connector_id: req.llm_connector_id,
-        system_prompt: req.system_prompt,
-        temperature: req.temperature,
-        max_tokens: req.max_tokens,
-        created_at: now,
-        updated_at: now,
-    };
+    let container_config_json = req
+        .container_config
+        .as_ref()
+        .and_then(|c| serde_json::to_value(c).ok());
 
-    let mut inner = state.inner.write().await;
-    inner.agents.push(agent.clone());
-    Ok(Json(agent))
+    let row = clawkson_db::agent::create(
+        &state.db,
+        &req.name,
+        &req.description,
+        req.llm_connector_id,
+        req.system_prompt.as_deref(),
+        req.temperature,
+        req.max_tokens.map(|v| v as i32),
+        req.container_enabled.unwrap_or(false),
+        container_config_json,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(row_to_agent(row)))
 }
 
 async fn patch_agent(
@@ -97,25 +134,24 @@ async fn patch_agent(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let mut inner = state.inner.write().await;
-    let agent = inner
-        .agents
-        .iter_mut()
-        .find(|a| a.id == id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let row = clawkson_db::agent::update(
+        &state.db,
+        id,
+        req.name.as_deref(),
+        req.description.as_deref(),
+        req.status.as_ref().map(status_to_db),
+        if req.llm_connector_id.is_some() { Some(req.llm_connector_id) } else { None },
+        req.system_prompt.as_ref().map(|s| Some(s.as_str())),
+        req.temperature.map(Some),
+        req.max_tokens.map(|v| Some(v as i32)),
+        req.container_enabled,
+        req.container_config.as_ref().map(|c| Some(serde_json::to_value(c).unwrap_or_default())),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
-    if let Some(name) = req.name { agent.name = name; }
-    if let Some(desc) = req.description { agent.description = desc; }
-    if let Some(status) = req.status { agent.status = status; }
-    if req.llm_connector_id.is_some() {
-        agent.llm_connector_id = req.llm_connector_id;
-    }
-    if let Some(sp) = req.system_prompt { agent.system_prompt = Some(sp); }
-    if let Some(t) = req.temperature { agent.temperature = Some(t); }
-    if let Some(m) = req.max_tokens { agent.max_tokens = Some(m); }
-    agent.updated_at = Utc::now();
-
-    Ok(Json(agent.clone()))
+    Ok(Json(row_to_agent(row)))
 }
 
 async fn delete_agent(
@@ -127,12 +163,9 @@ async fn delete_agent(
         return StatusCode::FORBIDDEN;
     }
 
-    let mut inner = state.inner.write().await;
-    let before = inner.agents.len();
-    inner.agents.retain(|a| a.id != id);
-    if inner.agents.len() < before {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::NOT_FOUND
+    match clawkson_db::agent::delete(&state.db, id).await {
+        Ok(true) => StatusCode::NO_CONTENT,
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }

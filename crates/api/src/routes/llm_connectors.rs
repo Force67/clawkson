@@ -41,18 +41,47 @@ pub struct PatchLlmConnectorRequest {
     pub azure_api_version: Option<String>,
 }
 
-async fn list(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<LlmConnector>> {
-    let inner = state.inner.read().await;
-    let connectors: Vec<LlmConnector> = inner
-        .llm_connectors
-        .iter()
-        .cloned()
+fn row_to_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> LlmConnector {
+    LlmConnector {
+        id: row.id,
+        name: row.name,
+        provider_type: match row.provider_type {
+            clawkson_db::llm_connector::LlmProviderType::Azure => LlmProviderType::Azure,
+            clawkson_db::llm_connector::LlmProviderType::Openrouter => LlmProviderType::OpenRouter,
+            clawkson_db::llm_connector::LlmProviderType::Openai => LlmProviderType::OpenAi,
+            clawkson_db::llm_connector::LlmProviderType::Custom => LlmProviderType::Custom,
+        },
+        api_key: row.api_key,
+        api_base_url: row.api_base_url,
+        model: row.model,
+        azure_deployment: row.azure_deployment,
+        azure_api_version: row.azure_api_version,
+        created_at: row.created_at,
+    }
+}
+
+fn provider_to_db(p: &LlmProviderType) -> clawkson_db::llm_connector::LlmProviderType {
+    match p {
+        LlmProviderType::Azure => clawkson_db::llm_connector::LlmProviderType::Azure,
+        LlmProviderType::OpenRouter => clawkson_db::llm_connector::LlmProviderType::Openrouter,
+        LlmProviderType::OpenAi => clawkson_db::llm_connector::LlmProviderType::Openai,
+        LlmProviderType::Custom => clawkson_db::llm_connector::LlmProviderType::Custom,
+    }
+}
+
+async fn list(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<LlmConnector>>, StatusCode> {
+    let rows = clawkson_db::llm_connector::list_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let connectors: Vec<LlmConnector> = rows
+        .into_iter()
+        .map(row_to_connector)
         .map(|mut c| {
             c.api_key = mask_key(&c.api_key);
             c
         })
         .collect();
-    Json(connectors)
+    Ok(Json(connectors))
 }
 
 async fn get_one(
@@ -60,13 +89,11 @@ async fn get_one(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<LlmConnector>, StatusCode> {
-    let inner = state.inner.read().await;
-    let mut c = inner
-        .llm_connectors
-        .iter()
-        .find(|c| c.id == id)
-        .cloned()
+    let row = clawkson_db::llm_connector::get_by_id(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+    let mut c = row_to_connector(row);
     c.api_key = mask_key(&c.api_key);
     Ok(Json(c))
 }
@@ -88,27 +115,31 @@ async fn create(
         }
     });
 
-    let connector = LlmConnector {
-        id: Uuid::new_v4(),
-        name: req.name,
-        provider_type: req.provider_type,
-        api_key: req.api_key,
-        api_base_url: base_url,
-        model: req.model,
-        azure_deployment: req.azure_deployment,
-        azure_api_version: req.azure_api_version,
-        created_at: Utc::now(),
-    };
+    // Auto-set as default if it's the first connector
+    let existing = clawkson_db::llm_connector::list_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut inner = state.inner.write().await;
-    if inner.llm_connectors.is_empty() {
-        inner.settings.default_llm_connector_id = Some(connector.id);
+    let row = clawkson_db::llm_connector::create(
+        &state.db,
+        &req.name,
+        provider_to_db(&req.provider_type),
+        &req.api_key,
+        &base_url,
+        &req.model,
+        req.azure_deployment.as_deref(),
+        req.azure_api_version.as_deref(),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing.is_empty() {
+        let _ = clawkson_db::settings::update(&state.db, Some(Some(row.id)), None).await;
     }
-    inner.llm_connectors.push(connector.clone());
 
-    let mut resp = connector;
-    resp.api_key = mask_key(&resp.api_key);
-    Ok(Json(resp))
+    let mut c = row_to_connector(row);
+    c.api_key = mask_key(&c.api_key);
+    Ok(Json(c))
 }
 
 async fn patch(
@@ -121,24 +152,24 @@ async fn patch(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let mut inner = state.inner.write().await;
-    let connector = inner
-        .llm_connectors
-        .iter_mut()
-        .find(|c| c.id == id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let row = clawkson_db::llm_connector::update(
+        &state.db,
+        id,
+        req.name.as_deref(),
+        req.provider_type.as_ref().map(provider_to_db),
+        req.api_key.as_deref(),
+        req.api_base_url.as_deref(),
+        req.model.as_deref(),
+        req.azure_deployment.as_ref().map(|s| Some(s.as_str())),
+        req.azure_api_version.as_ref().map(|s| Some(s.as_str())),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
-    if let Some(name) = req.name { connector.name = name; }
-    if let Some(provider_type) = req.provider_type { connector.provider_type = provider_type; }
-    if let Some(key) = req.api_key { connector.api_key = key; }
-    if let Some(url) = req.api_base_url { connector.api_base_url = url; }
-    if let Some(model) = req.model { connector.model = model; }
-    if let Some(dep) = req.azure_deployment { connector.azure_deployment = Some(dep); }
-    if let Some(ver) = req.azure_api_version { connector.azure_api_version = Some(ver); }
-
-    let mut resp = connector.clone();
-    resp.api_key = mask_key(&resp.api_key);
-    Ok(Json(resp))
+    let mut c = row_to_connector(row);
+    c.api_key = mask_key(&c.api_key);
+    Ok(Json(c))
 }
 
 async fn delete(
@@ -150,17 +181,22 @@ async fn delete(
         return StatusCode::FORBIDDEN;
     }
 
-    let mut inner = state.inner.write().await;
-    let before = inner.llm_connectors.len();
-    inner.llm_connectors.retain(|c| c.id != id);
-    if inner.llm_connectors.len() < before {
-        if inner.settings.default_llm_connector_id == Some(id) {
-            inner.settings.default_llm_connector_id =
-                inner.llm_connectors.first().map(|c| c.id);
+    match clawkson_db::llm_connector::delete(&state.db, id).await {
+        Ok(true) => {
+            // If this was the default, pick the next available
+            if let Ok(settings) = clawkson_db::settings::get(&state.db).await {
+                if settings.default_llm_connector_id == Some(id) {
+                    let next = clawkson_db::llm_connector::list_all(&state.db)
+                        .await
+                        .ok()
+                        .and_then(|v| v.first().map(|c| c.id));
+                    let _ = clawkson_db::settings::update(&state.db, Some(next), None).await;
+                }
+            }
+            StatusCode::NO_CONTENT
         }
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::NOT_FOUND
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 

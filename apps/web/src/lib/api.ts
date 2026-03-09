@@ -24,6 +24,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type AgentStatus = 'online' | 'offline' | 'busy' | 'error'
 
+export interface AgentContainerConfig {
+  cpu_limit: number | null
+  memory_limit_mb: number | null
+  network_enabled: boolean
+}
+
+export interface ContainerStatus {
+  agent_id: string
+  state: string
+  image: string
+  workspace_path: string
+}
+
+export interface ExecResult {
+  stdout: string
+  stderr: string
+  exit_code: number
+  timed_out: boolean
+}
+
 export interface Agent {
   id: string
   name: string
@@ -33,6 +53,8 @@ export interface Agent {
   system_prompt: string | null
   temperature: number | null
   max_tokens: number | null
+  container_enabled: boolean
+  container_config: AgentContainerConfig | null
   created_at: string
   updated_at: string
 }
@@ -189,6 +211,8 @@ export interface CreateAgentRequest {
   system_prompt?: string
   temperature?: number
   max_tokens?: number
+  container_enabled?: boolean
+  container_config?: AgentContainerConfig
 }
 
 export interface PatchAgentRequest {
@@ -199,6 +223,8 @@ export interface PatchAgentRequest {
   temperature?: number
   max_tokens?: number
   status?: AgentStatus
+  container_enabled?: boolean
+  container_config?: AgentContainerConfig
 }
 
 export interface CreateConversationRequest {
@@ -315,6 +341,24 @@ export const api = {
     get: () => request<Settings>('/api/settings'),
     patch: (body: PatchSettingsRequest) =>
       request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
+  },
+
+  containers: {
+    status: (agentId: string) =>
+      request<ContainerStatus>(`/api/agents/${agentId}/container`),
+    start: (agentId: string) =>
+      request<ContainerStatus>(`/api/agents/${agentId}/container/start`, { method: 'POST' }),
+    stop: (agentId: string) =>
+      request<void>(`/api/agents/${agentId}/container/stop`, { method: 'POST' }),
+    remove: (agentId: string) =>
+      request<void>(`/api/agents/${agentId}/container`, { method: 'DELETE' }),
+    logs: (agentId: string, tail?: number) =>
+      request<{ logs: string }>(`/api/agents/${agentId}/container/logs${tail ? `?tail=${tail}` : ''}`),
+    exec: (agentId: string, command: string, timeout?: number) =>
+      request<ExecResult>(`/api/agents/${agentId}/container/exec`, {
+        method: 'POST',
+        body: JSON.stringify({ command, timeout }),
+      }),
   },
 
   connectors: {

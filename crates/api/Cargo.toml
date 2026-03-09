@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 clawkson-core = { path = "../core" }
+clawkson-container = { path = "../container" }
 clawkson-db = { path = "../db" }
 axum.workspace = true
 serde.workspace = true
@@ -18,6 +19,7 @@ reqwest.workspace = true
 futures.workspace = true
 tokio-stream.workspace = true
 async-stream = "0.3"
+async-trait = "0.1"
 denkwerk = { path = "../../../denkwerk" }
 argon2.workspace = true
 rand.workspace = true

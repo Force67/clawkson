@@ -21,9 +21,14 @@ pub struct PatchSettingsRequest {
     pub theme: Option<String>,
 }
 
-async fn get_settings(_auth: AuthUser, State(state): State<AppState>) -> Json<Settings> {
-    let inner = state.inner.read().await;
-    Json(inner.settings.clone())
+async fn get_settings(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Settings>, StatusCode> {
+    let row = clawkson_db::settings::get(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(Settings {
+        default_llm_connector_id: row.default_llm_connector_id,
+        theme: row.theme,
+    }))
 }
 
 async fn patch_settings(
@@ -35,12 +40,16 @@ async fn patch_settings(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let mut inner = state.inner.write().await;
-    if let Some(id) = req.default_llm_connector_id {
-        inner.settings.default_llm_connector_id = Some(id);
-    }
-    if let Some(theme) = req.theme {
-        inner.settings.theme = theme;
-    }
-    Ok(Json(inner.settings.clone()))
+    let row = clawkson_db::settings::update(
+        &state.db,
+        req.default_llm_connector_id.map(Some),
+        req.theme.as_deref(),
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(Settings {
+        default_llm_connector_id: row.default_llm_connector_id,
+        theme: row.theme,
+    }))
 }

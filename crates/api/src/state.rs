@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use clawkson_container::ContainerManager;
 use clawkson_core::*;
 use clawkson_db::Db;
 
@@ -9,35 +10,25 @@ use clawkson_db::Db;
 pub struct AppState {
     pub db: Db,
     pub inner: Arc<RwLock<AppStateInner>>,
+    /// Optional container manager — None if Docker is unavailable.
+    pub container_manager: Option<Arc<ContainerManager>>,
 }
 
 pub struct AppStateInner {
-    pub agents: Vec<Agent>,
-    pub conversations: Vec<Conversation>,
-    pub messages: Vec<Message>,
-    // Knowledge bases are now DB-backed, not in-memory
+    // Agents, conversations, messages, LLM connectors, settings are now DB-backed.
+    // Only non-persistent entities remain in-memory.
     pub connectors: Vec<Connector>,
     pub tools: Vec<Tool>,
-    pub llm_connectors: Vec<LlmConnector>,
-    pub settings: Settings,
 }
 
 impl AppState {
-    pub fn new(db: Db) -> Self {
+    pub fn new(db: Db, container_manager: Option<Arc<ContainerManager>>) -> Self {
         Self {
             db,
+            container_manager,
             inner: Arc::new(RwLock::new(AppStateInner {
-                agents: Vec::new(),
-                conversations: Vec::new(),
-                messages: Vec::new(),
-                // knowledge bases are DB-backed
                 connectors: Vec::new(),
                 tools: Vec::new(),
-                llm_connectors: Vec::new(),
-                settings: Settings {
-                    default_llm_connector_id: None,
-                    theme: "dark".to_string(),
-                },
             })),
         }
     }

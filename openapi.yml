@@ -243,6 +243,104 @@ paths:
               schema:
                 type: string
 
+  # ── Containers ──────────────────────────────────────────────
+
+  /api/agents/{id}/container:
+    get:
+      summary: Get container status for an agent
+      operationId: getContainerStatus
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Container status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerStatus"
+        "404":
+          description: No container for this agent
+    delete:
+      summary: Remove container and workspace
+      operationId: removeContainer
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Removed
+        "503":
+          description: Docker not available
+
+  /api/agents/{id}/container/start:
+    post:
+      summary: Create and start a container for an agent
+      operationId: startContainer
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Container started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerStatus"
+        "400":
+          description: Container not enabled for agent
+
+  /api/agents/{id}/container/stop:
+    post:
+      summary: Stop a running container
+      operationId: stopContainer
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Stopped
+
+  /api/agents/{id}/container/logs:
+    get:
+      summary: Get container logs
+      operationId: getContainerLogs
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: tail, in: query, schema: { type: integer, default: 100 } }
+      responses:
+        "200":
+          description: Container logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: string
+
+  /api/agents/{id}/container/exec:
+    post:
+      summary: Execute a command in the container
+      operationId: execInContainer
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecRequest"
+      responses:
+        "200":
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecResult"
+
   # ── Connectors ──────────────────────────────────────────────
 
   /api/connectors:
@@ -570,7 +668,7 @@ components:
 
     Agent:
       type: object
-      required: [id, name, description, status, created_at, updated_at]
+      required: [id, name, description, status, container_enabled, created_at, updated_at]
       properties:
         id:
           type: string
@@ -597,6 +695,12 @@ components:
         max_tokens:
           type: integer
           nullable: true
+        container_enabled:
+          type: boolean
+          default: false
+        container_config:
+          $ref: "#/components/schemas/AgentContainerConfig"
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -607,6 +711,63 @@ components:
     AgentStatus:
       type: string
       enum: [online, offline, busy, error]
+
+    AgentContainerConfig:
+      type: object
+      properties:
+        cpu_limit:
+          type: number
+          format: double
+          nullable: true
+          description: CPU limit in cores (e.g. 1.0)
+        memory_limit_mb:
+          type: integer
+          nullable: true
+          description: Memory limit in megabytes
+        network_enabled:
+          type: boolean
+          default: false
+          description: Whether network access is enabled
+
+    ContainerStatus:
+      type: object
+      required: [agent_id, state, image, workspace_path]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [creating, running, stopped, removing]
+        image:
+          type: string
+        workspace_path:
+          type: string
+
+    ExecRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          description: Shell command to execute
+        timeout:
+          type: integer
+          description: Timeout in seconds (default 30, max 300)
+          nullable: true
+
+    ExecResult:
+      type: object
+      required: [stdout, stderr, exit_code, timed_out]
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exit_code:
+          type: integer
+        timed_out:
+          type: boolean
 
     CreateAgentRequest:
       type: object
@@ -628,6 +789,12 @@ components:
           nullable: true
         max_tokens:
           type: integer
+          nullable: true
+        container_enabled:
+          type: boolean
+          nullable: true
+        container_config:
+          $ref: "#/components/schemas/AgentContainerConfig"
           nullable: true
 
     PatchAgentRequest:
@@ -652,6 +819,12 @@ components:
           nullable: true
         status:
           $ref: "#/components/schemas/AgentStatus"
+        container_enabled:
+          type: boolean
+          nullable: true
+        container_config:
+          $ref: "#/components/schemas/AgentContainerConfig"
+          nullable: true
 
     # ── Conversation ───────────────────────────────────────────
 

@@ -7,7 +7,8 @@ use denkwerk::{
         openai::{OpenAI, OpenAIConfig},
         openrouter::{OpenRouter, OpenRouterConfig},
     },
-    ChatMessage, CompletionRequest, LLMProvider, MessageRole as DenkMessageRole, StreamEvent,
+    ChatMessage, CompletionRequest, FunctionRegistry, LLMProvider,
+    MessageRole as DenkMessageRole, StreamEvent,
 };
 use futures::StreamExt;
 
@@ -95,6 +96,75 @@ pub async fn complete(
     let request = build_request(connector, system_prompt, history, temperature, max_tokens);
     let response = provider.complete(request).await?;
 
+    Ok(response.message.content.unwrap_or_default())
+}
+
+/// Perform a completion with tool-calling loop.
+/// Runs up to `max_rounds` iterations: send to LLM, invoke tool calls, append results, repeat.
+pub async fn complete_with_tools(
+    connector: &LlmConnector,
+    system_prompt: Option<&str>,
+    history: &[(MessageRole, String)],
+    temperature: Option<f64>,
+    max_tokens: Option<u32>,
+    registry: &FunctionRegistry,
+    max_rounds: usize,
+) -> Result<String> {
+    let provider = build_provider(connector)?;
+
+    // Build initial messages
+    let mut messages = Vec::new();
+    if let Some(sp) = system_prompt {
+        if !sp.trim().is_empty() {
+            messages.push(ChatMessage::system(sp));
+        }
+    }
+    for (role, content) in history {
+        messages.push(ChatMessage::new(role_to_denkwerk(role), content.clone()));
+    }
+
+    for _round in 0..max_rounds {
+        let mut request = CompletionRequest::new(connector.model.clone(), messages.clone());
+        request = request.with_function_registry(registry);
+        if let Some(temp) = temperature {
+            request = request.with_temperature(temp as f32);
+        }
+        if let Some(mt) = max_tokens {
+            request = request.with_max_tokens(mt);
+        }
+
+        let response = provider.complete(request).await?;
+
+        if response.message.tool_calls.is_empty() {
+            // No tool calls — return the text response
+            return Ok(response.message.content.unwrap_or_default());
+        }
+
+        // Add the assistant message with tool calls
+        let assistant_msg = ChatMessage::assistant(
+            response.message.content.clone().unwrap_or_default(),
+        )
+        .with_tool_calls(response.message.tool_calls.clone());
+        messages.push(assistant_msg);
+
+        // Invoke each tool call and add results
+        for call in &response.message.tool_calls {
+            let call_id = call
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()));
+            let result = registry.invoke(&call.function).await;
+            let result_str = match result {
+                Ok(value) => serde_json::to_string(&value).unwrap_or_default(),
+                Err(err) => serde_json::json!({ "error": err.to_string() }).to_string(),
+            };
+            messages.push(ChatMessage::tool(&call_id, result_str));
+        }
+    }
+
+    // If we exhausted rounds, do one final completion without tools
+    let request = CompletionRequest::new(connector.model.clone(), messages);
+    let response = provider.complete(request).await?;
     Ok(response.message.content.unwrap_or_default())
 }
 

@@ -41,8 +41,31 @@ async fn main() -> Result<()> {
         "database ready",
     );
 
+    // ── Container manager ────────────────────────────────────────
+    let workspace_root = std::env::var("CLAWKSON_WORKSPACE_ROOT")
+        .unwrap_or_else(|_| "/tmp/clawkson-workspaces".to_string());
+
+    let container_manager = match clawkson_container::ContainerManager::new(
+        std::path::PathBuf::from(&workspace_root),
+    )
+    .await
+    {
+        Ok(cm) => {
+            // Clean up orphans from previous runs
+            if let Err(e) = cm.cleanup_orphans().await {
+                tracing::warn!("failed to clean up orphan containers: {e}");
+            }
+            tracing::info!(%workspace_root, "container manager ready");
+            Some(std::sync::Arc::new(cm))
+        }
+        Err(e) => {
+            tracing::warn!("Docker not available, containers disabled: {e}");
+            None
+        }
+    };
+
     // ── HTTP server ───────────────────────────────────────────────
-    let state = clawkson_api::state::AppState::new(db);
+    let state = clawkson_api::state::AppState::new(db, container_manager.clone());
 
     let frontend_origin = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| "http://localhost:5173".to_string());
@@ -63,7 +86,18 @@ async fn main() -> Result<()> {
     tracing::info!("Clawkson listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+
+    // Graceful shutdown: stop containers on SIGTERM/SIGINT
+    let cm_shutdown = container_manager.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("shutdown signal received");
+            if let Some(cm) = cm_shutdown {
+                cm.shutdown().await;
+            }
+        })
+        .await?;
 
     Ok(())
 }

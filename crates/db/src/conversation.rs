@@ -8,6 +8,7 @@ use crate::{Db, DbError};
 pub struct Conversation {
     pub id: Uuid,
     pub agent_id: Option<Uuid>,
+    pub owner_id: Option<Uuid>,
     pub title: String,
     pub summary: Option<String>,
     pub pinned: bool,
@@ -16,18 +17,20 @@ pub struct Conversation {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Create a new conversation, optionally linked to an agent.
+/// Create a new conversation, optionally linked to an agent and owner.
 pub async fn create(
     db: &Db,
     agent_id: Option<Uuid>,
+    owner_id: Option<Uuid>,
     title: &str,
 ) -> Result<Conversation, DbError> {
     let row = sqlx::query_as::<_, Conversation>(
-        "INSERT INTO conversations (agent_id, title)
-         VALUES ($1, $2)
+        "INSERT INTO conversations (agent_id, owner_id, title)
+         VALUES ($1, $2, $3)
          RETURNING *",
     )
     .bind(agent_id)
+    .bind(owner_id)
     .bind(title)
     .fetch_one(db.pool())
     .await?;
@@ -45,6 +48,39 @@ pub async fn get_by_id(db: &Db, id: Uuid) -> Result<Option<Conversation>, DbErro
     .await?;
 
     Ok(row)
+}
+
+/// List all non-archived conversations (admin).
+pub async fn list_all(db: &Db) -> Result<Vec<Conversation>, DbError> {
+    let rows = sqlx::query_as::<_, Conversation>(
+        "SELECT * FROM conversations
+         WHERE archived = FALSE
+         ORDER BY updated_at DESC",
+    )
+    .fetch_all(db.pool())
+    .await?;
+
+    Ok(rows)
+}
+
+/// List conversations owned by a user or shared with them.
+pub async fn list_for_user(
+    db: &Db,
+    user_id: Uuid,
+) -> Result<Vec<Conversation>, DbError> {
+    let rows = sqlx::query_as::<_, Conversation>(
+        "SELECT * FROM conversations
+         WHERE archived = FALSE
+           AND (owner_id = $1 OR id IN (
+               SELECT conversation_id FROM conversation_shares WHERE shared_with = $1
+           ))
+         ORDER BY updated_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(db.pool())
+    .await?;
+
+    Ok(rows)
 }
 
 /// List recent non-archived conversations, newest first.

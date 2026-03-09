@@ -18,8 +18,26 @@ pub struct Agent {
     pub temperature: Option<f64>,
     /// Maximum tokens in the response. None uses the provider default.
     pub max_tokens: Option<u32>,
+    /// Whether this agent has sandbox (container) support enabled.
+    #[serde(default)]
+    pub container_enabled: bool,
+    /// Optional container resource configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_config: Option<AgentContainerConfig>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Per-agent container resource limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentContainerConfig {
+    /// CPU limit in cores (e.g. 1.0).
+    pub cpu_limit: Option<f64>,
+    /// Memory limit in megabytes (e.g. 512).
+    pub memory_limit_mb: Option<u64>,
+    /// Whether networking is enabled (default: false).
+    #[serde(default)]
+    pub network_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

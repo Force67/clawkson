@@ -214,6 +214,12 @@
   opacity: 0.5;
 }
 
+.configTagActive {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.25);
+  color: var(--success);
+}
+
 /* ── Card actions ────────────────────────────────────────────── */
 
 .agentCardActions {
@@ -280,6 +286,37 @@
   background: var(--accent-muted);
   color: var(--accent-text);
   border-color: rgba(124, 106, 239, 0.25);
+}
+
+.containerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.containerBtn:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.containerBtnActive {
+  color: var(--success);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.containerBtnActive:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+  border-color: rgba(239, 68, 68, 0.15);
 }
 
 .deleteAgentBtn {
@@ -595,6 +632,23 @@
   right: 10px;
   color: var(--text-tertiary);
   pointer-events: none;
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
 }
 
 .errorMsg {

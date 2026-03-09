@@ -16,13 +16,16 @@ import {
   Thermometer,
   Hash,
   Zap,
+  Container,
+  Play,
+  Square,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
-import { api, type Agent, type Conversation, type LlmConnector, type AgentStatus } from '../lib/api'
+import { api, type Agent, type Conversation, type LlmConnector, type AgentStatus, type ContainerStatus } from '../lib/api'
 import styles from './Dashboard.module.css'
 
 // ── Agent Config Panel ────────────────────────────────────────────
@@ -45,6 +48,14 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
     agent.max_tokens != null ? String(agent.max_tokens) : ''
   )
   const [connectorId, setConnectorId] = useState(agent.llm_connector_id ?? '')
+  const [containerEnabled, setContainerEnabled] = useState(agent.container_enabled)
+  const [cpuLimit, setCpuLimit] = useState(
+    agent.container_config?.cpu_limit != null ? String(agent.container_config.cpu_limit) : ''
+  )
+  const [memoryLimit, setMemoryLimit] = useState(
+    agent.container_config?.memory_limit_mb != null ? String(agent.container_config.memory_limit_mb) : ''
+  )
+  const [networkEnabled, setNetworkEnabled] = useState(agent.container_config?.network_enabled ?? false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -61,6 +72,12 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
         temperature: temperature ? parseFloat(temperature) : undefined,
         max_tokens: maxTokens ? parseInt(maxTokens) : undefined,
         llm_connector_id: connectorId || undefined,
+        container_enabled: containerEnabled,
+        container_config: containerEnabled ? {
+          cpu_limit: cpuLimit ? parseFloat(cpuLimit) : null,
+          memory_limit_mb: memoryLimit ? parseInt(memoryLimit) : null,
+          network_enabled: networkEnabled,
+        } : undefined,
       })
       onSave(updated)
     } catch (err) {
@@ -175,6 +192,75 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
             </div>
           </div>
 
+          <div className={styles.fieldSection}>
+            <h4 className={styles.fieldSectionTitle}>Sandbox</h4>
+            <div className={styles.formGroup}>
+              <label className={styles.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={containerEnabled}
+                  onChange={e => setContainerEnabled(e.target.checked)}
+                  className={styles.checkbox}
+                />
+                <Container size={11} /> Enable code execution sandbox
+              </label>
+              <p className={styles.fieldHint}>
+                Gives the agent a Docker container for running Python and Bash code.
+              </p>
+            </div>
+
+            {containerEnabled && (
+              <>
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>
+                      <Cpu size={11} /> CPU Limit (cores)
+                    </label>
+                    <input
+                      className={styles.input}
+                      value={cpuLimit}
+                      onChange={e => setCpuLimit(e.target.value)}
+                      placeholder="1.0"
+                      type="number"
+                      min="0.1"
+                      max="4"
+                      step="0.1"
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>
+                      <Hash size={11} /> Memory (MB)
+                    </label>
+                    <input
+                      className={styles.input}
+                      value={memoryLimit}
+                      onChange={e => setMemoryLimit(e.target.value)}
+                      placeholder="512"
+                      type="number"
+                      min="64"
+                      max="4096"
+                      step="64"
+                    />
+                  </div>
+                </div>
+                <div className={styles.formGroup}>
+                  <label className={styles.toggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={networkEnabled}
+                      onChange={e => setNetworkEnabled(e.target.checked)}
+                      className={styles.checkbox}
+                    />
+                    Enable network access
+                  </label>
+                  <p className={styles.fieldHint}>
+                    Disabled by default for security. Enable if the agent needs internet access.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
           {error && <p className={styles.errorMsg}>{error}</p>}
 
           <div className={styles.panelActions}>
@@ -247,12 +333,16 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
 interface AgentCardProps {
   agent: Agent
   connector?: LlmConnector
+  containerStatus?: ContainerStatus
   onConfigure: () => void
   onDelete: () => void
   onStatusChange: (status: AgentStatus) => void
+  onContainerToggle: () => void
 }
 
-function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
+function AgentCard({ agent, connector, containerStatus, onConfigure, onDelete, onStatusChange, onContainerToggle }: AgentCardProps) {
+  const containerRunning = containerStatus?.state === 'running'
+
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
@@ -289,6 +379,11 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
             <Hash size={11} /> {agent.max_tokens}
           </span>
         )}
+        {agent.container_enabled && (
+          <span className={`${styles.configTag} ${containerRunning ? styles.configTagActive : ''}`}>
+            <Container size={11} /> {containerRunning ? 'Container running' : 'Sandbox'}
+          </span>
+        )}
       </div>
 
       <div className={styles.agentCardActions}>
@@ -304,6 +399,15 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
           ))}
         </div>
         <div className={styles.agentCardBtns}>
+          {agent.container_enabled && (
+            <button
+              className={`${styles.containerBtn} ${containerRunning ? styles.containerBtnActive : ''}`}
+              onClick={onContainerToggle}
+              title={containerRunning ? 'Stop container' : 'Start container'}
+            >
+              {containerRunning ? <Square size={12} /> : <Play size={12} />}
+            </button>
+          )}
           <button className={styles.configureBtn} onClick={onConfigure} title="Configure">
             <Settings2 size={14} /> Configure
           </button>
@@ -325,7 +429,22 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
+  const [containerStatuses, setContainerStatuses] = useState<Record<string, ContainerStatus>>({})
   const navigate = useNavigate()
+
+  const fetchContainerStatuses = async (agentList: Agent[]) => {
+    const enabled = agentList.filter(a => a.container_enabled)
+    const statuses: Record<string, ContainerStatus> = {}
+    await Promise.allSettled(
+      enabled.map(async (a) => {
+        try {
+          const status = await api.containers.status(a.id)
+          statuses[a.id] = status
+        } catch { /* no container running */ }
+      })
+    )
+    setContainerStatuses(statuses)
+  }
 
   useEffect(() => {
     Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list()])
@@ -333,6 +452,7 @@ export function DashboardPage() {
         setAgents(agts)
         setConversations(convos)
         setConnectors(conns)
+        fetchContainerStatuses(agts)
       })
       .finally(() => setLoading(false))
   }, [])
@@ -358,6 +478,25 @@ export function DashboardPage() {
   const handleStatusChange = async (id: string, status: AgentStatus) => {
     const updated = await api.agents.patch(id, { status })
     setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
+  }
+
+  const handleContainerToggle = async (agentId: string) => {
+    const current = containerStatuses[agentId]
+    try {
+      if (current?.state === 'running') {
+        await api.containers.stop(agentId)
+        setContainerStatuses(prev => {
+          const next = { ...prev }
+          delete next[agentId]
+          return next
+        })
+      } else {
+        const status = await api.containers.start(agentId)
+        setContainerStatuses(prev => ({ ...prev, [agentId]: status }))
+      }
+    } catch (err) {
+      console.error('Container toggle failed:', err)
+    }
   }
 
   const stats = [
@@ -440,9 +579,11 @@ export function DashboardPage() {
               key={agent.id}
               agent={agent}
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
+              containerStatus={containerStatuses[agent.id]}
               onConfigure={() => setConfiguring(agent)}
               onDelete={() => handleDelete(agent.id)}
               onStatusChange={status => handleStatusChange(agent.id, status)}
+              onContainerToggle={() => handleContainerToggle(agent.id)}
             />
           ))}
         </div>

@@ -2,6 +2,7 @@ mod bootstrap;
 mod config;
 mod migrate;
 
+pub mod agent;
 pub mod conversation;
 pub mod message;
 pub mod user;
@@ -9,6 +10,8 @@ pub mod session;
 pub mod share;
 pub mod knowledge_base;
 pub mod knowledge_entry;
+pub mod llm_connector;
+pub mod settings;
 
 pub use bootstrap::{
     bootstrap_database,

@@ -154,11 +154,9 @@ async fn conversation_owner_check(
     user_id: Uuid,
     is_admin: bool,
 ) -> Result<bool, StatusCode> {
-    let inner = state.inner.read().await;
-    let conv = inner
-        .conversations
-        .iter()
-        .find(|c| c.id == conv_id)
+    let conv = clawkson_db::conversation::get_by_id(&state.db, conv_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(is_admin || conv.owner_id == Some(user_id))
