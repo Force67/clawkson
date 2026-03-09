@@ -408,8 +408,8 @@
 }
 
 .agentLinked {
-  border-color: rgba(124, 106, 239, 0.2);
-  background: rgba(124, 106, 239, 0.04);
+  border-color: rgba(217, 123, 74, 0.2);
+  background: rgba(217, 123, 74, 0.04);
 }
 
 .agentInfo {
@@ -461,9 +461,8 @@
 .entryCard {
   padding: 14px 18px;
   border-radius: var(--radius-md);
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   transition: border-color 0.15s;
 }
 

@@ -380,6 +380,7 @@
 .inputWrap:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-muted);
+  border-color: var(--accent);
 }
 
 .input {
@@ -442,6 +443,7 @@
 .dialog {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
+
   border-radius: var(--radius-xl);
   padding: 24px;
   width: 440px;

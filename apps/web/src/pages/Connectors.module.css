@@ -100,7 +100,7 @@
   align-items: center;
   padding: 56px 24px;
   text-align: center;
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-lg);
 }
@@ -153,6 +153,7 @@
 .modal {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
+
   border-radius: var(--radius-lg);
   padding: 28px;
   width: 420px;

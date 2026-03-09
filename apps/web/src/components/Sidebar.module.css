@@ -17,7 +17,6 @@
   width: var(--sidebar-collapsed-width);
 }
 
-/* Brand */
 .brand {
   display: flex;
   align-items: center;
@@ -34,9 +33,8 @@
   height: 34px;
   flex-shrink: 0;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
-  color: white;
-  box-shadow: 0 2px 12px rgba(124, 106, 239, 0.3);
+  background: var(--accent);
+  color: var(--text-inverse);
 }
 
 .brandText {
@@ -47,7 +45,6 @@
   color: var(--text-primary);
 }
 
-/* Navigation */
 .nav {
   flex: 1;
   display: flex;
@@ -93,8 +90,7 @@
   position: absolute;
   inset: 0;
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px rgba(124, 106, 239, 0.15),
-              0 0 12px rgba(124, 106, 239, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(217, 123, 74, 0.15);
   pointer-events: none;
 }
 
@@ -103,7 +99,6 @@
   text-overflow: ellipsis;
 }
 
-/* User section */
 .userSection {
   display: flex;
   align-items: center;
@@ -181,7 +176,7 @@
 }
 
 .logoutBtn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(248, 113, 113, 0.1);
   color: var(--error);
 }
 
@@ -195,7 +190,6 @@
   display: none;
 }
 
-/* Toggle */
 .toggle {
   display: flex;
   align-items: center;

@@ -10,12 +10,11 @@
 .card {
   width: 100%;
   max-width: 400px;
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   padding: 40px 36px;
-  box-shadow: var(--shadow-lg), 0 0 60px rgba(124, 106, 239, 0.04);
+  box-shadow: var(--shadow-lg);
 }
 
 .logo {
@@ -24,9 +23,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-muted);
+  background: var(--accent);
   border-radius: var(--radius-lg);
-  color: var(--accent);
+  color: var(--text-inverse);
   margin: 0 auto 20px;
 }
 
@@ -90,8 +89,8 @@
 .error {
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
   color: var(--error);
   font-size: 0.85rem;
 }
@@ -101,19 +100,19 @@
   border-radius: var(--radius-md);
   border: none;
   background: var(--accent);
-  color: white;
+  color: var(--text-inverse);
   font-size: 0.9rem;
   font-weight: 600;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
   margin-top: 4px;
 }
 
 .submit:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px var(--accent-glow);
+  box-shadow: 0 4px 12px var(--accent-glow);
 }
 
 .submit:disabled {

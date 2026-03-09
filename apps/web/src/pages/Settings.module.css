@@ -228,14 +228,14 @@
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   transition: border-color 0.2s;
 }
 
 .inferenceRow:hover { border-color: var(--border-default); }
 
 .inferenceRowDefault {
-  border-color: rgba(124, 106, 239, 0.3);
+  border-color: rgba(217, 123, 74, 0.3);
   background: var(--accent-muted);
 }
 
@@ -351,7 +351,7 @@
   padding: 40px 16px;
   color: var(--text-tertiary);
   font-size: 13px;
-  background: var(--glass-bg);
+  background: var(--bg-secondary);
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-lg);
   text-align: center;
