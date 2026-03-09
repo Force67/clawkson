@@ -19,3 +19,6 @@ futures.workspace = true
 tokio-stream.workspace = true
 async-stream = "0.3"
 denkwerk = { path = "../../../denkwerk" }
+argon2.workspace = true
+rand.workspace = true
+hex = "0.4"

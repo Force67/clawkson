@@ -9,6 +9,7 @@ use clawkson_core::{Agent, AgentStatus};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -38,12 +39,13 @@ pub struct PatchAgentRequest {
     pub status: Option<AgentStatus>,
 }
 
-async fn list_agents(State(state): State<AppState>) -> Json<Vec<Agent>> {
+async fn list_agents(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<Agent>> {
     let inner = state.inner.read().await;
     Json(inner.agents.clone())
 }
 
 async fn get_agent(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Agent>, StatusCode> {
@@ -58,9 +60,14 @@ async fn get_agent(
 }
 
 async fn create_agent(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<CreateAgentRequest>,
-) -> Json<Agent> {
+) -> Result<Json<Agent>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let now = Utc::now();
     let agent = Agent {
         id: Uuid::new_v4(),
@@ -77,14 +84,19 @@ async fn create_agent(
 
     let mut inner = state.inner.write().await;
     inner.agents.push(agent.clone());
-    Json(agent)
+    Ok(Json(agent))
 }
 
 async fn patch_agent(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchAgentRequest>,
 ) -> Result<Json<Agent>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let mut inner = state.inner.write().await;
     let agent = inner
         .agents
@@ -95,13 +107,8 @@ async fn patch_agent(
     if let Some(name) = req.name { agent.name = name; }
     if let Some(desc) = req.description { agent.description = desc; }
     if let Some(status) = req.status { agent.status = status; }
-    // Allow explicitly setting these to None by using a serde Option<Option<T>> pattern
-    // For simplicity, only update when the field is Some
-    if req.llm_connector_id.is_some() || req.temperature.is_none() && req.max_tokens.is_none() {
-        // Keep the old llm_connector_id unless explicitly provided
-        if req.llm_connector_id.is_some() {
-            agent.llm_connector_id = req.llm_connector_id;
-        }
+    if req.llm_connector_id.is_some() {
+        agent.llm_connector_id = req.llm_connector_id;
     }
     if let Some(sp) = req.system_prompt { agent.system_prompt = Some(sp); }
     if let Some(t) = req.temperature { agent.temperature = Some(t); }
@@ -112,9 +119,14 @@ async fn patch_agent(
 }
 
 async fn delete_agent(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
     let mut inner = state.inner.write().await;
     let before = inner.agents.len();
     inner.agents.retain(|a| a.id != id);

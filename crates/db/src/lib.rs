@@ -4,11 +4,15 @@ mod migrate;
 
 pub mod conversation;
 pub mod message;
+pub mod user;
+pub mod session;
+pub mod share;
 
 pub use bootstrap::{
     bootstrap_database,
     ensure_database,
     ensure_role,
+    grant_app_permissions,
 };
 pub use config::DbConfig;
 pub use migrate::run_migrations;

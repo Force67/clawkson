@@ -1,13 +1,14 @@
 .pageHeader {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .pageTitle {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.6px;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  line-height: 1.2;
 }
 
 .pageDescription {

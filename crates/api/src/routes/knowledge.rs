@@ -8,6 +8,7 @@ use clawkson_core::KnowledgeEntry;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -23,12 +24,13 @@ pub struct CreateKnowledgeEntryRequest {
     pub tags: Vec<String>,
 }
 
-async fn list_entries(State(state): State<AppState>) -> Json<Vec<KnowledgeEntry>> {
+async fn list_entries(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<KnowledgeEntry>> {
     let inner = state.inner.read().await;
     Json(inner.knowledge.clone())
 }
 
 async fn get_entry(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Json<Option<KnowledgeEntry>> {
@@ -38,6 +40,7 @@ async fn get_entry(
 }
 
 async fn create_entry(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<CreateKnowledgeEntryRequest>,
 ) -> Json<KnowledgeEntry> {

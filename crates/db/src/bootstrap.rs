@@ -93,6 +93,28 @@ fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// Grant the app user full access to all tables and sequences in the public schema.
+/// Must be called using a superuser/admin connection after migrations.
+pub async fn grant_app_permissions(
+    db: &Db,
+    app_user: &str,
+) -> Result<(), DbError> {
+    let quoted_user = quote_identifier(app_user)?;
+
+    let statements = [
+        format!("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {quoted_user}"),
+        format!("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {quoted_user}"),
+        format!("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {quoted_user}"),
+        format!("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {quoted_user}"),
+    ];
+
+    for stmt in &statements {
+        sqlx::query(stmt).execute(db.pool()).await?;
+    }
+
+    Ok(())
+}
+
 fn is_valid_identifier(identifier: &str) -> bool {
     let mut chars = identifier.chars();
     match chars.next() {

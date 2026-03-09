@@ -1,7 +1,8 @@
 use anyhow::Result;
 use axum::Router;
 use clawkson_db::DbConfig;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
+use axum::http::{HeaderValue, Method, header};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -30,6 +31,7 @@ async fn main() -> Result<()> {
 
     let migration_db = clawkson_db::connect(db_config.migration_connect_options()?).await?;
     clawkson_db::run_migrations(&migration_db).await?;
+    clawkson_db::grant_app_permissions(&migration_db, &db_config.database_user).await?;
 
     let db = clawkson_db::connect(db_config.app_connect_options()?).await?;
 
@@ -42,10 +44,13 @@ async fn main() -> Result<()> {
     // ── HTTP server ───────────────────────────────────────────────
     let state = clawkson_api::state::AppState::new(db);
 
+    let frontend_origin = std::env::var("FRONTEND_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:5173".to_string());
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(frontend_origin.parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::COOKIE, header::AUTHORIZATION])
+        .allow_credentials(true);
 
     let app = Router::new()
         .nest("/api", clawkson_api::routes::api_router())

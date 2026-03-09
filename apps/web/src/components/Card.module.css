@@ -1,9 +1,10 @@
 .card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  padding: 24px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: 22px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  backdrop-filter: blur(12px);
 }
 
 .card:hover {
@@ -11,7 +12,7 @@
 }
 
 .cardInteractive:hover {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-muted);
+  border-color: rgba(124, 106, 239, 0.3);
+  box-shadow: 0 0 0 1px var(--accent-muted), var(--shadow-glow);
   cursor: pointer;
 }

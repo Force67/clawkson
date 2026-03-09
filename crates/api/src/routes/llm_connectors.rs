@@ -9,6 +9,7 @@ use clawkson_core::{LlmConnector, LlmProviderType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -40,9 +41,8 @@ pub struct PatchLlmConnectorRequest {
     pub azure_api_version: Option<String>,
 }
 
-async fn list(State(state): State<AppState>) -> Json<Vec<LlmConnector>> {
+async fn list(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<LlmConnector>> {
     let inner = state.inner.read().await;
-    // Mask the API keys in the response for security
     let connectors: Vec<LlmConnector> = inner
         .llm_connectors
         .iter()
@@ -56,6 +56,7 @@ async fn list(State(state): State<AppState>) -> Json<Vec<LlmConnector>> {
 }
 
 async fn get_one(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<LlmConnector>, StatusCode> {
@@ -71,9 +72,14 @@ async fn get_one(
 }
 
 async fn create(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<CreateLlmConnectorRequest>,
-) -> Json<LlmConnector> {
+) -> Result<Json<LlmConnector>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let base_url = req.api_base_url.unwrap_or_else(|| {
         match req.provider_type {
             LlmProviderType::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
@@ -95,7 +101,6 @@ async fn create(
     };
 
     let mut inner = state.inner.write().await;
-    // If this is the first connector, set it as default
     if inner.llm_connectors.is_empty() {
         inner.settings.default_llm_connector_id = Some(connector.id);
     }
@@ -103,14 +108,19 @@ async fn create(
 
     let mut resp = connector;
     resp.api_key = mask_key(&resp.api_key);
-    Json(resp)
+    Ok(Json(resp))
 }
 
 async fn patch(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchLlmConnectorRequest>,
 ) -> Result<Json<LlmConnector>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let mut inner = state.inner.write().await;
     let connector = inner
         .llm_connectors
@@ -132,14 +142,18 @@ async fn patch(
 }
 
 async fn delete(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
     let mut inner = state.inner.write().await;
     let before = inner.llm_connectors.len();
     inner.llm_connectors.retain(|c| c.id != id);
     if inner.llm_connectors.len() < before {
-        // Clear default if it was this connector
         if inner.settings.default_llm_connector_id == Some(id) {
             inner.settings.default_llm_connector_id =
                 inner.llm_connectors.first().map(|c| c.id);
@@ -167,6 +181,7 @@ pub struct TestConnectionResponse {
 }
 
 async fn test_connection(
+    _auth: AuthUser,
     Json(req): Json<CreateLlmConnectorRequest>,
 ) -> Json<TestConnectionResponse> {
     use clawkson_core::MessageRole;

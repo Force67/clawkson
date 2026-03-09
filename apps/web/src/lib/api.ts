@@ -4,6 +4,7 @@ const BASE = ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
@@ -33,6 +34,7 @@ export interface Conversation {
   id: string
   title: string
   agent_id: string
+  owner_id?: string
   created_at: string
   updated_at: string
 }
@@ -100,6 +102,45 @@ export interface Settings {
   theme: string
 }
 
+// ── Auth types ────────────────────────────────────────────────────
+
+export type UserRole = 'admin' | 'user'
+
+export interface User {
+  id: string
+  email: string
+  display_name: string
+  role: UserRole
+  created_at: string
+  updated_at: string
+}
+
+export interface AuthResponse {
+  user: User
+}
+
+export type SharePermission = 'read' | 'write'
+
+export interface ConversationShare {
+  id: string
+  conversation_id: string
+  shared_by: string
+  shared_with: string
+  permission: SharePermission
+  created_at: string
+}
+
+export interface ShareUserInfo {
+  id: string
+  email: string
+  display_name: string
+}
+
+export interface ShareResponse {
+  share: ConversationShare
+  shared_with_user: ShareUserInfo
+}
+
 // ── Create / patch request types ───────────────────────────────────
 
 export interface CreateAgentRequest {
@@ -160,6 +201,37 @@ export interface PatchSettingsRequest {
 // ── API client ─────────────────────────────────────────────────────
 
 export const api = {
+  auth: {
+    register: (body: { email: string; password: string; display_name?: string }) =>
+      request<AuthResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+    login: (body: { email: string; password: string }) =>
+      request<AuthResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    logout: () =>
+      request<void>('/api/auth/logout', { method: 'POST' }),
+    me: () =>
+      request<AuthResponse>('/api/auth/me'),
+  },
+
+  admin: {
+    listUsers: () => request<User[]>('/api/admin/users'),
+    updateRole: (id: string, role: UserRole) =>
+      request<User>(`/api/admin/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+    deleteUser: (id: string) =>
+      request<void>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  },
+
+  shares: {
+    list: (conversationId: string) =>
+      request<ShareResponse[]>(`/api/conversations/${conversationId}/shares`),
+    create: (conversationId: string, email: string, permission: SharePermission) =>
+      request<ShareResponse>(`/api/conversations/${conversationId}/shares`, {
+        method: 'POST',
+        body: JSON.stringify({ email, permission }),
+      }),
+    remove: (conversationId: string, userId: string) =>
+      request<void>(`/api/conversations/${conversationId}/shares/${userId}`, { method: 'DELETE' }),
+  },
+
   agents: {
     list: () => request<Agent[]>('/api/agents'),
     get: (id: string) => request<Agent>(`/api/agents/${id}`),
@@ -251,6 +323,7 @@ export function streamChat(
 
   fetch(`${BASE}/api/conversations/${conversationId}/chat/stream`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
     signal: controller.signal,

@@ -38,6 +38,9 @@ pub struct Conversation {
     pub id: Uuid,
     pub title: String,
     pub agent_id: Uuid,
+    /// The user who owns this conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -140,6 +143,55 @@ pub struct LlmConnector {
     pub azure_deployment: Option<String>,
     /// Azure-specific: API version string (e.g. `2024-02-01`).
     pub azure_api_version: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ── User ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UserRole {
+    Admin,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    /// Never serialized to the client.
+    #[serde(skip_serializing)]
+    pub password_hash: String,
+    pub role: UserRole,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub token: String,
+    pub user_id: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ── Conversation Sharing ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SharePermission {
+    Read,
+    Write,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationShare {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub shared_by: Uuid,
+    pub shared_with: Uuid,
+    pub permission: SharePermission,
     pub created_at: DateTime<Utc>,
 }
 

@@ -15,12 +15,13 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_conversations).post(create_conversation))
-        .route("/{id}", get(get_conversation))
+        .route("/{id}", get(get_conversation).delete(delete_conversation))
         .route("/{id}/messages", get(list_messages).post(send_message))
         .route("/{id}/chat", axum::routing::post(chat))
         .route("/{id}/chat/stream", axum::routing::post(chat_stream))
@@ -51,11 +52,50 @@ pub struct ChatResponse {
     pub assistant_message: Message,
 }
 
+// ── Access helpers ────────────────────────────────────────────────
+
+/// Check if a user can access a conversation (owner, shared, or admin).
+async fn can_access(state: &AppState, conv_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<bool, StatusCode> {
+    {
+        let inner = state.inner.read().await;
+        if let Some(conv) = inner.conversations.iter().find(|c| c.id == conv_id) {
+            if is_admin || conv.owner_id == Some(user_id) {
+                return Ok(true);
+            }
+        } else {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+    // Check shares
+    let pool = state.db.pool();
+    let share = clawkson_db::share::get_user_share(pool, conv_id, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(share.is_some())
+}
+
+/// Check if a user can write to a conversation (owner, write-share, or admin).
+async fn can_write(state: &AppState, conv_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<bool, StatusCode> {
+    {
+        let inner = state.inner.read().await;
+        if let Some(conv) = inner.conversations.iter().find(|c| c.id == conv_id) {
+            if is_admin || conv.owner_id == Some(user_id) {
+                return Ok(true);
+            }
+        } else {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+    let pool = state.db.pool();
+    let share = clawkson_db::share::get_user_share(pool, conv_id, user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(share.map_or(false, |s| s.permission == clawkson_db::share::SharePermission::Write))
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Resolve the LLM connector for a conversation's agent.
-/// Returns the connector ID to use, preferring the agent's connector
-/// then falling back to the default in settings.
 async fn resolve_connector_id(
     state: &AppState,
     conversation: &Conversation,
@@ -68,15 +108,46 @@ async fn resolve_connector_id(
 
 // ── Handlers ───────────────────────────────────────────────────────
 
-async fn list_conversations(State(state): State<AppState>) -> Json<Vec<Conversation>> {
+async fn list_conversations(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Json<Vec<Conversation>> {
+    let user_id = auth.id();
+    let is_admin = auth.is_admin();
+
     let inner = state.inner.read().await;
-    Json(inner.conversations.clone())
+    if is_admin {
+        return Json(inner.conversations.clone());
+    }
+
+    // Get shared conversation IDs
+    let pool = state.db.pool();
+    let shared_ids: Vec<Uuid> = clawkson_db::share::list_shared_with_user(pool, user_id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.conversation_id)
+        .collect();
+
+    let convs: Vec<_> = inner
+        .conversations
+        .iter()
+        .filter(|c| c.owner_id == Some(user_id) || shared_ids.contains(&c.id))
+        .cloned()
+        .collect();
+    Json(convs)
 }
 
 async fn get_conversation(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Conversation>, StatusCode> {
+    let has_access = can_access(&state, id, auth.id(), auth.is_admin()).await?;
+    if !has_access {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let inner = state.inner.read().await;
     inner
         .conversations
@@ -88,6 +159,7 @@ async fn get_conversation(
 }
 
 async fn create_conversation(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<CreateConversationRequest>,
 ) -> Json<Conversation> {
@@ -96,6 +168,7 @@ async fn create_conversation(
         id: Uuid::new_v4(),
         title: req.title,
         agent_id: req.agent_id,
+        owner_id: Some(auth.id()),
         created_at: now,
         updated_at: now,
     };
@@ -105,10 +178,44 @@ async fn create_conversation(
     Json(conv)
 }
 
-async fn list_messages(
+async fn delete_conversation(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> Json<Vec<Message>> {
+) -> StatusCode {
+    // Only owner or admin can delete
+    {
+        let inner = state.inner.read().await;
+        if let Some(conv) = inner.conversations.iter().find(|c| c.id == id) {
+            if !auth.is_admin() && conv.owner_id != Some(auth.id()) {
+                return StatusCode::FORBIDDEN;
+            }
+        } else {
+            return StatusCode::NOT_FOUND;
+        }
+    }
+
+    let mut inner = state.inner.write().await;
+    let before = inner.conversations.len();
+    inner.conversations.retain(|c| c.id != id);
+    inner.messages.retain(|m| m.conversation_id != id);
+    if inner.conversations.len() < before {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+async fn list_messages(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Message>>, StatusCode> {
+    let has_access = can_access(&state, id, auth.id(), auth.is_admin()).await?;
+    if !has_access {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let inner = state.inner.read().await;
     let msgs: Vec<_> = inner
         .messages
@@ -116,14 +223,20 @@ async fn list_messages(
         .filter(|m| m.conversation_id == id)
         .cloned()
         .collect();
-    Json(msgs)
+    Ok(Json(msgs))
 }
 
 async fn send_message(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(conv_id): Path<Uuid>,
     Json(req): Json<SendMessageRequest>,
-) -> Json<Message> {
+) -> Result<Json<Message>, StatusCode> {
+    let writable = can_write(&state, conv_id, auth.id(), auth.is_admin()).await?;
+    if !writable {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let msg = Message {
         id: Uuid::new_v4(),
         conversation_id: conv_id,
@@ -134,16 +247,23 @@ async fn send_message(
 
     let mut inner = state.inner.write().await;
     inner.messages.push(msg.clone());
-    Json(msg)
+    Ok(Json(msg))
 }
 
 /// POST /api/conversations/{id}/chat
-/// Saves user message, runs LLM completion, saves and returns assistant message.
 async fn chat(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(conv_id): Path<Uuid>,
     Json(req): Json<ChatRequest>,
 ) -> impl IntoResponse {
+    // Check write access
+    match can_write(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "forbidden"}))).into_response(),
+        Err(status) => return (status, Json(serde_json::json!({"error": "not found"}))).into_response(),
+    }
+
     // 1. Verify the conversation exists
     let conversation = {
         let inner = state.inner.read().await;
@@ -247,7 +367,6 @@ async fn chat(
     {
         let mut inner = state.inner.write().await;
         inner.messages.push(assistant_msg.clone());
-        // Update conversation updated_at
         if let Some(c) = inner.conversations.iter_mut().find(|c| c.id == conv_id) {
             c.updated_at = Utc::now();
         }
@@ -261,14 +380,26 @@ async fn chat(
 }
 
 /// POST /api/conversations/{id}/chat/stream
-/// Streams the assistant response as Server-Sent Events.
-/// Each event is `data: {"delta":"..."}` followed by a final `data: {"done":true,"id":"..."}`.
 async fn chat_stream(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(conv_id): Path<Uuid>,
     Json(req): Json<ChatRequest>,
 ) -> impl IntoResponse {
     use tokio::sync::mpsc;
+
+    // Check write access
+    match can_write(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) | Err(_) => {
+            let s = stream::once(async {
+                Ok::<Event, Infallible>(
+                    Event::default().data(r#"{"error":"forbidden"}"#),
+                )
+            });
+            return Sse::new(s).into_response();
+        }
+    }
 
     // Verify conversation exists
     let conversation = {
@@ -337,7 +468,7 @@ async fn chat_stream(
         return Sse::new(s).into_response();
     };
 
-    // Stream via channel: spawn a task that calls the LLM and sends chunks
+    // Stream via channel
     let (tx, mut rx) = mpsc::channel::<String>(64);
     let state2 = state.clone();
 
@@ -362,7 +493,6 @@ async fn chat_stream(
             }
         };
 
-        // Persist the full assistant message
         let msg_id = Uuid::new_v4();
         let mut inner = state2.inner.write().await;
         inner.messages.push(Message {
@@ -375,11 +505,9 @@ async fn chat_stream(
         if let Some(c) = inner.conversations.iter_mut().find(|c| c.id == conv_id) {
             c.updated_at = Utc::now();
         }
-        // Send done event with message id
         let _ = tx.try_send(format!("\x00DONE:{msg_id}"));
     });
 
-    // Convert the channel receiver into an SSE stream
     let sse_stream = async_stream::stream! {
         while let Some(msg) = rx.recv().await {
             if let Some(id) = msg.strip_prefix("\x00DONE:") {

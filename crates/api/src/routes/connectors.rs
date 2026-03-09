@@ -9,6 +9,7 @@ use clawkson_core::{Connector, ConnectorType};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -24,12 +25,13 @@ pub struct CreateConnectorRequest {
     pub config: serde_json::Value,
 }
 
-async fn list_connectors(State(state): State<AppState>) -> Json<Vec<Connector>> {
+async fn list_connectors(_auth: AuthUser, State(state): State<AppState>) -> Json<Vec<Connector>> {
     let inner = state.inner.read().await;
     Json(inner.connectors.clone())
 }
 
 async fn get_connector(
+    _auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Json<Option<Connector>> {
@@ -39,9 +41,14 @@ async fn get_connector(
 }
 
 async fn create_connector(
+    auth: AuthUser,
     State(state): State<AppState>,
     Json(req): Json<CreateConnectorRequest>,
-) -> Json<Connector> {
+) -> Result<Json<Connector>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let connector = Connector {
         id: Uuid::new_v4(),
         name: req.name,
@@ -53,7 +60,7 @@ async fn create_connector(
 
     let mut inner = state.inner.write().await;
     inner.connectors.push(connector.clone());
-    Json(connector)
+    Ok(Json(connector))
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,10 +69,15 @@ pub struct PatchConnectorRequest {
 }
 
 async fn patch_connector(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchConnectorRequest>,
 ) -> Result<Json<Connector>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     let mut inner = state.inner.write().await;
     let connector = inner
         .connectors
@@ -79,9 +91,14 @@ async fn patch_connector(
 }
 
 async fn delete_connector(
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
     let mut inner = state.inner.write().await;
     let before = inner.connectors.len();
     inner.connectors.retain(|c| c.id != id);
