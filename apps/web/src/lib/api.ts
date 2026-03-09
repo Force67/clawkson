@@ -8,7 +8,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      if (body?.error) detail = body.error
+    } catch { /* no JSON body */ }
+    throw new Error(`${res.status} ${detail}`)
+  }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
@@ -65,13 +72,45 @@ export interface Connector {
   created_at: string
 }
 
-export interface KnowledgeEntry {
+export interface KnowledgeBase {
   id: string
-  title: string
-  content: string
-  tags: string[]
+  owner_id: string
+  name: string
+  description: string
+  embedding_model: string
+  entry_count: number
   created_at: string
   updated_at: string
+}
+
+export interface KnowledgeEntry {
+  id: string
+  knowledge_base_id: string
+  title: string
+  content: string
+  token_count: number | null
+  has_embedding: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeSearchResult {
+  entry: KnowledgeEntry
+  score: number
+}
+
+export interface UploadResult {
+  files_processed: number
+  entries_created: number
+  errors: string[]
+}
+
+export interface KbShareInfo {
+  id: string
+  user_id: string
+  email: string
+  display_name: string
+  permission: SharePermission
 }
 
 export interface Tool {
@@ -289,9 +328,63 @@ export const api = {
   },
 
   knowledge: {
-    list: () => request<KnowledgeEntry[]>('/api/knowledge'),
-    create: (body: { title: string; content: string; tags: string[] }) =>
-      request<KnowledgeEntry>('/api/knowledge', { method: 'POST', body: JSON.stringify(body) }),
+    // Bases
+    listBases: () => request<KnowledgeBase[]>('/api/knowledge'),
+    getBase: (id: string) => request<KnowledgeBase>(`/api/knowledge/${id}`),
+    createBase: (body: { name: string; description?: string; embedding_model?: string }) =>
+      request<KnowledgeBase>('/api/knowledge', { method: 'POST', body: JSON.stringify(body) }),
+    patchBase: (id: string, body: { name?: string; description?: string }) =>
+      request<KnowledgeBase>(`/api/knowledge/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteBase: (id: string) =>
+      request<void>(`/api/knowledge/${id}`, { method: 'DELETE' }),
+    // Entries
+    listEntries: (kbId: string) => request<KnowledgeEntry[]>(`/api/knowledge/${kbId}/entries`),
+    createEntry: (kbId: string, body: { title: string; content: string }) =>
+      request<KnowledgeEntry>(`/api/knowledge/${kbId}/entries`, { method: 'POST', body: JSON.stringify(body) }),
+    patchEntry: (kbId: string, entryId: string, body: { title?: string; content?: string }) =>
+      request<KnowledgeEntry>(`/api/knowledge/${kbId}/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteEntry: (kbId: string, entryId: string) =>
+      request<void>(`/api/knowledge/${kbId}/entries/${entryId}`, { method: 'DELETE' }),
+    // File upload (multipart)
+    uploadFiles: async (kbId: string, files: File[]): Promise<UploadResult> => {
+      const form = new FormData()
+      for (const file of files) form.append('files', file)
+      const res = await fetch(`${BASE}/api/knowledge/${kbId}/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+      })
+      if (!res.ok) {
+        let detail = res.statusText
+        try { const body = await res.json(); if (body?.error) detail = body.error } catch {}
+        throw new Error(`${res.status} ${detail}`)
+      }
+      return res.json()
+    },
+    // Embeddings
+    embed: (kbId: string) =>
+      request<{ embedded: number; failed: number }>(`/api/knowledge/${kbId}/embed`, { method: 'POST' }),
+    // Search
+    search: (kbId: string, query: string, limit?: number) =>
+      request<KnowledgeSearchResult[]>(`/api/knowledge/${kbId}/search`, {
+        method: 'POST',
+        body: JSON.stringify({ query, limit }),
+      }),
+    // Sharing
+    listShares: (kbId: string) => request<KbShareInfo[]>(`/api/knowledge/${kbId}/shares`),
+    createShare: (kbId: string, email: string, permission: SharePermission) =>
+      request<KbShareInfo>(`/api/knowledge/${kbId}/shares`, {
+        method: 'POST',
+        body: JSON.stringify({ email, permission }),
+      }),
+    removeShare: (kbId: string, userId: string) =>
+      request<void>(`/api/knowledge/${kbId}/shares/${userId}`, { method: 'DELETE' }),
+    // Agent access
+    listAgents: (kbId: string) => request<string[]>(`/api/knowledge/${kbId}/agents`),
+    linkAgent: (kbId: string, agentId: string) =>
+      request<void>(`/api/knowledge/${kbId}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
+    unlinkAgent: (kbId: string, agentId: string) =>
+      request<void>(`/api/knowledge/${kbId}/agents/${agentId}`, { method: 'DELETE' }),
   },
 }
 

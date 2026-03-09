@@ -7,6 +7,8 @@ pub mod message;
 pub mod user;
 pub mod session;
 pub mod share;
+pub mod knowledge_base;
+pub mod knowledge_entry;
 
 pub use bootstrap::{
     bootstrap_database,
@@ -19,10 +21,10 @@ pub use migrate::run_migrations;
 
 use std::time::Duration;
 
+pub use sqlx::PgPool;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions,
-    PgPool,
 };
 
 #[derive(Clone)]

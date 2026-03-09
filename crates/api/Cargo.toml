@@ -22,3 +22,4 @@ denkwerk = { path = "../../../denkwerk" }
 argon2.workspace = true
 rand.workspace = true
 hex = "0.4"
+pdf-extract = "0.7"

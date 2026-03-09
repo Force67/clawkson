@@ -66,13 +66,33 @@ pub enum MessageRole {
 // ── Knowledge Base ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeEntry {
+pub struct KnowledgeBase {
     pub id: Uuid,
-    pub title: String,
-    pub content: String,
-    pub tags: Vec<String>,
+    pub owner_id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub embedding_model: String,
+    pub entry_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeEntry {
+    pub id: Uuid,
+    pub knowledge_base_id: Uuid,
+    pub title: String,
+    pub content: String,
+    pub token_count: Option<i32>,
+    pub has_embedding: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeSearchResult {
+    pub entry: KnowledgeEntry,
+    pub score: f64,
 }
 
 // ── Connector ──────────────────────────────────────────────────────

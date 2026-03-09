@@ -1,5 +1,5 @@
 use anyhow::Result;
-use axum::Router;
+use axum::{extract::DefaultBodyLimit, Router};
 use clawkson_db::DbConfig;
 use tower_http::cors::CorsLayer;
 use axum::http::{HeaderValue, Method, header};
@@ -54,6 +54,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .nest("/api", clawkson_api::routes::api_router())
+        .layer(DefaultBodyLimit::max(16 * 1024 * 1024)) // 16 MB
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

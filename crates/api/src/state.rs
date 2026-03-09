@@ -15,7 +15,7 @@ pub struct AppStateInner {
     pub agents: Vec<Agent>,
     pub conversations: Vec<Conversation>,
     pub messages: Vec<Message>,
-    pub knowledge: Vec<KnowledgeEntry>,
+    // Knowledge bases are now DB-backed, not in-memory
     pub connectors: Vec<Connector>,
     pub tools: Vec<Tool>,
     pub llm_connectors: Vec<LlmConnector>,
@@ -30,7 +30,7 @@ impl AppState {
                 agents: Vec::new(),
                 conversations: Vec::new(),
                 messages: Vec::new(),
-                knowledge: Vec::new(),
+                // knowledge bases are DB-backed
                 connectors: Vec::new(),
                 tools: Vec::new(),
                 llm_connectors: Vec::new(),
