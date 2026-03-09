@@ -3,6 +3,7 @@ mod config;
 mod migrate;
 
 pub mod agent;
+pub mod chat_attachment;
 pub mod conversation;
 pub mod message;
 pub mod user;

@@ -40,9 +40,31 @@ pub struct SendMessageRequest {
     pub role: MessageRole,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
     pub content: String,
+    /// When set, enables extended thinking / chain-of-thought.
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffort>,
+    /// When false, knowledge-base search tools are excluded even if the agent
+    /// has linked KBs. Defaults to true.
+    #[serde(default = "default_true")]
+    pub search_enabled: bool,
+    /// IDs of previously-uploaded attachments to associate with this message.
+    #[serde(default)]
+    pub attachment_ids: Vec<Uuid>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -329,7 +351,9 @@ async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<(MessageRol
 }
 
 /// Build the tool registry for an agent (code execution + knowledge search).
-async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig) -> denkwerk::FunctionRegistry {
+/// When `search_enabled` is false the knowledge tools are omitted even if the
+/// agent has linked knowledge bases.
+async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, search_enabled: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
 
     // Code execution tool (requires container)
@@ -355,17 +379,19 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig) -> denkw
         }
     }
 
-    // Knowledge search tool (available if agent has linked KBs)
-    let has_kbs = clawkson_db::knowledge_base::agent_list_kbs(state.db.pool(), agent_cfg.agent_id)
-        .await
-        .map(|kbs| !kbs.is_empty())
-        .unwrap_or(false);
+    // Knowledge search tool (available if agent has linked KBs and search is enabled)
+    if search_enabled {
+        let has_kbs = clawkson_db::knowledge_base::agent_list_kbs(state.db.pool(), agent_cfg.agent_id)
+            .await
+            .map(|kbs| !kbs.is_empty())
+            .unwrap_or(false);
 
-    if has_kbs {
-        let list_tool = crate::tools::KnowledgeListTool::new(agent_cfg.agent_id, state.db.clone());
-        registry.register(list_tool.into_dyn());
-        let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone());
-        registry.register(search_tool.into_dyn());
+        if has_kbs {
+            let list_tool = crate::tools::KnowledgeListTool::new(agent_cfg.agent_id, state.db.clone());
+            registry.register(list_tool.into_dyn());
+            let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone());
+            registry.register(search_tool.into_dyn());
+        }
     }
 
     registry
@@ -377,8 +403,10 @@ async fn run_completion(
     connector: &clawkson_core::LlmConnector,
     agent_cfg: &AgentConfig,
     history: &[(MessageRole, String)],
+    reasoning_effort: Option<&ReasoningEffort>,
+    search_enabled: bool,
 ) -> anyhow::Result<String> {
-    let registry = build_tool_registry(state, agent_cfg).await;
+    let registry = build_tool_registry(state, agent_cfg, search_enabled).await;
 
     if !registry.definitions().is_empty() {
         return crate::llm::complete_with_tools(
@@ -389,6 +417,7 @@ async fn run_completion(
             agent_cfg.max_tokens,
             &registry,
             5,
+            reasoning_effort,
         )
         .await;
     }
@@ -399,6 +428,7 @@ async fn run_completion(
         history,
         agent_cfg.temperature,
         agent_cfg.max_tokens,
+        reasoning_effort,
     )
     .await
 }
@@ -429,6 +459,16 @@ async fn chat(
         Ok(m) => m,
         Err(s) => return (s, Json(serde_json::json!({"error": "failed to save message"}))).into_response(),
     };
+
+    // 2b. Link any uploaded attachments to the user message
+    if !req.attachment_ids.is_empty() {
+        let pool = state.db.pool();
+        for att_id in &req.attachment_ids {
+            if let Err(e) = clawkson_db::chat_attachment::link_to_message(pool, *att_id, user_msg.id).await {
+                tracing::warn!("failed to link attachment {att_id} to message {}: {e}", user_msg.id);
+            }
+        }
+    }
 
     // 3. Resolve LLM connector
     let connector_id = resolve_connector_id(&state, agent_id).await;
@@ -466,7 +506,7 @@ async fn chat(
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
-    let assistant_content = match run_completion(&state, &connector, cfg, &history).await {
+    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), req.search_enabled).await {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("LLM completion failed: {e}");
@@ -526,12 +566,28 @@ async fn chat_stream(
     let agent_id = conversation.agent_id.unwrap_or(Uuid::nil());
 
     // Save user message
-    if let Err(e) = clawkson_db::message::create(
+    let user_msg_id = match clawkson_db::message::create(
         &state.db, conv_id, None,
         clawkson_db::message::MessageRole::User,
         &req.content, None, None,
     ).await {
-        tracing::error!("failed to save user message: {e}");
+        Ok(row) => Some(row.id),
+        Err(e) => {
+            tracing::error!("failed to save user message: {e}");
+            None
+        }
+    };
+
+    // Link any uploaded attachments to the user message
+    if let Some(msg_id) = user_msg_id {
+        if !req.attachment_ids.is_empty() {
+            let pool = state.db.pool();
+            for att_id in &req.attachment_ids {
+                if let Err(e) = clawkson_db::chat_attachment::link_to_message(pool, *att_id, msg_id).await {
+                    tracing::warn!("failed to link attachment {att_id} to message {msg_id}: {e}");
+                }
+            }
+        }
     }
 
     // Resolve connector
@@ -571,12 +627,16 @@ async fn chat_stream(
         container_config: None,
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
-    let registry = build_tool_registry(&state, &cfg).await;
+    let registry = build_tool_registry(&state, &cfg, req.search_enabled).await;
     let system_prompt = cfg.system_prompt.clone();
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;
+    let reasoning_effort = req.reasoning_effort.clone();
 
-    // Stream via channel
+    // Stream via channel — messages are prefixed to distinguish type:
+    //   "\x01" + text  = reasoning delta
+    //   "\x00DONE:id"  = completion sentinel
+    //   anything else  = message delta
     let (tx, mut rx) = mpsc::channel::<String>(64);
     let state2 = state.clone();
 
@@ -591,6 +651,7 @@ async fn chat_stream(
                 max_tokens,
                 &registry,
                 5,
+                reasoning_effort.as_ref(),
             )
             .await;
 
@@ -605,7 +666,9 @@ async fn chat_stream(
                 &history,
                 temperature,
                 max_tokens,
+                reasoning_effort.as_ref(),
                 |chunk| { let _ = tx.try_send(chunk); },
+                |reasoning| { let _ = tx.try_send(format!("\x01{reasoning}")); },
             )
             .await
         };
@@ -640,6 +703,10 @@ async fn chat_stream(
                 let data = format!(r#"{{"done":true,"id":"{id}"}}"#);
                 yield Ok::<Event, Infallible>(Event::default().data(data));
                 break;
+            } else if let Some(reasoning) = msg.strip_prefix("\x01") {
+                let escaped = reasoning.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+                let data = format!(r#"{{"reasoning_delta":"{escaped}"}}"#);
+                yield Ok::<Event, Infallible>(Event::default().data(data));
             } else {
                 let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
                 let data = format!(r#"{{"delta":"{escaped}"}}"#);

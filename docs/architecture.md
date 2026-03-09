@@ -29,7 +29,7 @@ Clawkson is a multi-agent AI assistant platform with a clean separation between 
 | Route | Page | Description |
 |---|---|---|
 | `/dashboard` | Dashboard | Agent overview, stats, activity feed |
-| `/conversations` | Conversations | Real-time chat interface with SSE streaming |
+| `/conversations` | Conversations | Real-time chat interface with grouped thread list, immersive chat canvas, and SSE streaming |
 | `/agents` | Agents | Create, configure, and manage agents |
 | `/knowledge` | Knowledge Base | Manage shared knowledge entries |
 | `/connectors` | Connectors | Platform integrations (Telegram, Gmail, etc.) |

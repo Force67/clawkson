@@ -27,6 +27,9 @@ const NAV_ITEMS = [
   { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
   { path: '/connectors', label: 'Connectors', icon: Plug },
   { path: '/tools', label: 'Tools', icon: Wrench },
+]
+
+const NAV_BOTTOM_ITEMS = [
   { path: '/settings', label: 'Settings', icon: Settings },
   { path: '/docs', label: 'Documentation', icon: FileText },
 ]
@@ -48,6 +51,28 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Navigation */}
       <nav className={styles.nav}>
         {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
+          const isActive =
+            location.pathname === path ||
+            location.pathname.startsWith(path + '/')
+
+          return (
+            <NavLink
+              key={path}
+              to={path}
+              className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+              title={collapsed ? label : undefined}
+            >
+              {isActive && <div className={styles.activeGlow} />}
+              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
+              {!collapsed && <span className={styles.navLabel}>{label}</span>}
+            </NavLink>
+          )
+        })}
+      </nav>
+
+      {/* Bottom navigation */}
+      <nav className={styles.navBottom}>
+        {NAV_BOTTOM_ITEMS.map(({ path, label, icon: Icon }) => {
           const isActive =
             location.pathname === path ||
             location.pathname.startsWith(path + '/')

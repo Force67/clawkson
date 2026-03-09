@@ -237,7 +237,9 @@ paths:
               $ref: "#/components/schemas/ChatRequest"
       responses:
         "200":
-          description: SSE stream – each event is JSON with `delta`, `done`, or `error`
+          description: >
+            SSE stream – each event is JSON with `delta` (message text),
+            `reasoning_delta` (thinking trace), `done`, or `error`
           content:
             text/event-stream:
               schema:
@@ -627,6 +629,75 @@ paths:
       responses:
         "204":
           description: Deleted
+        "404":
+          description: Not found
+
+  # ── Uploads (File Attachments) ────────────────────────────────────
+
+  /api/uploads:
+    post:
+      summary: Upload files for chat attachments
+      operationId: uploadFiles
+      tags: [Uploads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: One or more files to upload
+                conversation_id:
+                  type: string
+                  format: uuid
+                  description: Optional conversation to associate uploads with
+      responses:
+        "200":
+          description: Uploaded file metadata with IDs for use in ChatRequest.attachment_ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: No files provided
+        "503":
+          description: File storage not configured
+
+  /api/uploads/{id}:
+    get:
+      summary: Download an uploaded file
+      operationId: getUpload
+      tags: [Uploads]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: File content with appropriate Content-Type header
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Not authorized to access this file
+        "404":
+          description: File not found
+    delete:
+      summary: Delete an uploaded file
+      operationId: deleteUpload
+      tags: [Uploads]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Not authorized
         "404":
           description: Not found
 
@@ -1103,6 +1174,28 @@ components:
         content:
           type: string
           description: The user message content
+        reasoning_effort:
+          type: string
+          enum: [low, medium, high]
+          nullable: true
+          description: >
+            When set, enables extended thinking / chain-of-thought at the
+            specified effort level. Omit or null to disable reasoning.
+        search_enabled:
+          type: boolean
+          default: true
+          description: >
+            When false, knowledge-base search tools are excluded even if the
+            agent has linked KBs.
+        attachment_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          default: []
+          description: >
+            IDs of previously-uploaded attachments (from POST /api/uploads) to
+            associate with this message.
 
     ChatResponse:
       type: object
@@ -1134,3 +1227,32 @@ components:
           nullable: true
         theme:
           type: string
+
+    # ── Uploads / Attachments ──────────────────────────────────
+
+    AttachmentInfo:
+      type: object
+      required: [id, filename, content_type, size_bytes, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+
+    UploadResponse:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttachmentInfo"

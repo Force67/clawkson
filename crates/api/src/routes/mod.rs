@@ -9,6 +9,7 @@ pub mod shares;
 pub mod tools;
 pub mod llm_connectors;
 pub mod settings;
+pub mod uploads;
 
 use axum::Router;
 use crate::state::AppState;
@@ -25,5 +26,6 @@ pub fn api_router() -> Router<AppState> {
         .nest("/llm-connectors", llm_connectors::router())
         .nest("/settings", settings::router())
         .nest("/agents/{id}/container", containers::router())
+        .nest("/uploads", uploads::router())
         .merge(shares::router())
 }

@@ -437,15 +437,58 @@ export const api = {
     unlinkAgent: (kbId: string, agentId: string) =>
       request<void>(`/api/knowledge/${kbId}/agents/${agentId}`, { method: 'DELETE' }),
   },
+
+  uploads: {
+    upload: async (files: File[], conversationId?: string): Promise<UploadFilesResponse> => {
+      const form = new FormData()
+      for (const f of files) form.append('files', f)
+      if (conversationId) form.append('conversation_id', conversationId)
+      const res = await fetch(`${BASE}/api/uploads`, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+      })
+      if (!res.ok) {
+        let detail = res.statusText
+        try { const body = await res.json(); if (body?.error) detail = body.error } catch {}
+        throw new Error(`${res.status} ${detail}`)
+      }
+      return res.json()
+    },
+    delete: (id: string) =>
+      request<void>(`/api/uploads/${id}`, { method: 'DELETE' }),
+    downloadUrl: (id: string) => `${BASE}/api/uploads/${id}`,
+  },
 }
 
 // ── SSE streaming helper ───────────────────────────────────────────
 
 export interface StreamChunk {
   delta?: string
+  reasoning_delta?: string
   done?: boolean
   id?: string
   error?: string
+}
+
+export type ReasoningEffort = 'low' | 'medium' | 'high'
+
+export interface ChatStreamOptions {
+  reasoning_effort?: ReasoningEffort
+  search_enabled?: boolean
+  attachment_ids?: string[]
+}
+
+export interface AttachmentInfo {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  created_at: string
+}
+
+export interface UploadFilesResponse {
+  files: AttachmentInfo[]
 }
 
 /**
@@ -455,6 +498,8 @@ export interface StreamChunk {
  * @param onChunk         Called for each streamed text delta
  * @param onDone          Called when the stream completes (with final message id)
  * @param onError         Called on network/API error
+ * @param onReasoning     Called for each reasoning/thinking delta
+ * @param options         Optional reasoning_effort and search_enabled flags
  */
 export function streamChat(
   conversationId: string,
@@ -462,14 +507,21 @@ export function streamChat(
   onChunk: (text: string) => void,
   onDone: (msgId: string) => void,
   onError: (err: string) => void,
+  onReasoning?: (text: string) => void,
+  options?: ChatStreamOptions,
 ): () => void {
   const controller = new AbortController()
+
+  const body: Record<string, unknown> = { content }
+  if (options?.reasoning_effort) body.reasoning_effort = options.reasoning_effort
+  if (options?.search_enabled !== undefined) body.search_enabled = options.search_enabled
+  if (options?.attachment_ids?.length) body.attachment_ids = options.attachment_ids
 
   fetch(`${BASE}/api/conversations/${conversationId}/chat/stream`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal: controller.signal,
   })
     .then(async (res) => {
@@ -494,6 +546,7 @@ export function streamChat(
             const chunk: StreamChunk = JSON.parse(data)
             if (chunk.error) { onError(chunk.error); return }
             if (chunk.done) { onDone(chunk.id ?? ''); return }
+            if (chunk.reasoning_delta && onReasoning) onReasoning(chunk.reasoning_delta)
             if (chunk.delta) onChunk(chunk.delta)
           } catch {
             // ignore malformed lines

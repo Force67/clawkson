@@ -250,6 +250,7 @@ async fn test_connection(
         &[(MessageRole::User, "Say \"OK\" in one word.".to_string())],
         None,
         Some(5),
+        None,
     )
     .await;
 

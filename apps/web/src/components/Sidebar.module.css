@@ -54,6 +54,13 @@
   overflow-y: auto;
 }
 
+.navBottom {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+}
+
 .navItem {
   position: relative;
   display: flex;
@@ -216,6 +223,10 @@
 }
 
 .collapsed .nav {
+  padding: 8px 8px;
+}
+
+.collapsed .navBottom {
   padding: 8px 8px;
 }
 

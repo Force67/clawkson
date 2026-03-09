@@ -8,9 +8,11 @@ use denkwerk::{
         openrouter::{OpenRouter, OpenRouterConfig},
     },
     ChatMessage, CompletionRequest, FunctionRegistry, LLMProvider,
-    MessageRole as DenkMessageRole, StreamEvent,
+    MessageRole as DenkMessageRole, ReasoningEffort as DenkReasoningEffort, StreamEvent,
 };
 use futures::StreamExt;
+
+use crate::routes::conversations::ReasoningEffort;
 
 fn resolve_base_url(connector: &LlmConnector) -> String {
     match &connector.provider_type {
@@ -29,12 +31,21 @@ fn role_to_denkwerk(role: &MessageRole) -> DenkMessageRole {
     }
 }
 
+fn map_reasoning_effort(effort: &ReasoningEffort) -> DenkReasoningEffort {
+    match effort {
+        ReasoningEffort::Low => DenkReasoningEffort::Low,
+        ReasoningEffort::Medium => DenkReasoningEffort::Medium,
+        ReasoningEffort::High => DenkReasoningEffort::High,
+    }
+}
+
 fn build_request(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
     history: &[(MessageRole, String)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
+    reasoning_effort: Option<&ReasoningEffort>,
 ) -> CompletionRequest {
     let mut messages = Vec::new();
 
@@ -54,6 +65,9 @@ fn build_request(
     }
     if let Some(max_tokens) = max_tokens {
         request = request.with_max_tokens(max_tokens);
+    }
+    if let Some(effort) = reasoning_effort {
+        request = request.with_reasoning_effort(map_reasoning_effort(effort));
     }
 
     request
@@ -91,9 +105,10 @@ pub async fn complete(
     history: &[(MessageRole, String)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
+    reasoning_effort: Option<&ReasoningEffort>,
 ) -> Result<String> {
     let provider = build_provider(connector)?;
-    let request = build_request(connector, system_prompt, history, temperature, max_tokens);
+    let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let response = provider.complete(request).await?;
 
     Ok(response.message.content.unwrap_or_default())
@@ -109,6 +124,7 @@ pub async fn complete_with_tools(
     max_tokens: Option<u32>,
     registry: &FunctionRegistry,
     max_rounds: usize,
+    reasoning_effort: Option<&ReasoningEffort>,
 ) -> Result<String> {
     let provider = build_provider(connector)?;
 
@@ -131,6 +147,9 @@ pub async fn complete_with_tools(
         }
         if let Some(mt) = max_tokens {
             request = request.with_max_tokens(mt);
+        }
+        if let Some(effort) = reasoning_effort {
+            request = request.with_reasoning_effort(map_reasoning_effort(effort));
         }
 
         let response = provider.complete(request).await?;
@@ -169,16 +188,19 @@ pub async fn complete_with_tools(
 }
 
 /// Stream a chat completion, yielding text deltas via a callback.
+/// When reasoning is enabled, reasoning tokens are forwarded via `on_reasoning`.
 pub async fn stream_complete(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
     history: &[(MessageRole, String)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
+    reasoning_effort: Option<&ReasoningEffort>,
     mut on_chunk: impl FnMut(String),
+    mut on_reasoning: impl FnMut(String),
 ) -> Result<String> {
     let provider = build_provider(connector)?;
-    let request = build_request(connector, system_prompt, history, temperature, max_tokens);
+    let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let mut stream = provider.stream_completion(request).await?;
     let mut full_text = String::new();
     let mut completed_text: Option<String> = None;
@@ -189,10 +211,13 @@ pub async fn stream_complete(
                 full_text.push_str(&text);
                 on_chunk(text);
             }
+            StreamEvent::ReasoningDelta(text) => {
+                on_reasoning(text);
+            }
             StreamEvent::Completed(response) => {
                 completed_text = response.message.content;
             }
-            StreamEvent::ReasoningDelta(_) | StreamEvent::ToolCallDelta { .. } => {}
+            StreamEvent::ToolCallDelta { .. } => {}
         }
     }
 
