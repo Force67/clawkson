@@ -247,7 +247,7 @@ async fn test_connection(
     let result = crate::llm::complete(
         &connector,
         None,
-        &[(MessageRole::User, "Say \"OK\" in one word.".to_string())],
+        &[(MessageRole::User, "Say \"OK\" in one word.".to_string(), Vec::new())],
         None,
         Some(5),
         None,

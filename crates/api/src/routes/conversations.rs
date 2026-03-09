@@ -334,20 +334,80 @@ fn row_to_llm_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> Llm
     }
 }
 
-/// Load message history from DB for a conversation.
-async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<(MessageRole, String)>, StatusCode> {
+/// A history entry: (role, text_content, attachment_rows_for_this_message).
+type HistoryEntry = (MessageRole, String, Vec<clawkson_db::chat_attachment::ChatAttachmentRow>);
+
+/// Load message history from DB for a conversation, including attachment metadata per message.
+async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntry>, StatusCode> {
     let rows = clawkson_db::message::list_for_conversation(&state.db, conv_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(rows.into_iter().map(|m| {
+
+    let pool = state.db.pool();
+    let mut result = Vec::with_capacity(rows.len());
+    for m in rows {
         let role = match m.role {
             clawkson_db::message::MessageRole::User => MessageRole::User,
             clawkson_db::message::MessageRole::Assistant => MessageRole::Assistant,
             clawkson_db::message::MessageRole::System => MessageRole::System,
             clawkson_db::message::MessageRole::Tool => MessageRole::Tool,
         };
-        (role, m.content)
-    }).collect())
+        // Only user messages ever have attachments, but querying for all is safe and cheap.
+        let attachments = clawkson_db::chat_attachment::list_for_message(pool, m.id)
+            .await
+            .unwrap_or_default();
+        result.push((role, m.content, attachments));
+    }
+    Ok(result)
+}
+
+/// Enrich history: resolve attachment metadata into either base64 data URLs (for
+/// vision-capable providers) or appended text descriptions (fallback).
+///
+/// Returns a plain `Vec<(MessageRole, String)>` ready for `llm.rs`.
+async fn enrich_history(
+    state: &AppState,
+    history: Vec<HistoryEntry>,
+    supports_vision: bool,
+) -> Vec<(MessageRole, String, Vec<String>)> {
+    let mut enriched = Vec::with_capacity(history.len());
+    for (role, mut content, attachments) in history {
+        let mut image_urls: Vec<String> = Vec::new();
+
+        if !attachments.is_empty() {
+            if supports_vision {
+                // Fetch image bytes from S3 and encode as data URLs.
+                if let Some(s3) = &state.s3 {
+                    for att in &attachments {
+                        match s3.get_object(&att.s3_key).await {
+                            Ok((bytes, ct)) => {
+                                let b64 = base64::Engine::encode(
+                                    &base64::engine::general_purpose::STANDARD,
+                                    &bytes,
+                                );
+                                image_urls.push(format!("data:{ct};base64,{b64}"));
+                            }
+                            Err(e) => {
+                                tracing::warn!("failed to fetch attachment {} from S3: {e}", att.id);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Text fallback: describe each attachment inline.
+                for att in &attachments {
+                    let kb = att.size_bytes / 1024;
+                    content.push_str(&format!(
+                        "\n\n[Attached file: {} ({}, {} KB) — image content not available for this model]",
+                        att.filename, att.content_type, kb
+                    ));
+                }
+            }
+        }
+
+        enriched.push((role, content, image_urls));
+    }
+    enriched
 }
 
 /// Build the tool registry for an agent (code execution + knowledge search).
@@ -402,7 +462,7 @@ async fn run_completion(
     state: &AppState,
     connector: &clawkson_core::LlmConnector,
     agent_cfg: &AgentConfig,
-    history: &[(MessageRole, String)],
+    history: &[(MessageRole, String, Vec<String>)],
     reasoning_effort: Option<&ReasoningEffort>,
     search_enabled: bool,
 ) -> anyhow::Result<String> {
@@ -489,11 +549,16 @@ async fn chat(
         return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
     };
 
-    // 5. Load history from DB
-    let history = match load_history(&state, conv_id).await {
+    // 5. Load history from DB and enrich with attachment data
+    let raw_history = match load_history(&state, conv_id).await {
         Ok(h) => h,
         Err(s) => return (s, Json(serde_json::json!({"error": "failed to load history"}))).into_response(),
     };
+    let supports_vision = {
+        use crate::llm::provider_supports_vision;
+        provider_supports_vision(&connector)
+    };
+    let history = enrich_history(&state, raw_history, supports_vision).await;
 
     // 6. Call LLM
     let default_cfg = AgentConfig {
@@ -608,7 +673,7 @@ async fn chat_stream(
         });
         return Sse::new(s).into_response();
     };
-    let history = match load_history(&state, conv_id).await {
+    let raw_history = match load_history(&state, conv_id).await {
         Ok(h) => h,
         Err(_) => {
             let s = stream::once(async {
@@ -617,6 +682,11 @@ async fn chat_stream(
             return Sse::new(s).into_response();
         }
     };
+    let supports_vision = {
+        use crate::llm::provider_supports_vision;
+        provider_supports_vision(&connector)
+    };
+    let history = enrich_history(&state, raw_history, supports_vision).await;
 
     let default_cfg = AgentConfig {
         agent_id,

@@ -42,7 +42,7 @@ fn map_reasoning_effort(effort: &ReasoningEffort) -> DenkReasoningEffort {
 fn build_request(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
-    history: &[(MessageRole, String)],
+    history: &[(MessageRole, String, Vec<String>)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
@@ -55,8 +55,13 @@ fn build_request(
         }
     }
 
-    for (role, content) in history {
-        messages.push(ChatMessage::new(role_to_denkwerk(role), content.clone()));
+    for (role, content, images) in history {
+        let msg = if !images.is_empty() && matches!(role, MessageRole::User) {
+            ChatMessage::user_with_images(content.clone(), images.clone())
+        } else {
+            ChatMessage::new(role_to_denkwerk(role), content.clone())
+        };
+        messages.push(msg);
     }
 
     let mut request = CompletionRequest::new(connector.model.clone(), messages);
@@ -98,11 +103,19 @@ fn build_provider(connector: &LlmConnector) -> Result<Box<dyn LLMProvider>> {
     }
 }
 
+/// Return whether the provider configured in `connector` supports image uploads.
+pub fn provider_supports_vision(connector: &LlmConnector) -> bool {
+    match build_provider(connector) {
+        Ok(provider) => provider.capabilities().supports_image_uploads,
+        Err(_) => false,
+    }
+}
+
 /// Perform a blocking (non-streaming) chat completion.
 pub async fn complete(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
-    history: &[(MessageRole, String)],
+    history: &[(MessageRole, String, Vec<String>)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
@@ -119,7 +132,7 @@ pub async fn complete(
 pub async fn complete_with_tools(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
-    history: &[(MessageRole, String)],
+    history: &[(MessageRole, String, Vec<String>)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     registry: &FunctionRegistry,
@@ -135,8 +148,13 @@ pub async fn complete_with_tools(
             messages.push(ChatMessage::system(sp));
         }
     }
-    for (role, content) in history {
-        messages.push(ChatMessage::new(role_to_denkwerk(role), content.clone()));
+    for (role, content, images) in history {
+        let msg = if !images.is_empty() && matches!(role, MessageRole::User) {
+            ChatMessage::user_with_images(content.clone(), images.clone())
+        } else {
+            ChatMessage::new(role_to_denkwerk(role), content.clone())
+        };
+        messages.push(msg);
     }
 
     for _round in 0..max_rounds {
@@ -192,7 +210,7 @@ pub async fn complete_with_tools(
 pub async fn stream_complete(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
-    history: &[(MessageRole, String)],
+    history: &[(MessageRole, String, Vec<String>)],
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
