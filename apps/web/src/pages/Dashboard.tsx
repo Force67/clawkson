@@ -26,7 +26,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
-import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type AgentStatus, type ContainerStatus } from '../lib/api'
+import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type Skill, type AgentStatus, type ContainerStatus } from '../lib/api'
 import styles from './Dashboard.module.css'
 
 // ── Agent Config Panel ────────────────────────────────────────────
@@ -35,11 +35,12 @@ interface ConfigPanelProps {
   agent: Agent
   connectors: LlmConnector[]
   knowledgeBases: KnowledgeBase[]
+  skills: Skill[]
   onSave: (updated: Agent) => void
   onClose: () => void
 }
 
-function ConfigPanel({ agent, connectors, knowledgeBases, onSave, onClose }: ConfigPanelProps) {
+function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClose }: ConfigPanelProps) {
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
@@ -60,30 +61,45 @@ function ConfigPanel({ agent, connectors, knowledgeBases, onSave, onClose }: Con
   const [networkEnabled, setNetworkEnabled] = useState(agent.container_config?.network_enabled ?? false)
   const [linkedKbIds, setLinkedKbIds] = useState<Set<string>>(new Set())
   const [kbLoading, setKbLoading] = useState(true)
+  const [linkedSkillIds, setLinkedSkillIds] = useState<Set<string>>(new Set())
+  const [skillLoading, setSkillLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  // Fetch which KBs are currently linked to this agent
+  // Fetch which KBs and skills are currently linked to this agent
   useEffect(() => {
     let cancelled = false
     const fetchLinked = async () => {
       setKbLoading(true)
+      setSkillLoading(true)
       try {
-        const linked = new Set<string>()
-        await Promise.all(
-          knowledgeBases.map(async (kb) => {
-            const agentIds = await api.knowledge.listAgents(kb.id)
-            if (agentIds.includes(agent.id)) linked.add(kb.id)
-          })
-        )
-        if (!cancelled) setLinkedKbIds(linked)
+        const [kbLinked, skillLinked] = await Promise.all([
+          (async () => {
+            const linked = new Set<string>()
+            await Promise.all(
+              knowledgeBases.map(async (kb) => {
+                const agentIds = await api.knowledge.listAgents(kb.id)
+                if (agentIds.includes(agent.id)) linked.add(kb.id)
+              })
+            )
+            return linked
+          })(),
+          api.agentSkills.list(agent.id).then(ids => new Set(ids)),
+        ])
+        if (!cancelled) {
+          setLinkedKbIds(kbLinked)
+          setLinkedSkillIds(skillLinked)
+        }
       } finally {
-        if (!cancelled) setKbLoading(false)
+        if (!cancelled) {
+          setKbLoading(false)
+          setSkillLoading(false)
+        }
       }
     }
     fetchLinked()
     return () => { cancelled = true }
-  }, [agent.id, knowledgeBases])
+  }, [agent.id, knowledgeBases, skills])
 
   const handleKbToggle = async (kbId: string) => {
     const isLinked = linkedKbIds.has(kbId)
@@ -97,6 +113,21 @@ function ConfigPanel({ agent, connectors, knowledgeBases, onSave, onClose }: Con
       }
     } catch (err) {
       console.error('Failed to toggle KB access:', err)
+    }
+  }
+
+  const handleSkillToggle = async (skillId: string) => {
+    const isLinked = linkedSkillIds.has(skillId)
+    try {
+      if (isLinked) {
+        await api.agentSkills.unlink(agent.id, skillId)
+        setLinkedSkillIds(prev => { const next = new Set(prev); next.delete(skillId); return next })
+      } else {
+        await api.agentSkills.link(agent.id, skillId)
+        setLinkedSkillIds(prev => new Set(prev).add(skillId))
+      }
+    } catch (err) {
+      console.error('Failed to toggle skill:', err)
     }
   }
 
@@ -338,6 +369,42 @@ function ConfigPanel({ agent, connectors, knowledgeBases, onSave, onClose }: Con
             </p>
           </div>
 
+          <div className={styles.fieldSection}>
+            <h4 className={styles.fieldSectionTitle}>Skills</h4>
+            {skills.length === 0 ? (
+              <p className={styles.fieldHint}>No skills available. Create skills to give agents reusable prompt modules invokable with /skill-name syntax.</p>
+            ) : skillLoading ? (
+              <div className={styles.kbLoading}>
+                <Loader2 size={13} className="spinning" />
+                <span>Loading...</span>
+              </div>
+            ) : (
+              <div className={styles.kbList}>
+                {skills.map(skill => (
+                  <label key={skill.id} className={styles.kbItem}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={linkedSkillIds.has(skill.id)}
+                      onChange={() => handleSkillToggle(skill.id)}
+                    />
+                    <div className={styles.kbItemInfo}>
+                      <span className={styles.kbItemName}>
+                        <Zap size={11} /> /{skill.name}
+                      </span>
+                      <span className={styles.kbItemMeta}>
+                        {skill.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className={styles.fieldHint}>
+              Linked skills can be activated by users with /skill-name in chat messages.
+            </p>
+          </div>
+
           {error && <p className={styles.errorMsg}>{error}</p>}
 
           <div className={styles.panelActions}>
@@ -504,6 +571,7 @@ export function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [connectors, setConnectors] = useState<LlmConnector[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
@@ -525,12 +593,13 @@ export function DashboardPage() {
   }
 
   useEffect(() => {
-    Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list(), api.knowledge.listBases()])
-      .then(([agts, convos, conns, kbs]) => {
+    Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list(), api.knowledge.listBases(), api.skills.list()])
+      .then(([agts, convos, conns, kbs, sks]) => {
         setAgents(agts)
         setConversations(convos)
         setConnectors(conns)
         setKnowledgeBases(kbs)
+        setSkills(sks)
         fetchContainerStatuses(agts)
       })
       .finally(() => setLoading(false))
@@ -712,6 +781,7 @@ export function DashboardPage() {
           agent={configuring}
           connectors={connectors}
           knowledgeBases={knowledgeBases}
+          skills={skills}
           onSave={handleUpdate}
           onClose={() => setConfiguring(null)}
         />

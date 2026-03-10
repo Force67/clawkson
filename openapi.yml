@@ -592,6 +592,154 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExecResult"
 
+  # ── Skills ────────────────────────────────────────────────
+
+  /api/skills:
+    get:
+      summary: List all skills
+      operationId: listSkills
+      tags: [Skills]
+      responses:
+        "200":
+          description: Array of skills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Skill"
+    post:
+      summary: Create a new skill (admin only)
+      operationId: createSkill
+      tags: [Skills]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSkillRequest"
+      responses:
+        "200":
+          description: Skill created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+
+  /api/skills/{id}:
+    get:
+      summary: Get a skill by ID
+      operationId: getSkill
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Skill details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+    patch:
+      summary: Update a skill (admin only)
+      operationId: patchSkill
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchSkillRequest"
+      responses:
+        "200":
+          description: Updated skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+    delete:
+      summary: Delete a skill (admin only)
+      operationId: deleteSkill
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Deleted
+
+  /api/agents/{id}/skills:
+    get:
+      summary: List skill IDs linked to an agent
+      operationId: listAgentSkills
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Array of skill UUIDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+    post:
+      summary: Link a skill to an agent (admin only)
+      operationId: linkAgentSkill
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skill_id]
+              properties:
+                skill_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Linked
+
+  /api/agents/{id}/skills/{skill_id}:
+    delete:
+      summary: Unlink a skill from an agent (admin only)
+      operationId: unlinkAgentSkill
+      tags: [Skills]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: skill_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Unlinked
+
   # ── Connectors ──────────────────────────────────────────────
 
   /api/connectors:
@@ -1366,6 +1514,58 @@ paths:
 
 components:
   schemas:
+    # ── Skill ──────────────────────────────────────────────────
+
+    Skill:
+      type: object
+      required: [id, name, description, instructions, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Lowercase, hyphen-separated name used as /skill-name in prompts
+          maxLength: 64
+          pattern: "^[a-z0-9-]+$"
+        description:
+          type: string
+        instructions:
+          type: string
+          description: Full instructions loaded when the skill is invoked
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateSkillRequest:
+      type: object
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          pattern: "^[a-z0-9-]+$"
+        description:
+          type: string
+        instructions:
+          type: string
+          default: ""
+
+    PatchSkillRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          pattern: "^[a-z0-9-]+$"
+        description:
+          type: string
+        instructions:
+          type: string
+
     # ── Agent ──────────────────────────────────────────────────
 
     Agent:
@@ -1594,11 +1794,15 @@ components:
 
     Connector:
       type: object
-      required: [id, name, connector_type, enabled, config, created_at]
+      required: [id, user_id, name, connector_type, enabled, config, created_at, updated_at]
       properties:
         id:
           type: string
           format: uuid
+        user_id:
+          type: string
+          format: uuid
+          description: The user who owns this connector
         name:
           type: string
         connector_type:
@@ -1610,10 +1814,13 @@ components:
         created_at:
           type: string
           format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     ConnectorType:
       type: string
-      enum: [telegram, gmail, slack, custom]
+      enum: [telegram, gmail, slack, azure_devops, custom]
 
     CreateConnectorRequest:
       type: object
@@ -1640,6 +1847,18 @@ components:
         bot_token:
           type: string
           description: Telegram Bot API token (from @BotFather)
+
+    AzureDevopsConnectorConfig:
+      type: object
+      required: [organization, pat]
+      description: Configuration fields for an Azure DevOps connector
+      properties:
+        organization:
+          type: string
+          description: Azure DevOps organization name (e.g. myorg)
+        pat:
+          type: string
+          description: Personal Access Token (PAT) with the required scopes
 
     # ── Knowledge Base ────────────────────────────────────────
 

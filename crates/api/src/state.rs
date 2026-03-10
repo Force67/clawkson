@@ -19,9 +19,8 @@ pub struct AppState {
 }
 
 pub struct AppStateInner {
-    // Agents, conversations, messages, LLM connectors, settings are now DB-backed.
+    // Agents, conversations, messages, LLM connectors, settings, connectors are all DB-backed.
     // Only non-persistent entities remain in-memory.
-    pub connectors: Vec<Connector>,
     pub tools: Vec<Tool>,
 }
 
@@ -35,10 +34,7 @@ impl AppState {
             db,
             container_manager,
             s3,
-            inner: Arc::new(RwLock::new(AppStateInner {
-                connectors: Vec::new(),
-                tools: Vec::new(),
-            })),
+            inner: Arc::new(RwLock::new(AppStateInner { tools: Vec::new() })),
         }
     }
 }

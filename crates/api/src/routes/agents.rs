@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use clawkson_core::{Agent, AgentContainerConfig, AgentStatus};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
@@ -15,6 +15,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_agents).post(create_agent))
         .route("/{id}", get(get_agent).patch(patch_agent).delete(delete_agent))
+        .route("/{id}/skills", get(list_agent_skills).post(link_agent_skill))
+        .route("/{id}/skills/full", get(list_agent_skills_full))
+        .route("/{id}/skills/{skill_id}", axum::routing::delete(unlink_agent_skill))
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,6 +169,78 @@ async fn delete_agent(
     match clawkson_db::agent::delete(&state.db, id).await {
         Ok(true) => StatusCode::NO_CONTENT,
         Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+// ── Agent ↔ Skill linking ────────────────────────────────────────
+
+async fn list_agent_skills(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Uuid>>, StatusCode> {
+    let skills = clawkson_db::skill::agent_list_skills(state.db.pool(), id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(skills.into_iter().map(|s| s.id).collect()))
+}
+
+/// Returns full skill objects for an agent — used by the chat UI.
+#[derive(Serialize)]
+struct AgentSkillInfo {
+    id: Uuid,
+    name: String,
+    description: String,
+}
+
+async fn list_agent_skills_full(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<AgentSkillInfo>>, StatusCode> {
+    let skills = clawkson_db::skill::agent_list_skills(state.db.pool(), id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(skills.into_iter().map(|s| AgentSkillInfo {
+        id: s.id,
+        name: s.name,
+        description: s.description,
+    }).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkSkillRequest {
+    pub skill_id: Uuid,
+}
+
+async fn link_agent_skill(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<LinkSkillRequest>,
+) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    match clawkson_db::skill::agent_link(state.db.pool(), id, req.skill_id).await {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+async fn unlink_agent_skill(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, skill_id)): Path<(Uuid, Uuid)>,
+) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    match clawkson_db::skill::agent_unlink(state.db.pool(), id, skill_id).await {
+        Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }

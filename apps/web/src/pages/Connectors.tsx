@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, Mail, MessageSquare, ToggleLeft, ToggleRight, Trash2, Send,
-  Loader2, Plug,
+  Loader2, Plug, GitBranch,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -14,6 +14,7 @@ const PLATFORM_META: Record<ConnectorType, { label: string; icon: typeof Message
   telegram: { label: 'Telegram', icon: Send, description: 'Receive and send messages through Telegram Bot API.', color: '#2AABEE' },
   gmail: { label: 'Gmail', icon: Mail, description: 'Read and send emails via Gmail API.', color: '#EA4335' },
   slack: { label: 'Slack', icon: MessageSquare, description: 'Integrate with Slack for team notifications.', color: '#4A154B' },
+  azure_devops: { label: 'Azure DevOps', icon: GitBranch, description: 'Access work items, pipelines, and repos via Azure DevOps.', color: '#0078D4' },
   custom: { label: 'Custom', icon: Plug, description: 'A custom integration connector.', color: 'var(--accent)' },
 }
 
@@ -25,21 +26,45 @@ interface AddPlatformModalProps {
 function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
   const [type, setType] = useState<ConnectorType>('telegram')
   const [name, setName] = useState('My Telegram Bot')
+  // Telegram
   const [botToken, setBotToken] = useState('')
+  // Azure DevOps
+  const [azureOrg, setAzureOrg] = useState('')
+  const [azurePat, setAzurePat] = useState('')
+
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  function handleTypeChange(t: ConnectorType) {
+    setType(t)
+    const defaults: Record<ConnectorType, string> = {
+      telegram: 'My Telegram Bot',
+      gmail: 'My Gmail',
+      slack: 'My Slack',
+      azure_devops: 'My Azure DevOps',
+      custom: 'My Connector',
+    }
+    setName(defaults[t])
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     if (!name.trim()) { setError('Name is required.'); return }
     if (type === 'telegram' && !botToken.trim()) { setError('Bot token is required.'); return }
+    if (type === 'azure_devops') {
+      if (!azureOrg.trim()) { setError('Organization is required.'); return }
+      if (!azurePat.trim()) { setError('Personal Access Token is required.'); return }
+    }
     setSaving(true)
     try {
+      let config: Record<string, string> = {}
+      if (type === 'telegram') config = { bot_token: botToken.trim() }
+      if (type === 'azure_devops') config = { organization: azureOrg.trim(), pat: azurePat.trim() }
       const connector = await api.connectors.create({
         name: name.trim(),
         connector_type: type,
-        config: type === 'telegram' ? { bot_token: botToken.trim() } : {},
+        config,
       })
       onCreated(connector)
     } catch (err) {
@@ -56,10 +81,11 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
         <form onSubmit={handleSubmit} className={styles.form}>
           <label className={styles.fieldLabel}>
             Type
-            <select className={styles.select} value={type} onChange={e => setType(e.target.value as ConnectorType)}>
+            <select className={styles.select} value={type} onChange={e => handleTypeChange(e.target.value as ConnectorType)}>
               <option value="telegram">Telegram</option>
               <option value="gmail">Gmail</option>
               <option value="slack">Slack</option>
+              <option value="azure_devops">Azure DevOps</option>
               <option value="custom">Custom</option>
             </select>
           </label>
@@ -73,6 +99,36 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
               <input className={styles.input} value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="123456789:ABCdef..." autoComplete="off" />
               <span className={styles.hint}>Get from <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> on Telegram.</span>
             </label>
+          )}
+          {type === 'azure_devops' && (
+            <>
+              <label className={styles.fieldLabel}>
+                Organization
+                <input
+                  className={styles.input}
+                  value={azureOrg}
+                  onChange={e => setAzureOrg(e.target.value)}
+                  placeholder="myorg"
+                  autoComplete="off"
+                />
+                <span className={styles.hint}>Your Azure DevOps organization name (dev.azure.com/<strong>myorg</strong>).</span>
+              </label>
+              <label className={styles.fieldLabel}>
+                Personal Access Token (PAT)
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={azurePat}
+                  onChange={e => setAzurePat(e.target.value)}
+                  placeholder="Paste your PAT here"
+                  autoComplete="new-password"
+                />
+                <span className={styles.hint}>
+                  Generate a PAT in Azure DevOps under <strong>User Settings → Personal access tokens</strong>.
+                  Required scopes depend on the tools you intend to use (e.g. Work Items Read &amp; Write, Code Read).
+                </span>
+              </label>
+            </>
           )}
           {error && <p className={styles.errorMsg}>{error}</p>}
           <div className={styles.modalActions}>
@@ -112,7 +168,7 @@ export function ConnectorsPage() {
     <div className="fade-in">
       <PageHeader
         title="Connectors"
-        description="Connect platforms like Telegram, Gmail, and Slack to enable agent interactions."
+        description="Connect platforms like Telegram, Gmail, Slack, and Azure DevOps to enable agent interactions."
         actions={
           <Button onClick={() => setShowAdd(true)}>
             <Plus size={15} /> Add Connector

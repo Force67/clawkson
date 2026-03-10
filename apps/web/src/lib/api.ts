@@ -88,15 +88,17 @@ export interface ChatResponse {
   assistant_message: Message
 }
 
-export type ConnectorType = 'telegram' | 'gmail' | 'slack' | 'custom'
+export type ConnectorType = 'telegram' | 'gmail' | 'slack' | 'azure_devops' | 'custom'
 
 export interface Connector {
   id: string
+  user_id: string
   name: string
   connector_type: ConnectorType
   enabled: boolean
   config: Record<string, unknown>
   created_at: string
+  updated_at: string
 }
 
 export interface KnowledgeBase {
@@ -149,6 +151,39 @@ export interface Tool {
   connector_id: string
   schema: Record<string, unknown>
   enabled: boolean
+}
+
+export interface Skill {
+  id: string
+  name: string
+  description: string
+  instructions: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateSkillRequest {
+  name: string
+  description: string
+  instructions?: string
+}
+
+export interface PatchSkillRequest {
+  name?: string
+  description?: string
+  instructions?: string
+}
+
+export interface SkillTemplate {
+  name: string
+  description: string
+  instructions: string
+}
+
+export interface AgentSkillInfo {
+  id: string
+  name: string
+  description: string
 }
 
 export type LlmProviderType = 'azure' | 'open_router' | 'open_ai' | 'custom'
@@ -376,6 +411,28 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ command, timeout }),
       }),
+  },
+
+  skills: {
+    list: () => request<Skill[]>('/api/skills'),
+    get: (id: string) => request<Skill>(`/api/skills/${id}`),
+    create: (body: CreateSkillRequest) =>
+      request<Skill>('/api/skills', { method: 'POST', body: JSON.stringify(body) }),
+    patch: (id: string, body: PatchSkillRequest) =>
+      request<Skill>(`/api/skills/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/skills/${id}`, { method: 'DELETE' }),
+    listAgents: (id: string) => request<string[]>(`/api/skills/${id}/agents`),
+    templates: () => request<SkillTemplate[]>('/api/skills/templates'),
+  },
+
+  agentSkills: {
+    list: (agentId: string) => request<string[]>(`/api/agents/${agentId}/skills`),
+    link: (agentId: string, skillId: string) =>
+      request<void>(`/api/agents/${agentId}/skills`, { method: 'POST', body: JSON.stringify({ skill_id: skillId }) }),
+    unlink: (agentId: string, skillId: string) =>
+      request<void>(`/api/agents/${agentId}/skills/${skillId}`, { method: 'DELETE' }),
+    full: (agentId: string) => request<AgentSkillInfo[]>(`/api/agents/${agentId}/skills/full`),
   },
 
   connectors: {

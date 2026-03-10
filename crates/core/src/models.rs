@@ -127,16 +127,33 @@ pub struct KnowledgeSearchResult {
     pub document_url: Option<String>,
 }
 
+// ── Skill ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: Uuid,
+    /// Lowercase, hyphen-separated name used as `/skill-name` in prompts.
+    pub name: String,
+    pub description: String,
+    /// The full instructions loaded when the skill is invoked.
+    pub instructions: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 // ── Connector ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connector {
     pub id: Uuid,
+    /// The user who owns this connector.
+    pub user_id: Uuid,
     pub name: String,
     pub connector_type: ConnectorType,
     pub enabled: bool,
     pub config: serde_json::Value,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -145,6 +162,7 @@ pub enum ConnectorType {
     Telegram,
     Gmail,
     Slack,
+    AzureDevops,
     Custom,
 }
 

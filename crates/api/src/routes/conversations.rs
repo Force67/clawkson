@@ -342,14 +342,82 @@ struct AgentConfig {
 
 async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
     let row = clawkson_db::agent::get_by_id(&state.db, agent_id).await.ok()??;
+
+    // Load linked skills and build enriched system prompt
+    let skills = clawkson_db::skill::agent_list_skills(state.db.pool(), row.id)
+        .await
+        .unwrap_or_default();
+
+    let system_prompt = build_system_prompt_with_skills(row.system_prompt.as_deref(), &skills);
+
     Some(AgentConfig {
         agent_id: row.id,
-        system_prompt: row.system_prompt,
+        system_prompt,
         temperature: row.temperature,
         max_tokens: row.max_tokens.map(|v| v as u32),
         container_enabled: row.container_enabled,
         container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
     })
+}
+
+/// Build the final system prompt by appending skill metadata and full instructions.
+/// Skills are always available to the agent — it can use them autonomously when
+/// relevant, or when the user explicitly invokes `/skill-name`.
+fn build_system_prompt_with_skills(
+    base_prompt: Option<&str>,
+    skills: &[clawkson_db::skill::SkillRow],
+) -> Option<String> {
+    if skills.is_empty() {
+        return base_prompt.map(|s| s.to_string());
+    }
+
+    let mut prompt = base_prompt.unwrap_or("").to_string();
+
+    prompt.push_str("\n\n<available-skills>\n");
+    prompt.push_str("You have access to the following skills. Use them automatically when they are relevant ");
+    prompt.push_str("to the user's request, or when the user explicitly invokes one with /skill-name.\n\n");
+    for skill in skills {
+        prompt.push_str(&format!(
+            "<skill name=\"{}\">\nDescription: {}\n\n{}\n</skill>\n\n",
+            skill.name, skill.description, skill.instructions
+        ));
+    }
+    prompt.push_str("</available-skills>");
+
+    Some(prompt)
+}
+
+/// Scan user message for `/skill-name` references and add explicit invocation markers.
+/// The full instructions are already in the system prompt, so this just signals
+/// that the user explicitly wants to use a particular skill.
+async fn expand_skill_references(
+    state: &AppState,
+    agent_id: Uuid,
+    content: &str,
+) -> String {
+    let skills = clawkson_db::skill::agent_list_skills(state.db.pool(), agent_id)
+        .await
+        .unwrap_or_default();
+
+    if skills.is_empty() {
+        return content.to_string();
+    }
+
+    let mut invoked: Vec<&str> = Vec::new();
+
+    for skill in &skills {
+        let slash_name = format!("/{}", skill.name);
+        if content.contains(&slash_name) {
+            invoked.push(&skill.name);
+        }
+    }
+
+    if invoked.is_empty() {
+        return content.to_string();
+    }
+
+    let names = invoked.iter().map(|n| format!("/{n}")).collect::<Vec<_>>().join(", ");
+    format!("{content}\n\n[Skill invoked: {names} — follow the skill instructions from your system prompt.]")
 }
 
 /// Load an LLM connector from DB by ID.
@@ -453,10 +521,10 @@ async fn enrich_history(
     enriched
 }
 
-/// Build the tool registry for an agent (code execution + knowledge search).
+/// Build the tool registry for an agent (code execution + knowledge search + http).
 /// When `search_enabled` is false the knowledge tools are omitted even if the
 /// agent has linked knowledge bases.
-async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, search_enabled: bool) -> denkwerk::FunctionRegistry {
+async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
 
     // Code execution tool (requires container)
@@ -497,6 +565,23 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, search_e
         }
     }
 
+    // Authenticated HTTP tool (available if the user has any enabled connectors)
+    if let Ok(connectors) = clawkson_db::connector::list_for_user(&state.db, user_id).await {
+        let enabled: Vec<_> = connectors.into_iter()
+            .filter(|c| c.enabled)
+            .map(|c| crate::tools::http_tool::ConnectorAuth {
+                connector_name: c.name,
+                connector_type: c.connector_type,
+                config: c.config,
+            })
+            .collect();
+
+        if !enabled.is_empty() {
+            let tool = crate::tools::AuthenticatedHttpTool::new(enabled);
+            registry.register(tool.into_dyn());
+        }
+    }
+
     registry
 }
 
@@ -507,9 +592,10 @@ async fn run_completion(
     agent_cfg: &AgentConfig,
     history: &[(MessageRole, String, Vec<String>)],
     reasoning_effort: Option<&ReasoningEffort>,
+    user_id: Uuid,
     search_enabled: bool,
 ) -> anyhow::Result<String> {
-    let registry = build_tool_registry(state, agent_cfg, search_enabled).await;
+    let registry = build_tool_registry(state, agent_cfg, user_id, search_enabled).await;
 
     if !registry.definitions().is_empty() {
         return crate::llm::complete_with_tools(
@@ -557,13 +643,16 @@ async fn chat(
     };
     let agent_id = conversation.agent_id.unwrap_or(Uuid::nil());
 
-    // 2. Save user message
-    let user_msg = match save_message(&state, conv_id, MessageRole::User, &req.content).await {
+    // 2. Expand skill references in user message
+    let expanded_content = expand_skill_references(&state, agent_id, &req.content).await;
+
+    // 3. Save user message (with expanded skill instructions)
+    let user_msg = match save_message(&state, conv_id, MessageRole::User, &expanded_content).await {
         Ok(m) => m,
         Err(s) => return (s, Json(serde_json::json!({"error": "failed to save message"}))).into_response(),
     };
 
-    // 2b. Link any uploaded attachments to the user message
+    // 3b. Link any uploaded attachments to the user message
     if !req.attachment_ids.is_empty() {
         let pool = state.db.pool();
         for att_id in &req.attachment_ids {
@@ -573,7 +662,7 @@ async fn chat(
         }
     }
 
-    // 3. Resolve LLM connector
+    // 4. Resolve LLM connector
     let connector_id = resolve_connector_id(&state, agent_id).await;
     let Some(connector_id) = connector_id else {
         let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
@@ -614,7 +703,7 @@ async fn chat(
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
-    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), req.search_enabled).await {
+    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), auth.id(), req.search_enabled).await {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("LLM completion failed: {e}");
@@ -673,11 +762,14 @@ async fn chat_stream(
     };
     let agent_id = conversation.agent_id.unwrap_or(Uuid::nil());
 
-    // Save user message
+    // Expand skill references in user message
+    let expanded_content = expand_skill_references(&state, agent_id, &req.content).await;
+
+    // Save user message (with expanded skill instructions)
     let user_msg_id = match clawkson_db::message::create(
         &state.db, conv_id, None,
         clawkson_db::message::MessageRole::User,
-        &req.content, None, None,
+        &expanded_content, None, None,
     ).await {
         Ok(row) => Some(row.id),
         Err(e) => {
@@ -740,7 +832,7 @@ async fn chat_stream(
         container_config: None,
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
-    let registry = build_tool_registry(&state, &cfg, req.search_enabled).await;
+    let registry = build_tool_registry(&state, &cfg, auth.id(), req.search_enabled).await;
     let system_prompt = cfg.system_prompt.clone();
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;

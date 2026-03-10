@@ -6,6 +6,7 @@ pub mod conversations;
 pub mod connectors;
 pub mod knowledge;
 pub mod shares;
+pub mod skills;
 pub mod tools;
 pub mod llm_connectors;
 pub mod settings;
@@ -26,6 +27,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/llm-connectors", llm_connectors::router())
         .nest("/settings", settings::router())
         .nest("/agents/{id}/container", containers::router())
+        .nest("/skills", skills::router())
         .nest("/uploads", uploads::router())
         .merge(shares::router())
 }

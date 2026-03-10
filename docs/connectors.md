@@ -4,6 +4,8 @@
 
 Connectors integrate external platforms with Clawkson. They provide tools that agents can use during conversations.
 
+Connectors are **user-scoped**: each connector belongs to the user who created it and is only visible to that user. No connector data is shared across user accounts.
+
 ## Connector Types
 
 | Type | Description |
@@ -11,6 +13,7 @@ Connectors integrate external platforms with Clawkson. They provide tools that a
 | `telegram` | Telegram Bot API integration |
 | `gmail` | Gmail API for reading/sending email |
 | `slack` | Slack workspace integration |
+| `azure_devops` | Azure DevOps work items, pipelines, and repos |
 | `custom` | User-defined connector |
 
 ## Telegram Connector
@@ -30,6 +33,32 @@ The Telegram connector uses the [Bot API](https://core.telegram.org/bots/api) an
 3. Select **Telegram** as the type.
 4. Enter a name and your bot token.
 5. Click **Add Connector** — the connector will appear in the list as enabled.
+
+## Azure DevOps Connector
+
+The Azure DevOps connector authenticates via a **Personal Access Token (PAT)**. PATs are user-specific and are stored encrypted in the database, never returned in full after creation.
+
+### Configuration
+
+| Field | Required | Description |
+|---|---|---|
+| `organization` | ✅ | Your Azure DevOps organization name (e.g. `myorg` in `dev.azure.com/myorg`) |
+| `pat` | ✅ | Personal Access Token with the required scopes |
+
+### Generating a PAT
+
+1. Open Azure DevOps and go to **User Settings → Personal access tokens**.
+2. Click **New Token**.
+3. Set a name, expiry, and select the scopes your agents will need (e.g. **Work Items: Read & Write**, **Code: Read**).
+4. Copy the generated token immediately — it is not shown again.
+
+### Adding via the UI
+
+1. Go to **Connectors** in the sidebar.
+2. Click **Add Connector**.
+3. Select **Azure DevOps** as the type.
+4. Enter a display name, your organization name, and your PAT.
+5. Click **Add Connector**.
 
 ## How Connectors Work
 
@@ -117,3 +146,4 @@ Custom connectors can be defined with:
 - Tool definitions (JSON Schema for parameters)
 
 Details on the connector SDK will be added as the feature matures.
+

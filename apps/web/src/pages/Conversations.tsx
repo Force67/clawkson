@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AttachmentInfo } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── New Conversation Dialog ───────────────────────────────────────
@@ -148,6 +148,54 @@ function ReasoningBlock({ content, isStreaming }: ReasoningBlockProps) {
   )
 }
 
+// ── Skill Slash Command Dropdown ──────────────────────────────────
+
+interface SkillDropdownProps {
+  skills: AgentSkillInfo[]
+  filter: string
+  selectedIndex: number
+  onSelect: (skill: AgentSkillInfo) => void
+  position: { bottom: number; left: number }
+}
+
+function SkillDropdown({ skills, filter, selectedIndex, onSelect, position }: SkillDropdownProps) {
+  const filtered = skills.filter(s =>
+    s.name.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  if (filtered.length === 0) return null
+
+  return (
+    <div
+      className={styles.skillDropdown}
+      style={{ bottom: position.bottom, left: position.left }}
+    >
+      <div className={styles.skillDropdownHeader}>
+        <Zap size={11} />
+        <span>Skills</span>
+      </div>
+      <div className={styles.skillDropdownList}>
+        {filtered.map((skill, i) => (
+          <button
+            key={skill.id}
+            type="button"
+            className={`${styles.skillDropdownItem} ${i === selectedIndex ? styles.skillDropdownItemActive : ''}`}
+            onMouseDown={e => { e.preventDefault(); onSelect(skill) }}
+          >
+            <div className={styles.skillDropdownIcon}>
+              <Zap size={12} />
+            </div>
+            <div className={styles.skillDropdownContent}>
+              <span className={styles.skillDropdownName}>/{skill.name}</span>
+              <span className={styles.skillDropdownDesc}>{skill.description}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────
 
 export function ConversationsPage() {
@@ -170,11 +218,16 @@ export function ConversationsPage() {
   const [clearingMessages, setClearingMessages] = useState(false)
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [agentSkills, setAgentSkills] = useState<AgentSkillInfo[]>([])
+  const [showSkillDropdown, setShowSkillDropdown] = useState(false)
+  const [slashFilter, setSlashFilter] = useState('')
+  const [skillDropdownIndex, setSkillDropdownIndex] = useState(0)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const stopStreamRef = useRef<(() => void) | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputDockRef = useRef<HTMLDivElement>(null)
 
   const selectedConvo = conversations.find(c => c.id === selectedId)
   const selectedAgent = agents.find(a => a.id === selectedConvo?.agent_id)
@@ -202,6 +255,14 @@ export function ConversationsPage() {
     setMessages([])
     api.conversations.messages(selectedId).then(setMessages)
   }, [selectedId])
+
+  // Load agent skills when the selected agent changes
+  useEffect(() => {
+    if (!selectedAgent) { setAgentSkills([]); return }
+    api.agentSkills.full(selectedAgent.id)
+      .then(setAgentSkills)
+      .catch(() => setAgentSkills([]))
+  }, [selectedAgent?.id])
 
   // Scroll to bottom on new messages or stream buffer changes
   useEffect(() => {
@@ -301,7 +362,70 @@ export function ConversationsPage() {
     stopStreamRef.current = stop
   }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles])
 
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setInput(val)
+
+    // Detect slash command: look for `/` preceded by start-of-string or whitespace
+    const cursorPos = e.target.selectionStart ?? val.length
+    const textBeforeCursor = val.slice(0, cursorPos)
+    const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/[a-z0-9-]*)$/)
+
+    if (slashMatch && agentSkills.length > 0) {
+      const query = slashMatch[1].slice(1) // remove the leading /
+      setSlashFilter(query)
+      setSkillDropdownIndex(0)
+      setShowSkillDropdown(true)
+    } else {
+      setShowSkillDropdown(false)
+    }
+  }, [agentSkills])
+
+  const handleSkillSelect = useCallback((skill: AgentSkillInfo) => {
+    const cursorPos = inputRef.current?.selectionStart ?? input.length
+    const textBeforeCursor = input.slice(0, cursorPos)
+    const textAfterCursor = input.slice(cursorPos)
+
+    // Replace the partial /slash with the full skill name
+    const replaced = textBeforeCursor.replace(/(?:^|\s)(\/[a-z0-9-]*)$/, (match) => {
+      const prefix = match.startsWith('/') ? '' : match[0] // keep the whitespace prefix
+      return `${prefix}/${skill.name}`
+    })
+
+    const newVal = replaced + (textAfterCursor.startsWith(' ') ? textAfterCursor : ' ' + textAfterCursor)
+    setInput(newVal.trimEnd() + ' ')
+    setShowSkillDropdown(false)
+    inputRef.current?.focus()
+  }, [input])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle dropdown navigation
+    if (showSkillDropdown) {
+      const filtered = agentSkills.filter(s =>
+        s.name.toLowerCase().includes(slashFilter.toLowerCase())
+      )
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSkillDropdownIndex(i => Math.min(i + 1, filtered.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSkillDropdownIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && filtered.length > 0) {
+        e.preventDefault()
+        handleSkillSelect(filtered[skillDropdownIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowSkillDropdown(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
@@ -565,7 +689,7 @@ export function ConversationsPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div className={styles.inputDock}>
+              <div className={styles.inputDock} ref={inputDockRef}>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -573,7 +697,19 @@ export function ConversationsPage() {
                   className={styles.hiddenFileInput}
                   onChange={handleFileChange}
                 />
-                <div className={styles.inputNotice}>Use <span>@toolname</span> to trigger tools inside the conversation.</div>
+                <div className={styles.inputNotice}>
+                  Use <span>@toolname</span> for tools{agentSkills.length > 0 ? <> or <span>/skill</span> to invoke skills</> : null}.
+                </div>
+
+                {showSkillDropdown && (
+                  <SkillDropdown
+                    skills={agentSkills}
+                    filter={slashFilter}
+                    selectedIndex={skillDropdownIndex}
+                    onSelect={handleSkillSelect}
+                    position={{ bottom: inputDockRef.current ? inputDockRef.current.offsetHeight - 8 : 60, left: 24 }}
+                  />
+                )}
 
                 {pendingFiles.length > 0 && (
                   <div className={styles.attachmentPreview}>
@@ -600,9 +736,9 @@ export function ConversationsPage() {
                     ref={inputRef}
                     className={styles.input}
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={streaming ? 'Waiting for response...' : 'Type your message here...'}
+                    placeholder={streaming ? 'Waiting for response...' : agentSkills.length > 0 ? 'Type a message or / for skills...' : 'Type your message here...'}
                     rows={1}
                     disabled={streaming}
                   />

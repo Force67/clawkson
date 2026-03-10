@@ -7,6 +7,7 @@ import { ConversationsPage } from './pages/Conversations'
 import { KnowledgeBasePage } from './pages/KnowledgeBase'
 import { ConnectorsPage } from './pages/Connectors'
 import { ToolsPage } from './pages/Tools'
+import { SkillsPage } from './pages/Skills'
 import { SettingsPage } from './pages/Settings'
 import { DocsPage } from './pages/Docs'
 
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="/knowledge" element={<KnowledgeBasePage />} />
         <Route path="/connectors" element={<ConnectorsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
+        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/docs" element={<DocsPage />} />
       </Route>

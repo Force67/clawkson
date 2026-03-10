@@ -4,6 +4,7 @@ mod migrate;
 
 pub mod agent;
 pub mod chat_attachment;
+pub mod connector;
 pub mod conversation;
 pub mod message;
 pub mod user;
@@ -14,6 +15,7 @@ pub mod knowledge_document;
 pub mod knowledge_entry;
 pub mod llm_connector;
 pub mod settings;
+pub mod skill;
 
 pub use bootstrap::{
     bootstrap_database,

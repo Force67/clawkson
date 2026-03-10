@@ -5,6 +5,7 @@ import {
   BookOpen,
   Plug,
   Wrench,
+  Zap,
   Settings,
   FileText,
   PanelLeftClose,
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
   { path: '/connectors', label: 'Connectors', icon: Plug },
   { path: '/tools', label: 'Tools', icon: Wrench },
+  { path: '/skills', label: 'Skills', icon: Zap },
 ]
 
 const NAV_BOTTOM_ITEMS = [
