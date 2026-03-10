@@ -320,7 +320,13 @@ export const api = {
     get: (id: string) => request<Conversation>(`/api/conversations/${id}`),
     create: (body: CreateConversationRequest) =>
       request<Conversation>('/api/conversations', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/conversations/${id}`, { method: 'DELETE' }),
+    deleteAll: () =>
+      request<void>('/api/conversations', { method: 'DELETE' }),
     messages: (id: string) => request<Message[]>(`/api/conversations/${id}/messages`),
+    clearMessages: (id: string) =>
+      request<void>(`/api/conversations/${id}/messages`, { method: 'DELETE' }),
     chat: (id: string, content: string) =>
       request<ChatResponse>(`/api/conversations/${id}/chat`, {
         method: 'POST',

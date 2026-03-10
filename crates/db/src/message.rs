@@ -220,3 +220,14 @@ pub async fn delete(db: &Db, id: Uuid) -> Result<bool, DbError> {
 
     Ok(result.rows_affected() > 0)
 }
+
+/// Delete all messages in a conversation without deleting the conversation itself.
+/// Returns the number of messages deleted.
+pub async fn clear_for_conversation(db: &Db, conversation_id: Uuid) -> Result<u64, DbError> {
+    let result = sqlx::query("DELETE FROM messages WHERE conversation_id = $1")
+        .bind(conversation_id)
+        .execute(db.pool())
+        .await?;
+
+    Ok(result.rows_affected())
+}

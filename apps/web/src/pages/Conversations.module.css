@@ -842,6 +842,34 @@
   color: var(--text-primary);
 }
 
+.dialogBody {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+
+/* ── Sidebar actions group ───────────────────────────────────── */
+
+.sidebarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Danger-tinted icon button */
+
+.iconBtnDanger:hover {
+  background: color-mix(in srgb, var(--color-error, #e05252) 12%, transparent);
+  color: var(--color-error, #e05252);
+  border-color: color-mix(in srgb, var(--color-error, #e05252) 35%, transparent);
+}
+
+.iconBtnDanger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .formGroup {
   margin-bottom: 14px;
 }

@@ -212,6 +212,67 @@
   margin-bottom: 8px;
 }
 
+/* ── Azure multi-deployment ──────────────────────────────────── */
+
+.azureDeploymentList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.azureDeploymentRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.azureDeploymentRow .formInput {
+  margin-bottom: 0;
+}
+
+.azureDeploymentRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.azureDeploymentRemove:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error);
+}
+
+.azureDeploymentAdd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.azureDeploymentAdd:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
 /* ── Inference list ──────────────────────────────────────────── */
 
 .inferenceList {

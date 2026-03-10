@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AttachmentInfo } from '../lib/api'
@@ -167,6 +167,9 @@ export function ConversationsPage() {
   const [searchEnabled, setSearchEnabled] = useState(true)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [clearingMessages, setClearingMessages] = useState(false)
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -329,6 +332,38 @@ export function ConversationsPage() {
     setPendingFiles(prev => prev.filter((_, i) => i !== index))
   }
 
+  const handleClearMessages = useCallback(async () => {
+    if (!selectedId || clearingMessages || streaming) return
+    setClearingMessages(true)
+    try {
+      await api.conversations.clearMessages(selectedId)
+      setMessages([])
+      setStreamBuffer('')
+      setReasoningBuffer('')
+    } catch (err) {
+      console.error('Failed to clear messages:', err)
+    } finally {
+      setClearingMessages(false)
+    }
+  }, [selectedId, clearingMessages, streaming])
+
+  const handleDeleteAll = useCallback(async () => {
+    setDeletingAll(true)
+    try {
+      await api.conversations.deleteAll()
+      setConversations([])
+      setSelectedId(null)
+      setMessages([])
+      setStreamBuffer('')
+      setReasoningBuffer('')
+    } catch (err) {
+      console.error('Failed to delete all conversations:', err)
+    } finally {
+      setDeletingAll(false)
+      setShowDeleteAllConfirm(false)
+    }
+  }, [])
+
   if (loading) {
     return (
       <div className={`fade-in ${styles.container}`}>
@@ -351,9 +386,20 @@ export function ConversationsPage() {
               <p className={styles.sidebarEyebrow}>Thread Deck</p>
               <h1 className={styles.sidebarTitle}>Conversations</h1>
             </div>
-            <button className={styles.iconBtn} type="button" title="Conversation settings">
-              <SlidersHorizontal size={15} />
-            </button>
+            <div className={styles.sidebarActions}>
+              <button
+                className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                type="button"
+                title="Delete all conversations"
+                onClick={() => setShowDeleteAllConfirm(true)}
+                disabled={conversations.length === 0}
+              >
+                <Trash2 size={15} />
+              </button>
+              <button className={styles.iconBtn} type="button" title="Conversation settings">
+                <SlidersHorizontal size={15} />
+              </button>
+            </div>
           </div>
 
           <button className={styles.newConversationBtn} onClick={() => setShowNewDialog(true)} type="button">
@@ -437,6 +483,18 @@ export function ConversationsPage() {
                   )}
                 </div>
                 <div className={styles.chatHeaderActions}>
+                  <button
+                    className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                    type="button"
+                    title="Clear all messages"
+                    onClick={handleClearMessages}
+                    disabled={clearingMessages || streaming || messages.length === 0}
+                  >
+                    {clearingMessages
+                      ? <Loader2 size={14} className={styles.spinning} />
+                      : <Eraser size={14} />
+                    }
+                  </button>
                   <button className={styles.iconBtn} type="button" title="Conversation controls">
                     <SlidersHorizontal size={14} />
                   </button>
@@ -619,6 +677,29 @@ export function ConversationsPage() {
           onClose={() => setShowNewDialog(false)}
           onCreate={handleNewConvo}
         />
+      )}
+
+      {showDeleteAllConfirm && (
+        <div className={styles.dialogOverlay} onClick={() => !deletingAll && setShowDeleteAllConfirm(false)}>
+          <div className={styles.dialog} onClick={e => e.stopPropagation()}>
+            <div className={styles.dialogHeader}>
+              <h3 className={styles.dialogTitle}>Delete all conversations?</h3>
+              <button className={styles.dialogClose} onClick={() => setShowDeleteAllConfirm(false)} disabled={deletingAll}><X size={16} /></button>
+            </div>
+            <p className={styles.dialogBody}>
+              This will permanently delete all your conversations and their messages. This action cannot be undone.
+            </p>
+            <div className={styles.dialogActions}>
+              <Button variant="secondary" size="sm" type="button" onClick={() => setShowDeleteAllConfirm(false)} disabled={deletingAll}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" type="button" onClick={handleDeleteAll} disabled={deletingAll}>
+                {deletingAll ? <Loader2 size={14} className={styles.spinning} /> : <Trash2 size={14} />}
+                Delete all
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

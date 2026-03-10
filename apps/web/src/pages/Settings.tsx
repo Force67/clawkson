@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  ChevronDown, Plus, Check, Loader2,
+  ChevronDown, Plus, Check, Loader2, X,
   Cloud, Zap, Globe, Star, Key, Trash2, Pencil, Cpu, Palette,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
@@ -33,14 +33,23 @@ interface InferenceFormProps {
   onCancel: () => void
 }
 
+interface AzureDeploymentEntry {
+  deployment: string
+  model: string
+}
+
 function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
   const [provider, setProvider] = useState<LlmProviderType>(editing?.provider_type ?? 'open_router')
   const [name, setName] = useState(editing?.name ?? '')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState(editing?.model ?? LLM_PROVIDERS[0].defaultModel)
   const [baseUrl, setBaseUrl] = useState(editing?.api_base_url ?? '')
-  const [azureDeployment, setAzureDeployment] = useState(editing?.azure_deployment ?? '')
   const [azureVersion, setAzureVersion] = useState(editing?.azure_api_version ?? '2024-12-01-preview')
+  const [azureDeployments, setAzureDeployments] = useState<AzureDeploymentEntry[]>(
+    editing?.provider_type === 'azure'
+      ? [{ deployment: editing.azure_deployment ?? '', model: editing.model ?? 'gpt-4o' }]
+      : [{ deployment: '', model: 'gpt-4o' }]
+  )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [testing, setTesting] = useState(false)
@@ -48,6 +57,7 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
 
   const isEdit = !!editing
   const providerMeta = LLM_PROVIDERS.find(p => p.id === provider)!
+  const isAzureMulti = provider === 'azure'
 
   const handleProviderChange = (p: LlmProviderType) => {
     setProvider(p)
@@ -58,12 +68,68 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
     }
   }
 
+  const updateAzureDeployment = (index: number, field: keyof AzureDeploymentEntry, value: string) => {
+    setAzureDeployments(prev => prev.map((d, i) => i === index ? { ...d, [field]: value } : d))
+  }
+
+  const addAzureDeployment = () => {
+    setAzureDeployments(prev => [...prev, { deployment: '', model: 'gpt-4o' }])
+  }
+
+  const removeAzureDeployment = (index: number) => {
+    setAzureDeployments(prev => prev.filter((_, i) => i !== index))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!name.trim() || !model.trim()) { setError('Name and model are required.'); return }
     if (!isEdit && !apiKey.trim()) { setError('API key is required.'); return }
-    if (provider === 'azure' && !baseUrl.trim()) { setError('Azure base URL is required.'); return }
+    if (provider === 'azure' && !baseUrl.trim()) { setError('Azure resource endpoint is required.'); return }
+
+    if (isAzureMulti) {
+      const valid = azureDeployments.filter(d => d.deployment.trim() && d.model.trim())
+      if (valid.length === 0) { setError('Add at least one deployment with a name and model.'); return }
+      setSubmitting(true)
+      try {
+        let last: LlmConnector | null = null
+        for (let i = 0; i < valid.length; i++) {
+          const dep = valid[i]
+          const connectorName = name.trim() ? `${name.trim()} / ${dep.deployment.trim()}` : dep.deployment.trim()
+          if (isEdit && i === 0) {
+            // Patch the existing connector with the first entry
+            last = await api.llmConnectors.patch(editing.id, {
+              name: connectorName,
+              provider_type: 'azure',
+              model: dep.model.trim(),
+              ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+              api_base_url: baseUrl.trim() || undefined,
+              azure_deployment: dep.deployment.trim(),
+              azure_api_version: azureVersion.trim() || undefined,
+            })
+          } else {
+            // Create new connectors for additional entries (or all entries in add mode)
+            if (!apiKey.trim()) { setError('API key is required for new deployments.'); setSubmitting(false); return }
+            last = await api.llmConnectors.create({
+              name: connectorName,
+              provider_type: 'azure',
+              api_key: apiKey.trim(),
+              model: dep.model.trim(),
+              api_base_url: baseUrl.trim() || undefined,
+              azure_deployment: dep.deployment.trim(),
+              azure_api_version: azureVersion.trim() || undefined,
+            })
+          }
+        }
+        if (last) onSave(last)
+      } catch (err) {
+        setError(String(err))
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    if (!name.trim() || !model.trim()) { setError('Name and model are required.'); return }
     setSubmitting(true)
     try {
       let c: LlmConnector
@@ -74,8 +140,6 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
           model: model.trim(),
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
           api_base_url: baseUrl.trim() || undefined,
-          azure_deployment: azureDeployment.trim() || undefined,
-          azure_api_version: azureVersion.trim() || undefined,
         })
       } else {
         c = await api.llmConnectors.create({
@@ -84,8 +148,6 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
           api_key: apiKey.trim(),
           model: model.trim(),
           api_base_url: baseUrl.trim() || undefined,
-          azure_deployment: azureDeployment.trim() || undefined,
-          azure_api_version: azureVersion.trim() || undefined,
         })
       }
       onSave(c)
@@ -102,16 +164,25 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
     const effectiveKey = apiKey.trim() || (isEdit ? '__existing__' : '')
     if (!effectiveKey) { setError('Enter an API key to test.'); return }
     if (provider === 'azure' && !baseUrl.trim()) { setError('Azure base URL is required to test.'); return }
-    if (!model.trim()) { setError('Model is required to test.'); return }
+
+    // For Azure multi-mode, test the first deployment; for edit/other, test model field
+    const testModel = isAzureMulti
+      ? (azureDeployments[0]?.model.trim() || 'gpt-4o')
+      : model.trim()
+    const testDeployment = isAzureMulti
+      ? (azureDeployments[0]?.deployment.trim() || undefined)
+      : undefined
+
+    if (!testModel) { setError('Model is required to test.'); return }
     setTesting(true)
     try {
       const result = await api.llmConnectors.test({
         name: name || 'test',
         provider_type: provider,
         api_key: apiKey.trim() || (isEdit ? '' : ''),
-        model: model.trim(),
+        model: testModel,
         api_base_url: baseUrl.trim() || undefined,
-        azure_deployment: azureDeployment.trim() || undefined,
+        azure_deployment: testDeployment,
         azure_api_version: azureVersion.trim() || undefined,
       })
       setTestResult(result)
@@ -143,16 +214,24 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className={styles.formRow}>
-          <div className={styles.formGroup}>
-            <label className={styles.formLabel}>Connector Name</label>
-            <input className={styles.formInput} value={name} onChange={e => setName(e.target.value)} placeholder={providerMeta.label} />
+        {!isAzureMulti && (
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Connector Name</label>
+              <input className={styles.formInput} value={name} onChange={e => setName(e.target.value)} placeholder={providerMeta.label} />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Model</label>
+              <input className={styles.formInput} value={model} onChange={e => setModel(e.target.value)} placeholder={providerMeta.defaultModel} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+            </div>
           </div>
+        )}
+        {isAzureMulti && (
           <div className={styles.formGroup}>
-            <label className={styles.formLabel}>Model</label>
-            <input className={styles.formInput} value={model} onChange={e => setModel(e.target.value)} placeholder={providerMeta.defaultModel} style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+            <label className={styles.formLabel}>Name Prefix</label>
+            <input className={styles.formInput} value={name} onChange={e => setName(e.target.value)} placeholder="Azure OpenAI" />
           </div>
-        </div>
+        )}
         <div className={styles.formGroup}>
           <label className={styles.formLabel}>API Key</label>
           <input
@@ -164,20 +243,45 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
             autoComplete="off"
           />
         </div>
-        {provider === 'azure' && (
+        {isAzureMulti && (
           <>
             <div className={styles.formGroup}>
               <label className={styles.formLabel}>Resource Endpoint</label>
               <input className={styles.formInput} value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://my-resource.openai.azure.com" />
             </div>
-            <div className={styles.formRow}>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Deployment Name</label>
-                <input className={styles.formInput} value={azureDeployment} onChange={e => setAzureDeployment(e.target.value)} placeholder="gpt-4o-deployment" />
-              </div>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>API Version</label>
-                <input className={styles.formInput} value={azureVersion} onChange={e => setAzureVersion(e.target.value)} placeholder="2024-12-01-preview" />
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>API Version</label>
+              <input className={styles.formInput} value={azureVersion} onChange={e => setAzureVersion(e.target.value)} placeholder="2024-12-01-preview" />
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>Deployments</label>
+              <div className={styles.azureDeploymentList}>
+                {azureDeployments.map((dep, i) => (
+                  <div key={i} className={styles.azureDeploymentRow}>
+                    <input
+                      className={styles.formInput}
+                      value={dep.deployment}
+                      onChange={e => updateAzureDeployment(i, 'deployment', e.target.value)}
+                      placeholder="deployment-name"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                    />
+                    <input
+                      className={styles.formInput}
+                      value={dep.model}
+                      onChange={e => updateAzureDeployment(i, 'model', e.target.value)}
+                      placeholder="model (e.g. gpt-4o)"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                    />
+                    {azureDeployments.length > 1 && (
+                      <button type="button" className={styles.azureDeploymentRemove} onClick={() => removeAzureDeployment(i)} title="Remove">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className={styles.azureDeploymentAdd} onClick={addAzureDeployment}>
+                  <Plus size={12} /> Add deployment
+                </button>
               </div>
             </div>
           </>
@@ -225,16 +329,14 @@ export function SettingsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const handleSave = async (c: LlmConnector) => {
+  const handleSave = async (_c: LlmConnector) => {
     const isEdit = formState?.mode === 'edit'
-    if (isEdit) {
-      setLlmConnectors(prev => prev.map(x => x.id === c.id ? c : x))
-    } else {
-      setLlmConnectors(prev => [...prev, c])
-      if (!settings?.default_llm_connector_id) {
-        const s = await api.settings.patch({ default_llm_connector_id: c.id })
-        setSettings(s)
-      }
+    // Reload full list to capture batch-created Azure connectors
+    const conns = await api.llmConnectors.list()
+    setLlmConnectors(conns)
+    if (!isEdit && !settings?.default_llm_connector_id && conns.length > 0) {
+      const s = await api.settings.patch({ default_llm_connector_id: conns[0].id })
+      setSettings(s)
     }
     setFormState(null)
   }

@@ -19,9 +19,9 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(list_conversations).post(create_conversation))
+        .route("/", get(list_conversations).post(create_conversation).delete(delete_all_conversations))
         .route("/{id}", get(get_conversation).delete(delete_conversation))
-        .route("/{id}/messages", get(list_messages).post(send_message))
+        .route("/{id}/messages", get(list_messages).post(send_message).delete(clear_messages))
         .route("/{id}/chat", axum::routing::post(chat))
         .route("/{id}/chat/stream", axum::routing::post(chat_stream))
 }
@@ -225,6 +225,49 @@ async fn delete_conversation(
         Ok(false) => StatusCode::NOT_FOUND,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
+}
+
+/// DELETE /api/conversations/{id}/messages — wipe all messages from a conversation
+/// while keeping the conversation record itself. Requires write access.
+async fn clear_messages(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
+    let writable = match can_write(&state, id, auth.id(), auth.is_admin()).await {
+        Ok(v) => v,
+        Err(status) => return status,
+    };
+    if !writable {
+        return StatusCode::FORBIDDEN;
+    }
+    match clawkson_db::message::clear_for_conversation(&state.db, id).await {
+        Ok(_) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// DELETE /api/conversations — delete ALL conversations owned by the authenticated user.
+/// Admin users may delete all conversations in the system.
+async fn delete_all_conversations(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> StatusCode {
+    let rows = if auth.is_admin() {
+        clawkson_db::conversation::list_all(&state.db).await
+    } else {
+        clawkson_db::conversation::list_for_user(&state.db, auth.id()).await
+    };
+    let rows = match rows {
+        Ok(r) => r,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    for conv in rows {
+        if let Err(_) = clawkson_db::conversation::delete(&state.db, conv.id).await {
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    }
+    StatusCode::NO_CONTENT
 }
 
 async fn list_messages(

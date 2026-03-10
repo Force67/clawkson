@@ -132,6 +132,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Conversation"
+    delete:
+      summary: Delete all conversations owned by the authenticated user
+      operationId: deleteAllConversations
+      tags: [Conversations]
+      responses:
+        "204":
+          description: All conversations deleted
 
   /api/conversations/{id}:
     get:
@@ -152,6 +159,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Conversation"
+    delete:
+      summary: Delete a conversation and all its messages
+      operationId: deleteConversation
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Conversation deleted
+        "403":
+          description: Forbidden (not owner or admin)
+        "404":
+          description: Not found
 
   /api/conversations/{id}/messages:
     get:
@@ -198,6 +223,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Message"
+    delete:
+      summary: Clear all messages from a conversation without deleting the conversation
+      operationId: clearMessages
+      tags: [Conversations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Messages cleared
+        "403":
+          description: Forbidden (no write access)
+        "404":
+          description: Conversation not found
 
   /api/conversations/{id}/chat:
     post:
