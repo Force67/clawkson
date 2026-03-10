@@ -16,10 +16,13 @@ use futures::StreamExt;
 use crate::error::ContainerError;
 use crate::executor::exec_in_container;
 use crate::models::*;
+use crate::workspace;
 
 const DEFAULT_TIMEOUT: u64 = 30;
 const MAX_TIMEOUT: u64 = 300;
 const LABEL_PREFIX: &str = "clawkson";
+/// Default output directory scanned after exec (relative to workspace root).
+const DEFAULT_OUTPUT_DIR: &str = "outputs";
 
 pub struct ContainerManager {
     docker: Docker,
@@ -272,7 +275,47 @@ impl ContainerManager {
             .min(MAX_TIMEOUT);
 
         let cmd = vec!["sh", "-c", &request.command];
-        exec_in_container(&self.docker, &info.docker_id, cmd, timeout).await
+        let mut result = exec_in_container(&self.docker, &info.docker_id, cmd, timeout).await?;
+
+        // Collect output files if requested (default: scan "outputs/" dir).
+        let output_dir = request.output_dir.as_deref().unwrap_or(DEFAULT_OUTPUT_DIR);
+        if !output_dir.is_empty() {
+            let workspace = PathBuf::from(&info.workspace_path);
+            match workspace::collect_output_files(&workspace, output_dir) {
+                Ok(files) if !files.is_empty() => {
+                    result.output_files = Some(files);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// List files in a workspace directory.
+    pub async fn workspace_list(
+        &self,
+        agent_id: Uuid,
+        rel: &str,
+    ) -> Result<workspace::WorkspaceListing, ContainerError> {
+        let workspace = self.agent_workspace(agent_id).await?;
+        workspace::list_workspace(&workspace, rel)
+    }
+
+    /// Resolve the workspace path for an agent (container need not be running).
+    pub async fn agent_workspace(&self, agent_id: Uuid) -> Result<PathBuf, ContainerError> {
+        // Check if we have a running/stopped container first.
+        if let Some(info) = self.containers.read().await.get(&agent_id) {
+            return Ok(PathBuf::from(&info.workspace_path));
+        }
+        // Fall back to the on-disk workspace directory.
+        let workspace = self.workspace_root.join(agent_id.to_string());
+        Ok(workspace)
+    }
+
+    /// Return the root directory where all agent workspaces are stored.
+    pub fn workspace_root(&self) -> &std::path::Path {
+        &self.workspace_root
     }
 
     /// Get container logs.

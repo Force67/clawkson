@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Wrench, Plug, Search, ToggleRight, ToggleLeft, AtSign, Loader2 } from 'lucide-react'
+import { Wrench, Plug, Search, AtSign, Loader2, Cpu } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { api, type Tool, type Connector } from '../lib/api'
@@ -13,18 +13,12 @@ export function ToolsPage() {
 
   useEffect(() => {
     Promise.all([
+      api.tools.list().catch(() => [] as Tool[]),
       api.connectors.list().catch(() => [] as Connector[]),
     ])
-      .then(([conns]) => {
+      .then(([fetchedTools, conns]) => {
+        setTools(fetchedTools)
         setConnectors(conns)
-        // Tools are provided by connectors - for now use mock data
-        // until the tools API returns real data
-        setTools([
-          { id: '1', name: 'send_email', description: 'Send an email through a connected Gmail account.', connector_id: '', schema: {}, enabled: true },
-          { id: '2', name: 'read_inbox', description: 'Read recent emails from the Gmail inbox.', connector_id: '', schema: {}, enabled: true },
-          { id: '3', name: 'send_telegram', description: 'Send a message via Telegram bot.', connector_id: '', schema: {}, enabled: true },
-          { id: '4', name: 'web_search', description: 'Search the web for information.', connector_id: '', schema: {}, enabled: false },
-        ])
       })
       .finally(() => setLoading(false))
   }, [])
@@ -72,35 +66,37 @@ export function ToolsPage() {
         </div>
       ) : (
         <div className={`${styles.list} stagger`}>
-          {filteredTools.map(tool => (
-            <Card key={tool.id}>
-              <div className={styles.toolRow}>
-                <div className={styles.toolIcon} data-active={tool.enabled}>
-                  <Wrench size={16} strokeWidth={1.5} />
-                </div>
-                <div className={styles.toolInfo}>
-                  <div className={styles.toolNameRow}>
-                    <code className={styles.toolName}>@{tool.name}</code>
-                    <div className={styles.toolStatus} data-enabled={tool.enabled}>
-                      {tool.enabled
-                        ? <ToggleRight size={18} />
-                        : <ToggleLeft size={18} />}
-                      <span>{tool.enabled ? 'Active' : 'Inactive'}</span>
+          {filteredTools.map(tool => {
+            const connectorName = tool.connector_id
+              ? connectors.find(c => c.id === tool.connector_id)?.name ?? 'Unknown'
+              : null
+            return (
+              <Card key={tool.id}>
+                <div className={styles.toolRow}>
+                  <div className={styles.toolIcon} data-active={tool.enabled}>
+                    {tool.tool_type === 'builtin'
+                      ? <Cpu size={16} strokeWidth={1.5} />
+                      : <Wrench size={16} strokeWidth={1.5} />}
+                  </div>
+                  <div className={styles.toolInfo}>
+                    <div className={styles.toolNameRow}>
+                      <code className={styles.toolName}>@{tool.name}</code>
+                      <div className={styles.toolStatus} data-enabled={tool.enabled}>
+                        <span>{tool.tool_type === 'builtin' ? 'Built-in' : 'Connector'}</span>
+                      </div>
+                    </div>
+                    <p className={styles.toolDesc}>{tool.description}</p>
+                    <div className={styles.toolMeta}>
+                      <span className={styles.toolConnector}>
+                        <Plug size={10} />
+                        {connectorName ?? 'Built-in'}
+                      </span>
                     </div>
                   </div>
-                  <p className={styles.toolDesc}>{tool.description}</p>
-                  <div className={styles.toolMeta}>
-                    <span className={styles.toolConnector}>
-                      <Plug size={10} />
-                      {tool.connector_id
-                        ? connectors.find(c => c.id === tool.connector_id)?.name ?? 'Unknown'
-                        : 'Built-in'}
-                    </span>
-                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
         </div>
       )}
     </div>

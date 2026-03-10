@@ -1,8 +1,6 @@
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use clawkson_container::ContainerManager;
-use clawkson_core::*;
 use clawkson_db::Db;
 
 use crate::s3::S3Storage;
@@ -11,17 +9,10 @@ use crate::s3::S3Storage;
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
-    pub inner: Arc<RwLock<AppStateInner>>,
     /// Optional container manager — None if Docker is unavailable.
     pub container_manager: Option<Arc<ContainerManager>>,
     /// Optional S3-compatible object storage — None if not configured.
     pub s3: Option<Arc<S3Storage>>,
-}
-
-pub struct AppStateInner {
-    // Agents, conversations, messages, LLM connectors, settings, connectors are all DB-backed.
-    // Only non-persistent entities remain in-memory.
-    pub tools: Vec<Tool>,
 }
 
 impl AppState {
@@ -34,7 +25,6 @@ impl AppState {
             db,
             container_manager,
             s3,
-            inner: Arc::new(RwLock::new(AppStateInner { tools: Vec::new() })),
         }
     }
 }

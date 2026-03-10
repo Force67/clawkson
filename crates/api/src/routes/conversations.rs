@@ -348,7 +348,55 @@ async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConf
         .await
         .unwrap_or_default();
 
-    let system_prompt = build_system_prompt_with_skills(row.system_prompt.as_deref(), &skills);
+    // Load the platform-level base prompt from settings (empty string if unset)
+    let settings = clawkson_db::settings::get(&state.db).await.ok();
+    let base_prompt = settings
+        .as_ref()
+        .map(|s| s.agent_base_prompt.as_str())
+        .unwrap_or("");
+
+    let mut system_prompt = build_system_prompt_with_skills(base_prompt, row.system_prompt.as_deref(), &skills);
+
+    // Append container/sandbox awareness instructions when the agent has a container
+    let container_config: Option<clawkson_core::AgentContainerConfig> =
+        row.container_config.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    if row.container_enabled {
+        let image = container_config.as_ref()
+            .and_then(|c| c.image.as_deref())
+            .unwrap_or("python:3.12-slim");
+        let network = container_config.as_ref().map(|c| c.network_enabled).unwrap_or(false);
+
+        let sandbox_instructions = format!(
+            "\n\n<sandbox-environment>\n\
+             You are NOT running inside a Docker container. You are an AI assistant that has \
+             access to a sandboxed Docker container (image: {image}) via the code_execution tool. \
+             Use the code_execution tool to run Python or Bash code inside the container.\n\n\
+             Important guidelines:\n\
+             - Proactively install packages and dependencies when needed. Do not ask the user for \
+               permission to install — just run `pip install <package>` or `apt-get install -y <package>` \
+               via code_execution before using them. The container is ephemeral and isolated, so \
+               installing packages is safe and expected.\n\
+             - When a task requires a library you are not sure is pre-installed, install it first \
+               in a separate code_execution call, then proceed with the actual task.\n\
+             - The container has a /workspace directory. Read inputs from /workspace/inputs/ and \
+               write outputs to /workspace/outputs/.\n\
+             {network_note}\
+             - You can chain multiple code_execution calls to build up complex workflows step by step.\n\
+             </sandbox-environment>",
+            network_note = if network {
+                "- Networking is enabled — you can fetch URLs, call APIs, and download data from the internet.\n"
+            } else {
+                "- Networking is disabled — you cannot access the internet from the container. All data \
+                 must be provided via the workspace.\n"
+            },
+        );
+
+        match &mut system_prompt {
+            Some(ref mut prompt) => prompt.push_str(&sandbox_instructions),
+            None => system_prompt = Some(sandbox_instructions.trim_start().to_string()),
+        }
+    }
 
     Some(AgentConfig {
         agent_id: row.id,
@@ -356,33 +404,54 @@ async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConf
         temperature: row.temperature,
         max_tokens: row.max_tokens.map(|v| v as u32),
         container_enabled: row.container_enabled,
-        container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
+        container_config: container_config,
     })
 }
 
-/// Build the final system prompt by appending skill metadata and full instructions.
-/// Skills are always available to the agent — it can use them autonomously when
-/// relevant, or when the user explicitly invokes `/skill-name`.
+/// Build the final system prompt by layering:
+///   1. Platform base prompt (from Settings.agent_base_prompt) — global steering/guardrails
+///   2. Agent system prompt — per-agent persona and task instructions
+///   3. Linked skills block — appended skill instructions
+///
+/// Any layer that is empty is skipped. Layers are separated by double newlines.
 fn build_system_prompt_with_skills(
-    base_prompt: Option<&str>,
+    base_prompt: &str,
+    agent_prompt: Option<&str>,
     skills: &[clawkson_db::skill::SkillRow],
 ) -> Option<String> {
-    if skills.is_empty() {
-        return base_prompt.map(|s| s.to_string());
+    let mut parts: Vec<&str> = Vec::new();
+
+    if !base_prompt.trim().is_empty() {
+        parts.push(base_prompt);
+    }
+    if let Some(ap) = agent_prompt {
+        if !ap.trim().is_empty() {
+            parts.push(ap);
+        }
     }
 
-    let mut prompt = base_prompt.unwrap_or("").to_string();
-
-    prompt.push_str("\n\n<available-skills>\n");
-    prompt.push_str("You have access to the following skills. Use them automatically when they are relevant ");
-    prompt.push_str("to the user's request, or when the user explicitly invokes one with /skill-name.\n\n");
-    for skill in skills {
-        prompt.push_str(&format!(
-            "<skill name=\"{}\">\nDescription: {}\n\n{}\n</skill>\n\n",
-            skill.name, skill.description, skill.instructions
-        ));
+    // If no base or agent prompt and no skills, return None (no system message at all)
+    if parts.is_empty() && skills.is_empty() {
+        return None;
     }
-    prompt.push_str("</available-skills>");
+
+    let mut prompt = parts.join("\n\n");
+
+    if !skills.is_empty() {
+        if !prompt.is_empty() {
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str("<available-skills>\n");
+        prompt.push_str("You have access to the following skills. Use them automatically when they are relevant ");
+        prompt.push_str("to the user's request, or when the user explicitly invokes one with /skill-name.\n\n");
+        for skill in skills {
+            prompt.push_str(&format!(
+                "<skill name=\"{}\">\nDescription: {}\n\n{}\n</skill>\n\n",
+                skill.name, skill.description, skill.instructions
+            ));
+        }
+        prompt.push_str("</available-skills>");
+    }
 
     Some(prompt)
 }
@@ -535,7 +604,7 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, user_id:
                 let config = agent_cfg.container_config
                     .as_ref()
                     .map(|ac| clawkson_container::ContainerConfig {
-                        image: "python:3.12-slim".to_string(),
+                        image: ac.image.clone().unwrap_or_else(|| "python:3.12-slim".to_string()),
                         cpu_limit: ac.cpu_limit,
                         memory_limit_mb: ac.memory_limit_mb,
                         network_enabled: ac.network_enabled,
@@ -545,8 +614,17 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, user_id:
                     tracing::error!("failed to auto-start container: {e}");
                 }
             }
-            let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, cm.clone());
+            let workspace_root = cm.workspace_root().to_path_buf();
+            let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, cm.clone(), workspace_root.clone());
             registry.register(tool.into_dyn());
+
+            // Workspace tools — let the LLM read, write, and list files in its workspace
+            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, workspace_root.clone());
+            registry.register(read_tool.into_dyn());
+            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, workspace_root.clone());
+            registry.register(write_tool.into_dyn());
+            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, workspace_root);
+            registry.register(list_tool.into_dyn());
         }
     }
 
@@ -594,6 +672,7 @@ async fn run_completion(
     reasoning_effort: Option<&ReasoningEffort>,
     user_id: Uuid,
     search_enabled: bool,
+    timeout_secs: u64,
 ) -> anyhow::Result<String> {
     let registry = build_tool_registry(state, agent_cfg, user_id, search_enabled).await;
 
@@ -607,6 +686,7 @@ async fn run_completion(
             &registry,
             5,
             reasoning_effort,
+            timeout_secs,
         )
         .await;
     }
@@ -618,6 +698,7 @@ async fn run_completion(
         agent_cfg.temperature,
         agent_cfg.max_tokens,
         reasoning_effort,
+        timeout_secs,
     )
     .await
 }
@@ -658,6 +739,57 @@ async fn chat(
         for att_id in &req.attachment_ids {
             if let Err(e) = clawkson_db::chat_attachment::link_to_message(pool, *att_id, user_msg.id).await {
                 tracing::warn!("failed to link attachment {att_id} to message {}: {e}", user_msg.id);
+            }
+        }
+    }
+
+    // 3c. If the agent has a container, also write attachments into /workspace/inputs/
+    // so the running container can access them directly via the filesystem.
+    if !req.attachment_ids.is_empty() {
+        if let Some(cm) = &state.container_manager {
+            // We need the agent config to check container_enabled; do a quick DB fetch.
+            let agent_row = clawkson_db::agent::get_by_id(&state.db, agent_id).await.ok().flatten();
+            let container_enabled = agent_row.map(|a| a.container_enabled).unwrap_or(false);
+
+            if container_enabled {
+                if let Some(s3) = &state.s3 {
+                    let workspace_root = cm.workspace_root().to_path_buf();
+                    let inputs_dir = workspace_root
+                        .join(agent_id.to_string())
+                        .join("inputs");
+                    let _ = tokio::fs::create_dir_all(&inputs_dir).await;
+
+                    let pool = state.db.pool();
+                    for att_id in &req.attachment_ids {
+                        if let Ok(Some(att)) = clawkson_db::chat_attachment::get_by_id(pool, *att_id).await {
+                            match s3.get_object(&att.s3_key).await {
+                                Ok((bytes, _)) => {
+                                    // Sanitise filename (no path separators)
+                                    let safe_name = att.filename
+                                        .replace(['/', '\\', '\0'], "_");
+                                    let dest = inputs_dir.join(&safe_name);
+                                    if let Err(e) = tokio::fs::write(&dest, &bytes).await {
+                                        tracing::warn!(
+                                            "failed to write attachment {} to workspace: {e}",
+                                            att.filename
+                                        );
+                                    } else {
+                                        tracing::debug!(
+                                            "wrote attachment {} to workspace inputs",
+                                            safe_name
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "failed to fetch attachment {} from S3 for workspace: {e}",
+                                        att_id
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -703,7 +835,12 @@ async fn chat(
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
-    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), auth.id(), req.search_enabled).await {
+    let timeout_secs = clawkson_db::settings::get(&state.db)
+        .await
+        .map(|s| s.llm_request_timeout_secs as u64)
+        .unwrap_or(120);
+
+    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), auth.id(), req.search_enabled, timeout_secs).await {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("LLM completion failed: {e}");
@@ -790,6 +927,38 @@ async fn chat_stream(
         }
     }
 
+    // Write attachments into /workspace/inputs/ if agent has a container
+    if !req.attachment_ids.is_empty() {
+        if let Some(cm) = &state.container_manager {
+            let agent_row = clawkson_db::agent::get_by_id(&state.db, agent_id).await.ok().flatten();
+            let container_enabled = agent_row.map(|a| a.container_enabled).unwrap_or(false);
+            if container_enabled {
+                if let Some(s3) = &state.s3 {
+                    let workspace_root = cm.workspace_root().to_path_buf();
+                    let inputs_dir = workspace_root.join(agent_id.to_string()).join("inputs");
+                    let _ = tokio::fs::create_dir_all(&inputs_dir).await;
+                    let pool = state.db.pool();
+                    for att_id in &req.attachment_ids {
+                        if let Ok(Some(att)) = clawkson_db::chat_attachment::get_by_id(pool, *att_id).await {
+                            match s3.get_object(&att.s3_key).await {
+                                Ok((bytes, _)) => {
+                                    let safe_name = att.filename.replace(['/', '\\', '\0'], "_");
+                                    let dest = inputs_dir.join(&safe_name);
+                                    if let Err(e) = tokio::fs::write(&dest, &bytes).await {
+                                        tracing::warn!("failed to write attachment {} to workspace: {e}", att.filename);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!("failed to fetch attachment {} from S3 for workspace: {e}", att_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Resolve connector
     let connector_id = resolve_connector_id(&state, agent_id).await;
     let Some(connector_id) = connector_id else {
@@ -838,6 +1007,11 @@ async fn chat_stream(
     let max_tokens = cfg.max_tokens;
     let reasoning_effort = req.reasoning_effort.clone();
 
+    let timeout_secs = clawkson_db::settings::get(&state.db)
+        .await
+        .map(|s| s.llm_request_timeout_secs as u64)
+        .unwrap_or(120);
+
     // Stream via channel — messages are prefixed to distinguish type:
     //   "\x01" + text  = reasoning delta
     //   "\x00DONE:id"  = completion sentinel
@@ -857,6 +1031,7 @@ async fn chat_stream(
                 &registry,
                 5,
                 reasoning_effort.as_ref(),
+                timeout_secs,
             )
             .await;
 
@@ -872,6 +1047,7 @@ async fn chat_stream(
                 temperature,
                 max_tokens,
                 reasoning_effort.as_ref(),
+                timeout_secs,
                 |chunk| { let _ = tx.try_send(chunk); },
                 |reasoning| { let _ = tx.try_send(format!("\x01{reasoning}")); },
             )

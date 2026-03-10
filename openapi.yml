@@ -592,6 +592,131 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExecResult"
 
+  /api/agents/{id}/container/workspace:
+    get:
+      summary: List workspace directory contents
+      operationId: listWorkspace
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: path
+          in: query
+          schema: { type: string, default: "" }
+          description: Sub-path within the workspace to list (default is workspace root)
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceListing"
+        "400":
+          description: Path escapes workspace
+        "503":
+          description: Docker not available
+    delete:
+      summary: Delete a file or directory from the workspace
+      operationId: deleteWorkspaceEntry
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceDeleteRequest"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Path escapes workspace or is a directory without recursive=true
+        "403":
+          description: Admin only
+        "404":
+          description: Path not found
+
+  /api/agents/{id}/container/workspace/upload:
+    post:
+      summary: Upload files into a workspace directory
+      operationId: uploadToWorkspace
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Target sub-directory within the workspace (default is workspace root)
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: One or more files to upload
+      responses:
+        "200":
+          description: Upload result with per-file status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceUploadResponse"
+        "403":
+          description: Admin only
+        "503":
+          description: Docker not available
+
+  /api/agents/{id}/container/workspace/download:
+    get:
+      summary: Download a file from the workspace
+      operationId: downloadFromWorkspace
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          description: Path of the file to download, relative to the workspace root
+      responses:
+        "200":
+          description: File content with appropriate Content-Type and Content-Disposition headers
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Path escapes workspace or path is a directory
+        "404":
+          description: File not found
+        "503":
+          description: Docker not available
+
+  /api/agents/{id}/container/workspace/watch:
+    get:
+      summary: Stream workspace filesystem change events as SSE
+      operationId: watchWorkspace
+      tags: [Containers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: >
+            SSE stream – each event is a JSON object with `type`
+            ("created", "modified", or "deleted") and `path` (relative to workspace root).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "503":
+          description: Docker not available
+
   # ── Skills ────────────────────────────────────────────────
 
   /api/skills:
@@ -1256,12 +1381,21 @@ paths:
           description: Link not found
 
   # ── Tools ───────────────────────────────────────────────────
+  # Tools are not stored in the database. The endpoint derives them
+  # at request time from two sources:
+  #   1. Built-in tools: always available (code_execution, workspace_*, knowledge_*).
+  #   2. Connector tools: one authenticated_http entry per enabled connector owned by the caller.
 
   /api/tools:
     get:
-      summary: List all tools
+      summary: List available tools
       operationId: listTools
       tags: [Tools]
+      description: >
+        Returns all tools available to the calling user. Built-in tools
+        (code execution, workspace I/O, knowledge search) are always included.
+        One `authenticated_http` tool entry is synthesised for each enabled
+        platform connector owned by the caller.
       responses:
         "200":
           description: List of tools
@@ -1271,43 +1405,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Tool"
-    post:
-      summary: Create a tool
-      operationId: createTool
-      tags: [Tools]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateToolRequest"
-      responses:
-        "200":
-          description: The created tool
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Tool"
-
-  /api/tools/{id}:
-    get:
-      summary: Get a tool by ID
-      operationId: getTool
-      tags: [Tools]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: The tool
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Tool"
 
   # ── LLM Connectors ──────────────────────────────────────────────
 
@@ -1617,6 +1714,13 @@ components:
     AgentContainerConfig:
       type: object
       properties:
+        image:
+          type: string
+          nullable: true
+          description: >
+            Docker image to use for this agent's container.
+            Defaults to "python:3.12-slim" if not set.
+          example: python:3.12-slim
         cpu_limit:
           type: number
           format: double
@@ -1657,6 +1761,12 @@ components:
           type: integer
           description: Timeout in seconds (default 30, max 300)
           nullable: true
+        output_dir:
+          type: string
+          nullable: true
+          description: >
+            Workspace-relative directory to scan for output files after execution
+            (default "outputs"). Set to empty string to disable output collection.
 
     ExecResult:
       type: object
@@ -1670,6 +1780,82 @@ components:
           type: integer
         timed_out:
           type: boolean
+        output_files:
+          type: array
+          nullable: true
+          description: Files found in the output directory after execution
+          items:
+            $ref: "#/components/schemas/OutputFile"
+
+    OutputFile:
+      type: object
+      required: [path, size]
+      properties:
+        path:
+          type: string
+          description: Path relative to the workspace root
+        size:
+          type: integer
+          description: File size in bytes
+
+    WorkspaceEntry:
+      type: object
+      required: [name, path, is_dir, size]
+      properties:
+        name:
+          type: string
+          description: Entry name (file or directory name only)
+        path:
+          type: string
+          description: Path relative to the workspace root
+        is_dir:
+          type: boolean
+        size:
+          type: integer
+          description: File size in bytes (0 for directories)
+        modified_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkspaceListing:
+      type: object
+      required: [path, entries]
+      properties:
+        path:
+          type: string
+          description: The directory that was listed (relative to workspace root)
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceEntry"
+
+    WorkspaceUploadResponse:
+      type: object
+      required: [uploaded, errors]
+      properties:
+        uploaded:
+          type: array
+          items:
+            type: string
+          description: Relative paths of successfully uploaded files
+        errors:
+          type: array
+          items:
+            type: string
+          description: Per-file error messages for failed uploads
+
+    WorkspaceDeleteRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          description: Path to delete, relative to workspace root
+        recursive:
+          type: boolean
+          default: false
+          description: Required when deleting a directory
 
     CreateAgentRequest:
       type: object
@@ -2073,11 +2259,13 @@ components:
 
     Tool:
       type: object
-      required: [id, name, description, connector_id, schema, enabled]
+      required: [id, name, description, tool_type, enabled]
       properties:
         id:
           type: string
-          format: uuid
+          description: >
+            Stable identifier. Built-in tools use the form "builtin:<name>";
+            connector-derived tools use "connector:<uuid>".
         name:
           type: string
         description:
@@ -2085,24 +2273,14 @@ components:
         connector_id:
           type: string
           format: uuid
-        schema:
-          type: object
+          nullable: true
+          description: Present only for connector-derived tools.
+        tool_type:
+          type: string
+          enum: [builtin, connector]
+          description: '"builtin" for platform tools; "connector" for authenticated_http entries.'
         enabled:
           type: boolean
-
-    CreateToolRequest:
-      type: object
-      required: [name, description, connector_id, schema]
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        connector_id:
-          type: string
-          format: uuid
-        schema:
-          type: object
 
     # ── LLM Connector ──────────────────────────────────────────
 
@@ -2382,6 +2560,19 @@ components:
             the built-in heuristic splitter. Leave null to use heuristic chunking only.
         theme:
           type: string
+        agent_base_prompt:
+          type: string
+          description: >
+            Platform-level base system prompt prepended before every agent's own system_prompt.
+            Use this to set global guardrails, identity, tool-usage rules, and container
+            permissions that apply to all agents. Empty string means no base prompt.
+        llm_request_timeout_secs:
+          type: integer
+          description: >
+            Maximum time in seconds to wait for a single LLM response before aborting.
+            Clamped to the range 10–600. Default is 120.
+          minimum: 10
+          maximum: 600
 
     PatchSettingsRequest:
       type: object
@@ -2399,6 +2590,18 @@ components:
             Pass null to clear (falls back to heuristic chunking).
         theme:
           type: string
+        agent_base_prompt:
+          type: string
+          description: >
+            Platform-level base system prompt prepended before every agent's own system_prompt.
+            Set to an empty string to clear it. When non-empty, the final system prompt sent
+            to the LLM will be: agent_base_prompt + "\n\n" + agent.system_prompt.
+        llm_request_timeout_secs:
+          type: integer
+          nullable: true
+          description: >
+            Override the LLM request timeout (seconds). Value is clamped to 10–600.
+            Omit to leave unchanged.
 
     # ── Uploads / Attachments ──────────────────────────────────
 

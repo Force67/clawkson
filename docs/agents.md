@@ -41,7 +41,35 @@ An agent without an `llm_connector_id` will fall back to the **default** LLM con
 
 ## System Prompt
 
-The `system_prompt` is prepended as a `system` role message to every LLM call made by this agent. Use it to define the agent's persona, constraints, and capabilities.
+The `system_prompt` is the per-agent instruction set. It is combined with the platform-level
+base prompt (see below) and then prepended as a `system` role message to every LLM call.
+
+### Prompt Layering
+
+The final system prompt sent to the LLM is assembled in three layers:
+
+```
+[1] Settings.agent_base_prompt   ← platform-wide steering (admin-only)
+[2] agent.system_prompt          ← per-agent persona, task, constraints
+[3] <available-skills> block     ← injected at runtime if skills are linked
+```
+
+Layers are joined with `\n\n`. Empty layers are skipped entirely — if all three are
+empty, no system message is sent.
+
+**Layer 1 — `agent_base_prompt`** is set globally in Settings (`PATCH /api/settings`,
+admin only). Use it for guardrails, identity, tool-usage rules, and Docker container
+permissions that must apply to every agent.
+
+The canonical source for this prompt is **`SOUL.md`** in the repository root. The server
+reads this file at startup and automatically writes the prompt body (everything after the
+first `---` separator) to `Settings.agent_base_prompt`. Changes take effect on the next
+restart. The file path can be overridden with the `CLAWKSON_SOUL_PATH` environment variable.
+
+**Layer 2 — `system_prompt`** is the user-configured field on each agent. Use it to
+define the agent's persona, domain, and specific task instructions.
+
+**Layer 3 — skills** are appended automatically when skills are linked to the agent.
 
 ## Knowledge Base Linking
 
@@ -65,12 +93,41 @@ Each agent can be run inside an isolated Docker container. The following API end
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/agents/{id}/start` | Start the container |
-| POST | `/api/agents/{id}/stop` | Stop the container |
-| GET | `/api/agents/{id}/logs` | Stream container logs (SSE) |
-| POST | `/api/agents/{id}/exec` | Execute a command inside the container |
-| GET | `/api/agents/{id}/status` | Get current container status |
-| POST | `/api/agents/{id}/remove` | Remove the container |
+| POST | `/api/agents/{id}/container/start` | Start the container |
+| POST | `/api/agents/{id}/container/stop` | Stop the container |
+| DELETE | `/api/agents/{id}/container` | Remove the container |
+| GET | `/api/agents/{id}/container` | Get current container status |
+| GET | `/api/agents/{id}/container/logs` | Get container logs (`?tail=N`) |
+| POST | `/api/agents/{id}/container/exec` | Execute a command inside the container |
+
+### Workspace File I/O
+
+Each container has a `/workspace` directory bind-mounted from the host. Files placed here are immediately visible inside the container. The following endpoints manage workspace files:
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/agents/{id}/container/workspace` | List workspace files (`?path=subdir`) |
+| POST | `/api/agents/{id}/container/workspace/upload` | Upload files (`multipart/form-data`, optional `path` field) |
+| GET | `/api/agents/{id}/container/workspace/download` | Download a file (`?path=outputs/result.csv`) |
+| DELETE | `/api/agents/{id}/container/workspace` | Delete a file or directory |
+| GET | `/api/agents/{id}/container/workspace/watch` | SSE stream of workspace file changes |
+
+#### Agent-driven file I/O (during a conversation)
+
+When `container_enabled` is true, the agent is automatically given three workspace tools it can call during any conversation:
+
+| Tool | Description |
+|---|---|
+| `workspace_list` | List files in the workspace (default: root, or any sub-path) |
+| `workspace_read` | Read a file's text content back into the conversation |
+| `workspace_write` | Write text content to a file in the workspace |
+
+Combined with `code_execution`, the typical flow for file-based tasks is:
+
+1. User uploads a file (e.g. `data.xlsx`) as a chat attachment → it is automatically written to `/workspace/inputs/data.xlsx`.
+2. Agent calls `code_execution` (Python/Bash) to process `/workspace/inputs/data.xlsx` and write results to `/workspace/outputs/`.
+3. Output files in `/workspace/outputs/` are automatically read back and included in the tool result, so the agent can summarise or further process them without additional tool calls.
+4. User can also download outputs via `GET /api/agents/{id}/container/workspace/download?path=outputs/result.csv`.
 
 ## Orchestration
 

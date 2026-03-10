@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown,
-  Loader2, Cpu, Thermometer, Hash,
+  Loader2, Cpu, Thermometer, Hash, FolderOpen,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
+import { WorkspaceBrowser } from '../components/WorkspaceBrowser'
 import { api, type Agent, type LlmConnector, type AgentStatus } from '../lib/api'
 import styles from './Agents.module.css'
 
@@ -20,7 +21,10 @@ interface ConfigPanelProps {
   onClose: () => void
 }
 
+type ConfigTab = 'settings' | 'workspace'
+
 function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
+  const [tab, setTab] = useState<ConfigTab>('settings')
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
@@ -73,6 +77,29 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
           <button className={styles.panelClose} onClick={onClose}>✕</button>
         </div>
 
+        {/* Tabs — show Workspace tab only when container is enabled */}
+        {agent.container_enabled && (
+          <div className={styles.panelTabs}>
+            <button
+              className={`${styles.panelTab} ${tab === 'settings' ? styles.panelTabActive : ''}`}
+              onClick={() => setTab('settings')}
+            >
+              <Settings2 size={12} /> Settings
+            </button>
+            <button
+              className={`${styles.panelTab} ${tab === 'workspace' ? styles.panelTabActive : ''}`}
+              onClick={() => setTab('workspace')}
+            >
+              <FolderOpen size={12} /> Workspace
+            </button>
+          </div>
+        )}
+
+        {tab === 'workspace' ? (
+          <div className={styles.panelWorkspace}>
+            <WorkspaceBrowser agentId={agent.id} liveWatch />
+          </div>
+        ) : (
         <form onSubmit={handleSave} className={styles.panelBody}>
           {/* Identity */}
           <div className={styles.fieldSection}>
@@ -176,6 +203,7 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
             </Button>
           </div>
         </form>
+        )}
       </div>
     </div>
   )
@@ -286,6 +314,11 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
         {agent.system_prompt && (
           <span className={styles.configTag} title={agent.system_prompt}>
             System prompt set
+          </span>
+        )}
+        {agent.container_enabled && (
+          <span className={styles.configTag}>
+            <FolderOpen size={11} /> Workspace
           </span>
         )}
       </div>

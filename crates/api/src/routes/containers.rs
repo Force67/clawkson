@@ -71,7 +71,7 @@ async fn start_container(
         agent.container_config
             .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v).ok())
             .map(|ac| ContainerConfig {
-                image: "python:3.12-slim".to_string(),
+                image: ac.image.unwrap_or_else(|| "python:3.12-slim".to_string()),
                 cpu_limit: ac.cpu_limit,
                 memory_limit_mb: ac.memory_limit_mb,
                 network_enabled: ac.network_enabled,

@@ -41,6 +41,12 @@ async fn main() -> Result<()> {
         "database ready",
     );
 
+    // ── SOUL.md — platform base prompt ───────────────────────────
+    // Read SOUL.md from the repo root (next to the binary or CWD) and seed
+    // Settings.agent_base_prompt. The file content after the first `---`
+    // separator is used as the prompt, so the markdown preamble is excluded.
+    seed_soul_prompt(&db).await;
+
     // ── Container manager ────────────────────────────────────────
     let workspace_root = std::env::var("CLAWKSON_WORKSPACE_ROOT")
         .unwrap_or_else(|_| "/tmp/clawkson-workspaces".to_string());
@@ -106,4 +112,36 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Read SOUL.md and write the prompt portion to Settings.agent_base_prompt.
+///
+/// The file is searched for in the following order:
+///   1. The path given by the `CLAWKSON_SOUL_PATH` environment variable
+///   2. `SOUL.md` relative to the current working directory
+///
+/// Everything after the first `---` separator line is treated as the prompt body.
+/// If the file is missing, a warning is logged and the DB value is left unchanged.
+async fn seed_soul_prompt(db: &clawkson_db::Db) {
+    let path = std::env::var("CLAWKSON_SOUL_PATH")
+        .unwrap_or_else(|_| "SOUL.md".to_string());
+
+    let raw = match tokio::fs::read_to_string(&path).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(path = %path, "SOUL.md not found, skipping base prompt seed: {e}");
+            return;
+        }
+    };
+
+    // Strip the markdown preamble — everything up to and including the first `---` line.
+    let prompt = match raw.split_once("\n---\n") {
+        Some((_, body)) => body.trim().to_string(),
+        None => raw.trim().to_string(),
+    };
+
+    match clawkson_db::settings::update(db, None, None, None, Some(&prompt), None).await {
+        Ok(_) => tracing::info!(path = %path, chars = prompt.len(), "agent base prompt seeded from SOUL.md"),
+        Err(e) => tracing::error!("failed to seed agent base prompt: {e}"),
+    }
 }

@@ -66,9 +66,14 @@ All routes are prefixed with `/api/`:
 | POST | `/agents/{id}/start` | Start agent container |
 | POST | `/agents/{id}/stop` | Stop agent container |
 | GET | `/agents/{id}/logs` | Stream container logs |
-| POST | `/agents/{id}/exec` | Execute a command in container |
+| POST | `/agents/{id}/exec` | Execute a command in container; optionally collects output files |
 | GET | `/agents/{id}/status` | Get container status |
 | POST | `/agents/{id}/remove` | Remove container |
+| GET | `/agents/{id}/container/workspace` | List workspace directory contents |
+| POST | `/agents/{id}/container/workspace/upload` | Upload files into a workspace sub-directory |
+| GET | `/agents/{id}/container/workspace/download` | Download a file from the workspace |
+| DELETE | `/agents/{id}/container/workspace` | Delete a file or directory from the workspace |
+| GET | `/agents/{id}/container/workspace/watch` | SSE stream of workspace filesystem change events |
 | GET/POST | `/conversations` | List/create conversations |
 | GET/PATCH/DELETE | `/conversations/{id}` | Get/update/delete conversation |
 | GET/POST | `/conversations/{id}/messages` | List/send raw messages |
@@ -140,6 +145,32 @@ The `crates/api/src/llm.rs` module is a thin adapter over a local `denkwerk` dep
 Supported providers: **Azure OpenAI**, **OpenRouter**, **OpenAI**, **Custom (OpenAI-compatible)**.
 
 LLM connector API keys are **encrypted and stored in the database** — they persist across server restarts.
+
+## Container Workspace I/O
+
+Each agent container has a dedicated workspace directory on the host (`{workspace_root}/{agent_id}/`) that is bind-mounted into the container at `/workspace`. This is the primary channel for bidirectional file exchange between the host and the container.
+
+### Upload flow (host → container)
+
+Files are uploaded via `POST /api/agents/{id}/container/workspace/upload` as `multipart/form-data`. An optional `path` field specifies the target sub-directory inside the workspace (default: workspace root). The container sees uploaded files immediately — no Docker copy is involved.
+
+**Security:** All paths are validated through a sandboxing utility (`sandbox_path`) that lexically normalises `..` components and rejects any path that would escape the agent's workspace root.
+
+### Workspace browsing
+
+`GET /api/agents/{id}/container/workspace?path=subdir` returns a `WorkspaceListing` with entries sorted directories-first, then alphabetically. The container does not need to be running.
+
+### Download flow (container → host)
+
+`GET /api/agents/{id}/container/workspace/download?path=outputs/result.csv` streams a single file from the workspace directly from the host filesystem. The response includes `Content-Disposition: attachment` for browser downloads.
+
+### Output collection after exec
+
+`POST /api/agents/{id}/container/exec` accepts an optional `output_dir` field (default `"outputs"`). After the command completes, the backend scans that workspace sub-directory and returns any files found as `output_files` in `ExecResult`. This allows agents to write results to `/workspace/outputs/` and have the caller discover them automatically.
+
+### Live workspace watch (SSE)
+
+`GET /api/agents/{id}/container/workspace/watch` opens a Server-Sent Events connection. The server polls the workspace every 2 seconds and emits `created`, `modified`, and `deleted` events for any changed files. The frontend uses this to update the file browser without page refreshes during long-running tasks.
 
 ## API Specification
 

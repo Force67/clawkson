@@ -47,6 +47,30 @@ export interface ExecResult {
   stderr: string
   exit_code: number
   timed_out: boolean
+  output_files?: OutputFile[]
+}
+
+export interface OutputFile {
+  path: string
+  size: number
+}
+
+export interface WorkspaceEntry {
+  name: string
+  path: string
+  is_dir: boolean
+  size: number
+  modified_at: string | null
+}
+
+export interface WorkspaceListing {
+  path: string
+  entries: WorkspaceEntry[]
+}
+
+export interface WorkspaceUploadResponse {
+  uploaded: string[]
+  errors: string[]
 }
 
 export interface Agent {
@@ -144,12 +168,15 @@ export interface KbShareInfo {
   permission: SharePermission
 }
 
+export type ToolType = 'builtin' | 'connector'
+
 export interface Tool {
   id: string
   name: string
   description: string
-  connector_id: string
-  schema: Record<string, unknown>
+  /** Present only for connector-derived tools */
+  connector_id?: string
+  tool_type: ToolType
   enabled: boolean
 }
 
@@ -205,6 +232,9 @@ export interface Settings {
   /** LLM connector used for ETL semantic chunking. Null = heuristic only. */
   etl_llm_connector_id: string | null
   theme: string
+  agent_base_prompt: string
+  /** Maximum seconds to wait for an LLM HTTP response. Range 10–600. Default 120. */
+  llm_request_timeout_secs: number
 }
 
 // ── Auth types ────────────────────────────────────────────────────
@@ -307,6 +337,9 @@ export interface PatchSettingsRequest {
   /** Set to a connector id to enable LLM semantic chunking, or omit to keep existing. */
   etl_llm_connector_id?: string | null
   theme?: string
+  agent_base_prompt?: string
+  /** Maximum seconds to wait for LLM responses. Range 10–600. */
+  llm_request_timeout_secs?: number
 }
 
 // ── API client ─────────────────────────────────────────────────────
@@ -406,11 +439,42 @@ export const api = {
       request<void>(`/api/agents/${agentId}/container`, { method: 'DELETE' }),
     logs: (agentId: string, tail?: number) =>
       request<{ logs: string }>(`/api/agents/${agentId}/container/logs${tail ? `?tail=${tail}` : ''}`),
-    exec: (agentId: string, command: string, timeout?: number) =>
+    exec: (agentId: string, command: string, timeout?: number, outputDir?: string) =>
       request<ExecResult>(`/api/agents/${agentId}/container/exec`, {
         method: 'POST',
-        body: JSON.stringify({ command, timeout }),
+        body: JSON.stringify({ command, timeout, output_dir: outputDir }),
       }),
+    workspace: {
+      list: (agentId: string, path?: string) =>
+        request<WorkspaceListing>(
+          `/api/agents/${agentId}/container/workspace${path ? `?path=${encodeURIComponent(path)}` : ''}`
+        ),
+      upload: async (agentId: string, files: File[], path?: string): Promise<WorkspaceUploadResponse> => {
+        const form = new FormData()
+        if (path) form.append('path', path)
+        for (const f of files) form.append('files', f)
+        const res = await fetch(`${BASE}/api/agents/${agentId}/container/workspace/upload`, {
+          method: 'POST',
+          credentials: 'include',
+          body: form,
+        })
+        if (!res.ok) {
+          let detail = res.statusText
+          try { const body = await res.json(); if (body?.error) detail = body.error } catch {}
+          throw new Error(`${res.status} ${detail}`)
+        }
+        return res.json()
+      },
+      downloadUrl: (agentId: string, path: string) =>
+        `${BASE}/api/agents/${agentId}/container/workspace/download?path=${encodeURIComponent(path)}`,
+      delete: (agentId: string, path: string, recursive?: boolean) =>
+        request<void>(`/api/agents/${agentId}/container/workspace`, {
+          method: 'DELETE',
+          body: JSON.stringify({ path, recursive: recursive ?? false }),
+        }),
+      watchUrl: (agentId: string) =>
+        `${BASE}/api/agents/${agentId}/container/workspace/watch`,
+    },
   },
 
   skills: {
@@ -433,6 +497,10 @@ export const api = {
     unlink: (agentId: string, skillId: string) =>
       request<void>(`/api/agents/${agentId}/skills/${skillId}`, { method: 'DELETE' }),
     full: (agentId: string) => request<AgentSkillInfo[]>(`/api/agents/${agentId}/skills/full`),
+  },
+
+  tools: {
+    list: () => request<Tool[]>('/api/tools'),
   },
 
   connectors: {

@@ -78,7 +78,8 @@ fn build_request(
     request
 }
 
-fn build_provider(connector: &LlmConnector) -> Result<Box<dyn LLMProvider>> {
+fn build_provider(connector: &LlmConnector, timeout_secs: u64) -> Result<Box<dyn LLMProvider>> {
+    let timeout = std::time::Duration::from_secs(timeout_secs);
     match connector.provider_type {
         LlmProviderType::Azure => {
             let mut config =
@@ -86,6 +87,7 @@ fn build_provider(connector: &LlmConnector) -> Result<Box<dyn LLMProvider>> {
             if let Some(version) = &connector.azure_api_version {
                 config = config.with_api_version(version.clone());
             }
+            config = config.with_timeout(timeout);
             Ok(Box::new(AzureOpenAI::from_config(config)?))
         }
         LlmProviderType::OpenRouter => {
@@ -93,11 +95,13 @@ fn build_provider(connector: &LlmConnector) -> Result<Box<dyn LLMProvider>> {
             config.base_url = resolve_base_url(connector);
             config.referer = Some("https://clawkson.app".to_string());
             config.title = Some("Clawkson".to_string());
+            config.request_timeout = timeout;
             Ok(Box::new(OpenRouter::from_config(config)?))
         }
         LlmProviderType::OpenAi | LlmProviderType::Custom => {
             let config = OpenAIConfig::new(connector.api_key.clone())
-                .with_base_url(resolve_base_url(connector));
+                .with_base_url(resolve_base_url(connector))
+                .with_timeout(timeout);
             Ok(Box::new(OpenAI::from_config(config)?))
         }
     }
@@ -105,7 +109,7 @@ fn build_provider(connector: &LlmConnector) -> Result<Box<dyn LLMProvider>> {
 
 /// Return whether the provider configured in `connector` supports image uploads.
 pub fn provider_supports_vision(connector: &LlmConnector) -> bool {
-    match build_provider(connector) {
+    match build_provider(connector, 30) {
         Ok(provider) => provider.capabilities().supports_image_uploads,
         Err(_) => false,
     }
@@ -119,8 +123,9 @@ pub async fn complete(
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
+    timeout_secs: u64,
 ) -> Result<String> {
-    let provider = build_provider(connector)?;
+    let provider = build_provider(connector, timeout_secs)?;
     let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let response = provider.complete(request).await?;
 
@@ -138,8 +143,9 @@ pub async fn complete_with_tools(
     registry: &FunctionRegistry,
     max_rounds: usize,
     reasoning_effort: Option<&ReasoningEffort>,
+    timeout_secs: u64,
 ) -> Result<String> {
-    let provider = build_provider(connector)?;
+    let provider = build_provider(connector, timeout_secs)?;
 
     // Build initial messages
     let mut messages = Vec::new();
@@ -214,10 +220,11 @@ pub async fn stream_complete(
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
+    timeout_secs: u64,
     mut on_chunk: impl FnMut(String),
     mut on_reasoning: impl FnMut(String),
 ) -> Result<String> {
-    let provider = build_provider(connector)?;
+    let provider = build_provider(connector, timeout_secs)?;
     let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let mut stream = provider.stream_completion(request).await?;
     let mut full_text = String::new();

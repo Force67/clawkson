@@ -444,6 +444,52 @@
   padding-top: 16px;
 }
 
+/* ── Panel tabs ───────────────────────────────────────────────── */
+
+.panelTabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 24px;
+  gap: 0;
+  background: var(--bg-surface);
+  position: sticky;
+  top: 77px; /* below panelHeader */
+  z-index: 1;
+}
+
+.panelTab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.panelTab:hover {
+  color: var(--text-secondary);
+}
+
+.panelTabActive {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Workspace tab body ───────────────────────────────────────── */
+
+.panelWorkspace {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
 /* ── Loading ──────────────────────────────────────────────────── */
 
 .loadingState {

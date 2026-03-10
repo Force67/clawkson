@@ -40,6 +40,7 @@ pub async fn exec_in_container(
             stderr: format!("Command timed out after {timeout_secs}s"),
             exit_code: -1,
             timed_out: true,
+            output_files: None,
         }),
     }
 }
@@ -83,5 +84,6 @@ async fn collect_exec_output(
         stderr,
         exit_code,
         timed_out: false,
+        output_files: None,
     })
 }

@@ -556,7 +556,7 @@ async fn llm_find_split(connector: &clawkson_core::LlmConnector, window: &str) -
     );
 
     let history = vec![(MessageRole::User, user_msg, vec![])];
-    match crate::llm::complete(connector, Some(system), &history, Some(0.0), Some(16), None).await {
+    match crate::llm::complete(connector, Some(system), &history, Some(0.0), Some(16), None, 60).await {
         Ok(response) => {
             let trimmed = response.trim();
             trimmed.parse::<usize>().ok().filter(|&pos| pos > 0 && pos < window.len())

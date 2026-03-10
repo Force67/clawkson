@@ -72,6 +72,7 @@ Patchable fields:
 | `default_llm_connector_id` | `uuid \| null` | Default LLM connector used by agents |
 | `etl_llm_connector_id` | `uuid \| null` | LLM connector used for semantic chunking during KB ingestion; `null` uses heuristic splitting |
 | `theme` | `string` | UI theme: `dark`, `light`, or `system` |
+| `llm_request_timeout_secs` | `integer \| null` | Max seconds to wait for an LLM response (10–600, default 120). Increase for slow/large models like Azure OpenAI o-series. |
 
 ### Knowledge Base
 - `GET /api/knowledge` — List knowledge bases owned by or shared with the current user

@@ -521,6 +521,42 @@ export function SettingsPage() {
             </div>
           </div>
         </Card>
+
+        {/* ── Advanced ── */}
+        <Card>
+          <div className={styles.sectionHeader} style={{ marginBottom: 16 }}>
+            <div className={styles.sectionHeaderLeft}>
+              <div className={styles.sectionIconWrap}><Zap size={16} /></div>
+              <div>
+                <h3 className={styles.sectionTitle}>Advanced</h3>
+                <p className={styles.sectionDesc}>Low-level tuning for LLM request behaviour.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>LLM Request Timeout (seconds)</label>
+            <input
+              className={styles.formInput}
+              type="number"
+              min={10}
+              max={600}
+              style={{ width: 120 }}
+              value={settings?.llm_request_timeout_secs ?? 120}
+              onChange={async e => {
+                const val = parseInt(e.target.value, 10)
+                if (isNaN(val)) return
+                const s = await api.settings.patch({ llm_request_timeout_secs: val })
+                setSettings(s)
+              }}
+            />
+            <p className={styles.formHint}>
+              Maximum time (10–600 s) to wait for a single LLM response before aborting.
+              Increase this if long-running models (e.g. Azure OpenAI o-series) time out.
+              Default: 120 s.
+            </p>
+          </div>
+        </Card>
       </div>
     </div>
   )

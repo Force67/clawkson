@@ -22,4 +22,7 @@ pub enum ContainerError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Path escapes workspace: {0}")]
+    PathEscape(String),
 }

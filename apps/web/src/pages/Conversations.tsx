@@ -215,6 +215,7 @@ export function ConversationsPage() {
   const [searchEnabled, setSearchEnabled] = useState(true)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const [clearingMessages, setClearingMessages] = useState(false)
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -228,6 +229,7 @@ export function ConversationsPage() {
   const stopStreamRef = useRef<(() => void) | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputDockRef = useRef<HTMLDivElement>(null)
+  const dragCounterRef = useRef(0)
 
   const selectedConvo = conversations.find(c => c.id === selectedId)
   const selectedAgent = agents.find(a => a.id === selectedConvo?.agent_id)
@@ -454,6 +456,34 @@ export function ConversationsPage() {
 
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (e.dataTransfer.types.includes('Files')) setDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) setDragOver(false)
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) setPendingFiles(prev => [...prev, ...files])
   }
 
   const handleClearMessages = useCallback(async () => {
@@ -689,7 +719,20 @@ export function ConversationsPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div className={styles.inputDock} ref={inputDockRef}>
+              <div
+                className={`${styles.inputDock}${dragOver ? ` ${styles.inputDockDragOver}` : ''}`}
+                ref={inputDockRef}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                {dragOver && (
+                  <div className={styles.dragOverlay}>
+                    <Paperclip size={22} />
+                    <span>Drop files to attach</span>
+                  </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"

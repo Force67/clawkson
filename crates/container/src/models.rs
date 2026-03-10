@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::workspace::OutputFile;
+
 /// Configuration for creating a container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerConfig {
@@ -57,6 +59,10 @@ pub struct ExecRequest {
     pub command: String,
     /// Timeout in seconds (default 30, max 300).
     pub timeout: Option<u64>,
+    /// If set, scan this workspace-relative directory after execution and
+    /// return any files found in `output_files`.  Defaults to "outputs".
+    /// Pass an empty string to disable output collection.
+    pub output_dir: Option<String>,
 }
 
 /// Result of command execution.
@@ -66,4 +72,7 @@ pub struct ExecResult {
     pub stderr: String,
     pub exit_code: i64,
     pub timed_out: bool,
+    /// Files found in the output directory after execution (if requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_files: Option<Vec<OutputFile>>,
 }

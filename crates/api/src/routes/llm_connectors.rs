@@ -134,7 +134,7 @@ async fn create(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if existing.is_empty() {
-        let _ = clawkson_db::settings::update(&state.db, Some(Some(row.id)), None, None).await;
+        let _ = clawkson_db::settings::update(&state.db, Some(Some(row.id)), None, None, None, None).await;
     }
 
     let mut c = row_to_connector(row);
@@ -190,7 +190,7 @@ async fn delete(
                         .await
                         .ok()
                         .and_then(|v| v.first().map(|c| c.id));
-                    let _ = clawkson_db::settings::update(&state.db, Some(next), None, None).await;
+                    let _ = clawkson_db::settings::update(&state.db, Some(next), None, None, None, None).await;
                 }
             }
             StatusCode::NO_CONTENT
@@ -251,6 +251,7 @@ async fn test_connection(
         None,
         Some(5),
         None,
+        30, // 30s timeout for connection test
     )
     .await;
 

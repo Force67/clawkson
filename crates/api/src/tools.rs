@@ -10,6 +10,10 @@ use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+/// Maximum bytes read back from a single workspace file to include inline in a tool result.
+/// Files larger than this are described by path + size but their content is omitted.
+const MAX_INLINE_FILE_BYTES: u64 = 64 * 1024; // 64 KB
+
 // Re-export for use in conversations.rs
 pub use http_tool::AuthenticatedHttpTool;
 
@@ -17,13 +21,15 @@ pub use http_tool::AuthenticatedHttpTool;
 pub struct CodeExecutionTool {
     agent_id: Uuid,
     container_manager: Arc<ContainerManager>,
+    workspace_root: std::path::PathBuf,
 }
 
 impl CodeExecutionTool {
-    pub fn new(agent_id: Uuid, container_manager: Arc<ContainerManager>) -> Self {
+    pub fn new(agent_id: Uuid, container_manager: Arc<ContainerManager>, workspace_root: std::path::PathBuf) -> Self {
         Self {
             agent_id,
             container_manager,
+            workspace_root,
         }
     }
 
@@ -42,7 +48,17 @@ struct CodeExecArgs {
 impl KernelFunction for CodeExecutionTool {
     fn definition(&self) -> FunctionDefinition {
         let mut def = FunctionDefinition::new("code_execution")
-            .with_description("Execute code in a sandboxed container. Use this to run Python or Bash code. The container has a /workspace directory for file operations.");
+            .with_description(
+                "Execute code in a sandboxed Docker container. \
+                 Use this to run Python or Bash code. You are NOT inside the container — \
+                 this tool sends code to a separate, isolated container for execution. \
+                 Proactively install any needed packages (pip install, apt-get install -y) \
+                 without asking — the container is ephemeral and safe to modify. \
+                 The container has a /workspace directory for file operations — \
+                 read inputs from /workspace/inputs/ and write outputs to /workspace/outputs/. \
+                 After execution, any files written to /workspace/outputs/ are automatically \
+                 returned to you so you can read or summarise their contents.",
+            );
 
         def.add_parameter(
             FunctionParameter::new(
@@ -86,15 +102,53 @@ impl KernelFunction for CodeExecutionTool {
         let request = ExecRequest {
             command,
             timeout: Some(30),
+            output_dir: Some("outputs".to_string()),
         };
 
         match self.container_manager.exec(self.agent_id, &request).await {
-            Ok(result) => Ok(serde_json::json!({
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_code": result.exit_code,
-                "timed_out": result.timed_out,
-            })),
+            Ok(result) => {
+                let mut response = serde_json::json!({
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.exit_code,
+                    "timed_out": result.timed_out,
+                });
+
+                // Read output file contents back so the LLM can see them directly.
+                if let Some(output_files) = &result.output_files {
+                    if !output_files.is_empty() {
+                        let workspace = self.workspace_root.join(self.agent_id.to_string());
+                        let files_json: Vec<Value> = output_files.iter().map(|f| {
+                            let abs = workspace.join(&f.path);
+                            let content = if f.size <= MAX_INLINE_FILE_BYTES {
+                                match std::fs::read(&abs) {
+                                    Ok(bytes) => match std::str::from_utf8(&bytes) {
+                                        Ok(text) => Value::String(text.to_string()),
+                                        Err(_) => Value::String(
+                                            format!("[binary file, {} bytes]", bytes.len())
+                                        ),
+                                    },
+                                    Err(e) => Value::String(format!("[read error: {e}]")),
+                                }
+                            } else {
+                                Value::String(format!(
+                                    "[file too large to inline ({} KB) — download via workspace API]",
+                                    f.size / 1024
+                                ))
+                            };
+                            serde_json::json!({
+                                "path": f.path,
+                                "size_bytes": f.size,
+                                "content": content,
+                            })
+                        }).collect();
+
+                        response["output_files"] = Value::Array(files_json);
+                    }
+                }
+
+                Ok(response)
+            }
             Err(e) => Ok(serde_json::json!({
                 "error": e.to_string(),
             })),
@@ -104,6 +158,261 @@ impl KernelFunction for CodeExecutionTool {
 
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+// ── Workspace Read Tool ───────────────────────────────────────────
+
+/// A tool that lets the LLM read a file from the agent's container workspace.
+pub struct WorkspaceReadTool {
+    agent_id: Uuid,
+    workspace_root: std::path::PathBuf,
+}
+
+impl WorkspaceReadTool {
+    pub fn new(agent_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
+        Self { agent_id, workspace_root }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceReadArgs {
+    path: String,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for WorkspaceReadTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("workspace_read")
+            .with_description(
+                "Read the contents of a file in the agent's container workspace (/workspace). \
+                 Use this to inspect input files placed by the user or output files produced \
+                 by previous code_execution calls. Paths are relative to /workspace \
+                 (e.g. 'inputs/data.csv' or 'outputs/result.txt').",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("path", serde_json::json!({ "type": "string" }))
+                .with_description("Workspace-relative path of the file to read (e.g. 'inputs/data.csv')"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: WorkspaceReadArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for workspace_read: {e}"
+            ))
+        })?;
+
+        let workspace = self.workspace_root.join(self.agent_id.to_string());
+
+        match clawkson_container::workspace::sandbox_path(&workspace, &args.path) {
+            Err(e) => Ok(serde_json::json!({ "error": format!("Invalid path: {e}") })),
+            Ok(abs) => {
+                if !abs.exists() {
+                    return Ok(serde_json::json!({ "error": format!("File not found: {}", args.path) }));
+                }
+                if abs.is_dir() {
+                    // List directory contents instead of erroring
+                    match clawkson_container::workspace::list_workspace(&workspace, &args.path) {
+                        Ok(listing) => {
+                            let entries: Vec<Value> = listing.entries.iter().map(|e| serde_json::json!({
+                                "name": e.name,
+                                "path": e.path,
+                                "is_dir": e.is_dir,
+                                "size_bytes": e.size,
+                            })).collect();
+                            Ok(serde_json::json!({
+                                "type": "directory",
+                                "path": args.path,
+                                "entries": entries,
+                            }))
+                        }
+                        Err(e) => Ok(serde_json::json!({ "error": format!("{e}") })),
+                    }
+                } else {
+                    let metadata = abs.metadata().map(|m| m.len()).unwrap_or(0);
+                    if metadata > MAX_INLINE_FILE_BYTES {
+                        return Ok(serde_json::json!({
+                            "error": format!(
+                                "File too large to read inline ({} KB). Download it via the workspace API.",
+                                metadata / 1024
+                            )
+                        }));
+                    }
+                    match tokio::fs::read(&abs).await {
+                        Ok(bytes) => match std::str::from_utf8(&bytes) {
+                            Ok(text) => Ok(serde_json::json!({
+                                "path": args.path,
+                                "size_bytes": bytes.len(),
+                                "content": text,
+                            })),
+                            Err(_) => Ok(serde_json::json!({
+                                "path": args.path,
+                                "size_bytes": bytes.len(),
+                                "content": format!("[binary file — {} bytes, not displayable as text]", bytes.len()),
+                            })),
+                        },
+                        Err(e) => Ok(serde_json::json!({ "error": format!("Read error: {e}") })),
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Workspace Write Tool ──────────────────────────────────────────
+
+/// A tool that lets the LLM write a file into the agent's container workspace.
+pub struct WorkspaceWriteTool {
+    agent_id: Uuid,
+    workspace_root: std::path::PathBuf,
+}
+
+impl WorkspaceWriteTool {
+    pub fn new(agent_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
+        Self { agent_id, workspace_root }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceWriteArgs {
+    path: String,
+    content: String,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for WorkspaceWriteTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("workspace_write")
+            .with_description(
+                "Write text content to a file in the agent's container workspace (/workspace). \
+                 The file is immediately visible to the running container. \
+                 Use this to place input data, configuration, or scripts before running code_execution. \
+                 Paths are relative to /workspace (e.g. 'inputs/data.csv').",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("path", serde_json::json!({ "type": "string" }))
+                .with_description("Workspace-relative path to write (e.g. 'inputs/data.csv'). Parent directories are created automatically."),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("content", serde_json::json!({ "type": "string" }))
+                .with_description("Text content to write to the file"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: WorkspaceWriteArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for workspace_write: {e}"
+            ))
+        })?;
+
+        let workspace = self.workspace_root.join(self.agent_id.to_string());
+
+        match clawkson_container::workspace::sandbox_path(&workspace, &args.path) {
+            Err(e) => Ok(serde_json::json!({ "error": format!("Invalid path: {e}") })),
+            Ok(abs) => {
+                // Ensure parent directory exists
+                if let Some(parent) = abs.parent() {
+                    if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                        return Ok(serde_json::json!({ "error": format!("Failed to create directory: {e}") }));
+                    }
+                }
+                match tokio::fs::write(&abs, args.content.as_bytes()).await {
+                    Ok(()) => Ok(serde_json::json!({
+                        "path": args.path,
+                        "size_bytes": args.content.len(),
+                        "written": true,
+                    })),
+                    Err(e) => Ok(serde_json::json!({ "error": format!("Write error: {e}") })),
+                }
+            }
+        }
+    }
+}
+
+// ── Workspace List Tool ───────────────────────────────────────────
+
+/// A tool that lets the LLM list files in the agent's container workspace.
+pub struct WorkspaceListTool {
+    agent_id: Uuid,
+    workspace_root: std::path::PathBuf,
+}
+
+impl WorkspaceListTool {
+    pub fn new(agent_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
+        Self { agent_id, workspace_root }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceListArgs {
+    path: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for WorkspaceListTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("workspace_list")
+            .with_description(
+                "List files and directories in the agent's container workspace (/workspace). \
+                 Use this to discover what input files are available or what outputs have been produced.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("path", serde_json::json!({ "type": "string" }))
+                .with_description("Workspace-relative subdirectory to list (default: workspace root)")
+                .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: WorkspaceListArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for workspace_list: {e}"
+            ))
+        })?;
+
+        let workspace = self.workspace_root.join(self.agent_id.to_string());
+        let sub = args.path.as_deref().unwrap_or("");
+
+        match clawkson_container::workspace::list_workspace(&workspace, sub) {
+            Ok(listing) => {
+                let entries: Vec<Value> = listing.entries.iter().map(|e| serde_json::json!({
+                    "name": e.name,
+                    "path": e.path,
+                    "is_dir": e.is_dir,
+                    "size_bytes": e.size,
+                })).collect();
+                Ok(serde_json::json!({
+                    "path": listing.path,
+                    "entries": entries,
+                    "count": entries.len(),
+                }))
+            }
+            Err(e) => Ok(serde_json::json!({ "error": format!("{e}") })),
+        }
+    }
 }
 
 // ── Knowledge List Tool ───────────────────────────────────────────

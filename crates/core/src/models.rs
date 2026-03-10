@@ -31,6 +31,10 @@ pub struct Agent {
 /// Per-agent container resource limits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentContainerConfig {
+    /// Docker image to use for this agent's container.
+    /// Defaults to "python:3.12-slim" if not set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
     /// CPU limit in cores (e.g. 1.0).
     pub cpu_limit: Option<f64>,
     /// Memory limit in megabytes (e.g. 512).
@@ -275,4 +279,11 @@ pub struct Settings {
     /// the built-in heuristic splitter.
     pub etl_llm_connector_id: Option<Uuid>,
     pub theme: String,
+    /// Platform-level system prompt prepended before every agent's own system_prompt.
+    /// Use this to set global guardrails, identity, tool-usage rules, and container
+    /// permissions that apply to all agents. Empty string means no base prompt.
+    pub agent_base_prompt: String,
+    /// Maximum seconds to wait for an LLM HTTP response before timing out.
+    /// Default is 120. Increase for slow providers or heavy models.
+    pub llm_request_timeout_secs: i32,
 }
