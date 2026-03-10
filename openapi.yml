@@ -11,6 +11,148 @@ servers:
     description: Local development server
 
 paths:
+  # ── Auth ────────────────────────────────────────────────────
+
+  /api/auth/register:
+    post:
+      summary: Register a new user. The very first user automatically receives the admin role.
+      operationId: register
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User created and session cookie set
+          headers:
+            Set-Cookie:
+              description: HttpOnly session cookie (clawkson_session)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Invalid email or password too short
+        "409":
+          description: Email already registered
+
+  /api/auth/login:
+    post:
+      summary: Log in and receive a session cookie
+      operationId: login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated; session cookie set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /api/auth/logout:
+    post:
+      summary: Log out and clear the session cookie
+      operationId: logout
+      tags: [Auth]
+      responses:
+        "204":
+          description: Logged out
+
+  /api/auth/me:
+    get:
+      summary: Get the currently authenticated user
+      operationId: me
+      tags: [Auth]
+      responses:
+        "200":
+          description: The current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Not authenticated
+
+  # ── Admin ────────────────────────────────────────────────────
+
+  /api/admin/users:
+    get:
+      summary: List all users (admin only)
+      operationId: adminListUsers
+      tags: [Admin]
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "403":
+          description: Forbidden
+
+  /api/admin/users/{id}/role:
+    patch:
+      summary: Update a user's role (admin only; cannot demote yourself)
+      operationId: adminUpdateUserRole
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Cannot demote yourself
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/admin/users/{id}:
+    delete:
+      summary: Delete a user (admin only; cannot delete yourself)
+      operationId: adminDeleteUser
+      tags: [Admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Cannot delete yourself
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
   # ── Agents ──────────────────────────────────────────────────
 
   /api/agents:
@@ -288,6 +430,70 @@ paths:
               schema:
                 type: string
 
+  # ── Conversation Shares ─────────────────────────────────────
+
+  /api/conversations/{id}/shares:
+    get:
+      summary: List users a conversation is shared with (owner or admin only)
+      operationId: listConversationShares
+      tags: [Conversations]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List of shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationShareResponse"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    post:
+      summary: Share a conversation with another user by email
+      operationId: createConversationShare
+      tags: [Conversations]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShareRequest"
+      responses:
+        "200":
+          description: The created share
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationShareResponse"
+        "400":
+          description: Cannot share with yourself
+        "403":
+          description: Forbidden
+        "404":
+          description: Target user not found
+
+  /api/conversations/{conversation_id}/shares/{user_id}:
+    delete:
+      summary: Remove a conversation share
+      operationId: removeConversationShare
+      tags: [Conversations]
+      parameters:
+        - { name: conversation_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Removed
+        "403":
+          description: Forbidden
+        "404":
+          description: Share not found
+
   # ── Containers ──────────────────────────────────────────────
 
   /api/agents/{id}/container:
@@ -488,28 +694,121 @@ paths:
 
   /api/knowledge:
     get:
-      summary: List all knowledge entries
-      operationId: listKnowledgeEntries
+      summary: List all knowledge bases visible to the authenticated user
+      operationId: listKnowledgeBases
       tags: [Knowledge Base]
       responses:
         "200":
-          description: List of knowledge entries
+          description: List of knowledge bases
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/KnowledgeEntry"
+                  $ref: "#/components/schemas/KnowledgeBase"
     post:
-      summary: Create a knowledge entry
-      operationId: createKnowledgeEntry
+      summary: Create a knowledge base
+      operationId: createKnowledgeBase
       tags: [Knowledge Base]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateKnowledgeEntryRequest"
+              $ref: "#/components/schemas/CreateKbRequest"
+      responses:
+        "200":
+          description: The created knowledge base
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+
+  /api/knowledge/{id}:
+    get:
+      summary: Get a knowledge base by ID
+      operationId: getKnowledgeBase
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The knowledge base
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "403":
+          description: No access
+        "404":
+          description: Not found
+    patch:
+      summary: Update a knowledge base (owner or admin only)
+      operationId: patchKnowledgeBase
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchKbRequest"
+      responses:
+        "200":
+          description: Updated knowledge base
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    delete:
+      summary: Delete a knowledge base and all its entries (owner or admin only)
+      operationId: deleteKnowledgeBase
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/knowledge/{id}/entries:
+    get:
+      summary: List all entries in a knowledge base
+      operationId: listKnowledgeEntries
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List of entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeEntry"
+        "403":
+          description: No access
+    post:
+      summary: Manually create a knowledge entry
+      operationId: createKnowledgeEntry
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEntryRequest"
       responses:
         "200":
           description: The created entry
@@ -517,26 +816,296 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/KnowledgeEntry"
+        "400":
+          description: Title or content is empty
+        "403":
+          description: Forbidden
 
-  /api/knowledge/{id}:
-    get:
-      summary: Get a knowledge entry by ID
-      operationId: getKnowledgeEntry
+  /api/knowledge/{kb_id}/entries/{entry_id}:
+    patch:
+      summary: Update a knowledge entry
+      operationId: patchKnowledgeEntry
       tags: [Knowledge Base]
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: entry_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchEntryRequest"
       responses:
         "200":
-          description: The knowledge entry
+          description: Updated entry
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/KnowledgeEntry"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+    delete:
+      summary: Delete a knowledge entry
+      operationId: deleteKnowledgeEntry
+      tags: [Knowledge Base]
+      parameters:
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: entry_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/knowledge/{id}/upload:
+    post:
+      summary: >
+        Upload one or more files; text is extracted, chunked, and embedded automatically.
+        Supported: .pdf, .txt, .md, .csv, .json (max 16 MB per request).
+      operationId: uploadKnowledgeFiles
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: Upload summary with per-file results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+        "403":
+          description: Forbidden
+
+  /api/knowledge/{id}/embed:
+    post:
+      summary: Generate embeddings for all entries that do not yet have one
+      operationId: embedKnowledgeEntries
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Embedding result summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedResult"
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/knowledge/{id}/search:
+    post:
+      summary: Semantic search over a knowledge base using vector similarity
+      operationId: searchKnowledge
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Ranked search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeSearchResult"
+        "403":
+          description: No access
+
+  /api/knowledge/{id}/documents:
+    get:
+      summary: List original source documents uploaded to this knowledge base
+      operationId: listKnowledgeDocuments
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeDocument"
+        "403":
+          description: No access
+
+  /api/knowledge/{kb_id}/documents/{doc_id}/download:
+    get:
+      summary: Download the original source document
+      operationId: downloadKnowledgeDocument
+      tags: [Knowledge Base]
+      parameters:
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: doc_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: File content with appropriate Content-Type header
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: No access
+        "404":
+          description: Not found
+        "503":
+          description: S3 storage unavailable
+
+  /api/knowledge/{kb_id}/documents/{doc_id}:
+    delete:
+      summary: Delete a source document (S3 object + DB record)
+      operationId: deleteKnowledgeDocument
+      tags: [Knowledge Base]
+      parameters:
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: doc_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /api/knowledge/{id}/shares:
+    get:
+      summary: List users a knowledge base is shared with (owner or admin only)
+      operationId: listKbShares
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: List of shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KbShareInfo"
+        "403":
+          description: Forbidden
+    post:
+      summary: Share a knowledge base with another user (owner or admin only)
+      operationId: createKbShare
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KbShareRequest"
+      responses:
+        "200":
+          description: The created share
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KbShareInfo"
+        "400":
+          description: Cannot share with yourself
+        "403":
+          description: Forbidden
+        "404":
+          description: Target user not found
+
+  /api/knowledge/{kb_id}/shares/{user_id}:
+    delete:
+      summary: Remove a share from a knowledge base
+      operationId: removeKbShare
+      tags: [Knowledge Base]
+      parameters:
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Removed
+        "403":
+          description: Forbidden
+        "404":
+          description: Share not found
+
+  /api/knowledge/{id}/agents:
+    get:
+      summary: List agent IDs that have access to this knowledge base
+      operationId: listKbAgents
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Array of agent UUIDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        "403":
+          description: No access
+    post:
+      summary: Link an agent to a knowledge base (owner or admin only)
+      operationId: linkKbAgent
+      tags: [Knowledge Base]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkAgentRequest"
+      responses:
+        "201":
+          description: Linked
+        "403":
+          description: Forbidden
+
+  /api/knowledge/{kb_id}/agents/{agent_id}:
+    delete:
+      summary: Unlink an agent from a knowledge base
+      operationId: unlinkKbAgent
+      tags: [Knowledge Base]
+      parameters:
+        - { name: kb_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: agent_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Unlinked
+        "403":
+          description: Forbidden
+        "404":
+          description: Link not found
 
   # ── Tools ───────────────────────────────────────────────────
 
@@ -625,6 +1194,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LlmConnector"
+
+  /api/llm-connectors/test:
+    post:
+      summary: Test an LLM connector configuration without saving it
+      operationId: testLlmConnector
+      tags: [LLM Connectors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLlmConnectorRequest"
+      responses:
+        "200":
+          description: Test result with latency
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestConnectionResponse"
 
   /api/llm-connectors/{id}:
     get:
@@ -759,7 +1347,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
     patch:
-      summary: Update application settings
+      summary: Update application settings (admin only)
       operationId: patchSettings
       tags: [Settings]
       requestBody:
@@ -1053,23 +1641,29 @@ components:
           type: string
           description: Telegram Bot API token (from @BotFather)
 
-    # ── Knowledge Entry ────────────────────────────────────────
+    # ── Knowledge Base ────────────────────────────────────────
 
-    KnowledgeEntry:
+    KnowledgeBase:
       type: object
-      required: [id, title, content, tags, created_at, updated_at]
+      required: [id, owner_id, name, description, embedding_model, entry_count, created_at, updated_at]
       properties:
         id:
           type: string
           format: uuid
-        title:
+        owner_id:
           type: string
-        content:
+          format: uuid
+        name:
           type: string
-        tags:
-          type: array
-          items:
-            type: string
+        description:
+          type: string
+        embedding_model:
+          type: string
+          description: Ollama model used to embed entries (e.g. qwen3-embedding:8b)
+        entry_count:
+          type: integer
+          format: int64
+          description: Number of knowledge entries in this base
         created_at:
           type: string
           format: date-time
@@ -1077,18 +1671,184 @@ components:
           type: string
           format: date-time
 
-    CreateKnowledgeEntryRequest:
+    CreateKbRequest:
       type: object
-      required: [title, content, tags]
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        embedding_model:
+          type: string
+          nullable: true
+          description: Override the default embedding model (qwen3-embedding:8b)
+
+    PatchKbRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    KnowledgeEntry:
+      type: object
+      required: [id, knowledge_base_id, title, content, has_embedding, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        knowledge_base_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        token_count:
+          type: integer
+          nullable: true
+        has_embedding:
+          type: boolean
+          description: Whether a vector embedding has been generated for this entry
+        source_document_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of the KnowledgeDocument this entry was chunked from (if any)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateEntryRequest:
+      type: object
+      required: [title, content]
       properties:
         title:
           type: string
         content:
           type: string
-        tags:
+
+    PatchEntryRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+
+    KnowledgeDocument:
+      type: object
+      required: [id, knowledge_base_id, filename, content_type, size_bytes, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        knowledge_base_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+
+    KnowledgeSearchResult:
+      type: object
+      required: [entry, score]
+      properties:
+        entry:
+          $ref: "#/components/schemas/KnowledgeEntry"
+        score:
+          type: number
+          format: double
+          description: Cosine similarity score (0–1, higher is more relevant)
+        document_url:
+          type: string
+          nullable: true
+          description: Download URL for the source document (if the entry was chunked from a file)
+
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        limit:
+          type: integer
+          nullable: true
+          description: Max results to return (default 5, max 20)
+
+    KbShareRequest:
+      type: object
+      required: [email, permission]
+      properties:
+        email:
+          type: string
+          description: Email of the user to share with
+        permission:
+          $ref: "#/components/schemas/SharePermission"
+
+    KbShareInfo:
+      type: object
+      required: [id, user_id, email, display_name, permission]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        display_name:
+          type: string
+        permission:
+          $ref: "#/components/schemas/SharePermission"
+
+    EmbedResult:
+      type: object
+      required: [embedded, failed]
+      properties:
+        embedded:
+          type: integer
+        failed:
+          type: integer
+
+    UploadResult:
+      type: object
+      required: [files_processed, entries_created, embedded, embed_failed, errors]
+      properties:
+        files_processed:
+          type: integer
+        entries_created:
+          type: integer
+        embedded:
+          type: integer
+        embed_failed:
+          type: integer
+        errors:
           type: array
           items:
             type: string
+
+    LinkAgentRequest:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
 
     # ── Tool ───────────────────────────────────────────────────
 
@@ -1177,7 +1937,7 @@ components:
           type: string
         api_key:
           type: string
-          description: Plain-text API key (stored in-memory, never persisted)
+          description: Plain-text API key (stored encrypted in the database; masked on all responses)
         api_base_url:
           type: string
           nullable: true
@@ -1249,6 +2009,141 @@ components:
         assistant_message:
           $ref: "#/components/schemas/Message"
 
+    # ── Auth ──────────────────────────────────────────────────
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        display_name:
+          type: string
+          nullable: true
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, email, display_name, role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        display_name:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserRole:
+      type: string
+      enum: [admin, user]
+
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    SharePermission:
+      type: string
+      enum: [read, write]
+
+    CreateShareRequest:
+      type: object
+      required: [email, permission]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email of the user to share with
+        permission:
+          $ref: "#/components/schemas/SharePermission"
+
+    ConversationShareResponse:
+      type: object
+      required: [share, shared_with_user]
+      properties:
+        share:
+          $ref: "#/components/schemas/ConversationShare"
+        shared_with_user:
+          $ref: "#/components/schemas/ShareUserInfo"
+
+    ConversationShare:
+      type: object
+      required: [id, conversation_id, shared_by, shared_with, permission, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        shared_by:
+          type: string
+          format: uuid
+        shared_with:
+          type: string
+          format: uuid
+        permission:
+          $ref: "#/components/schemas/SharePermission"
+        created_at:
+          type: string
+          format: date-time
+
+    ShareUserInfo:
+      type: object
+      required: [id, email, display_name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        display_name:
+          type: string
+
+    TestConnectionResponse:
+      type: object
+      required: [ok, latency_ms]
+      properties:
+        ok:
+          type: boolean
+        latency_ms:
+          type: integer
+          format: int64
+        error:
+          type: string
+          nullable: true
+
     # ── Settings ───────────────────────────────────────────────
 
     Settings:
@@ -1258,6 +2153,14 @@ components:
           type: string
           format: uuid
           nullable: true
+        etl_llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            LLM connector used during Knowledge Base ETL for semantic chunking.
+            When set, the LLM is called to find optimal sentence boundaries instead of
+            the built-in heuristic splitter. Leave null to use heuristic chunking only.
         theme:
           type: string
 
@@ -1268,6 +2171,13 @@ components:
           type: string
           format: uuid
           nullable: true
+        etl_llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Set the LLM connector used for ETL semantic chunking.
+            Pass null to clear (falls back to heuristic chunking).
         theme:
           type: string
 

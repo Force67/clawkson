@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   ChevronDown, Plus, Check, Loader2, X,
-  Cloud, Zap, Globe, Star, Key, Trash2, Pencil, Cpu, Palette,
+  Cloud, Zap, Globe, Star, Key, Trash2, Pencil, Cpu, Palette, Database,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -436,6 +436,59 @@ export function SettingsPage() {
             </div>
           )}
         </section>
+
+        {/* ── ETL Processing ── */}
+        <Card>
+          <div className={styles.sectionHeader} style={{ marginBottom: 16 }}>
+            <div className={styles.sectionHeaderLeft}>
+              <div className={styles.sectionIconWrap}><Database size={16} /></div>
+              <div>
+                <h3 className={styles.sectionTitle}>ETL Processing</h3>
+                <p className={styles.sectionDesc}>
+                  Select a model for semantic chunking during Knowledge Base ingestion.
+                  When set, the LLM finds optimal sentence boundaries instead of the built-in
+                  heuristic splitter — improving retrieval quality for dense or complex documents.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.formLabel}>Semantic Chunking Model</label>
+            <div className={styles.selectWrap}>
+              <select
+                className={styles.select}
+                value={settings?.etl_llm_connector_id ?? ''}
+                onChange={async e => {
+                  const val = e.target.value
+                  const s = await api.settings.patch({
+                    etl_llm_connector_id: val === '' ? null : val,
+                  })
+                  setSettings(s)
+                }}
+              >
+                <option value="">None (heuristic chunking)</option>
+                {llmConnectors.map(c => {
+                  const meta = LLM_PROVIDERS.find(p => p.id === c.provider_type)
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {meta?.label ?? c.provider_type} / {c.model}
+                    </option>
+                  )
+                })}
+              </select>
+              <ChevronDown size={14} className={styles.selectChevron} />
+            </div>
+            {settings?.etl_llm_connector_id && (
+              <p className={styles.formHint}>
+                The selected model will be called to locate semantically coherent chunk
+                boundaries when documents exceed the maximum chunk size. The full document
+                is never sent to the LLM — only small context windows around potential split
+                points.
+              </p>
+            )}
+          </div>
+        </Card>
 
         {/* ── Appearance ── */}
         <Card>

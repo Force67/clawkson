@@ -95,9 +95,19 @@ Clawkson automatically switches between `max_tokens` and `max_completion_tokens`
 
 ### Security
 
-- API keys are stored **in-memory only** — they are never persisted to disk.
+- API keys are **encrypted and stored in the database** — they persist across server restarts.
 - All API responses mask the key: only the last 4 characters are shown (e.g. `sk-or-••••1234`).
-- Restarting the server requires re-entering API keys.
+- Key storage is handled server-side; the raw key is never returned after initial creation.
+
+### Testing a Connector
+
+Before saving, you can validate credentials with:
+
+```
+POST /api/llm-connectors/test
+```
+
+This sends a minimal request to the provider using the supplied credentials and returns `{ "success": true }` or an error message, without persisting anything.
 
 ## Adding a Custom Connector
 

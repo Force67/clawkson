@@ -167,6 +167,8 @@ export interface LlmConnector {
 
 export interface Settings {
   default_llm_connector_id: string | null
+  /** LLM connector used for ETL semantic chunking. Null = heuristic only. */
+  etl_llm_connector_id: string | null
   theme: string
 }
 
@@ -267,6 +269,8 @@ export interface CreateConnectorRequest {
 
 export interface PatchSettingsRequest {
   default_llm_connector_id?: string
+  /** Set to a connector id to enable LLM semantic chunking, or omit to keep existing. */
+  etl_llm_connector_id?: string | null
   theme?: string
 }
 

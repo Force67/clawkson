@@ -6,7 +6,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use clawkson_core::{KnowledgeBase, KnowledgeDocument, KnowledgeEntry, KnowledgeSearchResult, SharePermission};
+use clawkson_core::{KnowledgeBase, KnowledgeDocument, KnowledgeEntry, KnowledgeSearchResult, MessageRole, SharePermission};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -419,6 +419,27 @@ const CHUNK_MAX_CHARS: usize = 4000;
 /// Overlap between chunks to preserve context across boundaries.
 const CHUNK_OVERLAP_CHARS: usize = 200;
 
+/// Convert a DB connector row to the core `LlmConnector` type.
+fn db_connector_row_to_core(row: clawkson_db::llm_connector::LlmConnectorRow) -> clawkson_core::LlmConnector {
+    use clawkson_core::LlmProviderType;
+    clawkson_core::LlmConnector {
+        id: row.id,
+        name: row.name,
+        provider_type: match row.provider_type {
+            clawkson_db::llm_connector::LlmProviderType::Azure => LlmProviderType::Azure,
+            clawkson_db::llm_connector::LlmProviderType::Openrouter => LlmProviderType::OpenRouter,
+            clawkson_db::llm_connector::LlmProviderType::Openai => LlmProviderType::OpenAi,
+            clawkson_db::llm_connector::LlmProviderType::Custom => LlmProviderType::Custom,
+        },
+        api_key: row.api_key,
+        api_base_url: row.api_base_url,
+        model: row.model,
+        azure_deployment: row.azure_deployment,
+        azure_api_version: row.azure_api_version,
+        created_at: row.created_at,
+    }
+}
+
 /// Extract text from a file based on its extension.
 fn extract_text(filename: &str, bytes: &[u8]) -> Result<String, String> {
     let ext = filename
@@ -501,6 +522,116 @@ fn chunk_text(text: &str) -> Vec<String> {
                     .or_else(|| remaining[..CHUNK_MAX_CHARS].rfind(' '))
                     .unwrap_or(CHUNK_MAX_CHARS);
                 let split_at = split_at + 1; // include the delimiter
+                final_chunks.push(remaining[..split_at].trim().to_string());
+                let overlap_start = split_at.saturating_sub(CHUNK_OVERLAP_CHARS);
+                remaining = &remaining[overlap_start..];
+            }
+            if !remaining.trim().is_empty() {
+                final_chunks.push(remaining.trim().to_string());
+            }
+        }
+    }
+
+    final_chunks
+}
+
+/// Use an LLM to find a semantically appropriate sentence boundary within the
+/// `window` string (which is at most `CHUNK_MAX_CHARS` bytes long).  Returns
+/// the byte offset at which the chunk should be cut, or `None` if the LLM
+/// response cannot be parsed / the call fails (callers fall back to heuristics).
+///
+/// We only pass a small context window to the LLM — not the full document —
+/// so this is cheap and fast.
+async fn llm_find_split(connector: &clawkson_core::LlmConnector, window: &str) -> Option<usize> {
+    let system = "You are a document chunking assistant. \
+        Given a text excerpt, find the best position to split it into two semantically coherent chunks. \
+        Respond with ONLY a single integer: the character offset (0-indexed) in the given text \
+        at which the split should occur. \
+        Choose a position that ends a complete sentence or paragraph. \
+        Do not include any explanation or additional text.";
+
+    let user_msg = format!(
+        "Find the best split position in the following text (respond with a single integer offset):\n\n{}",
+        window
+    );
+
+    let history = vec![(MessageRole::User, user_msg, vec![])];
+    match crate::llm::complete(connector, Some(system), &history, Some(0.0), Some(16), None).await {
+        Ok(response) => {
+            let trimmed = response.trim();
+            trimmed.parse::<usize>().ok().filter(|&pos| pos > 0 && pos < window.len())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "ETL LLM split failed, falling back to heuristic");
+            None
+        }
+    }
+}
+
+/// Chunk text using an LLM to find optimal sentence boundaries when paragraphs
+/// are too large for the heuristic splitter alone.
+async fn chunk_text_semantic(text: &str, connector: &clawkson_core::LlmConnector) -> Vec<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return vec![];
+    }
+    if text.len() <= CHUNK_MAX_CHARS {
+        return vec![text.to_string()];
+    }
+
+    // Split on paragraph boundaries first (same as heuristic approach).
+    let paragraphs: Vec<&str> = text.split("\n\n").collect();
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+
+    for para in &paragraphs {
+        let para = para.trim();
+        if para.is_empty() {
+            continue;
+        }
+
+        if !current.is_empty() && current.len() + para.len() + 2 > CHUNK_MAX_CHARS {
+            chunks.push(current.clone());
+            let overlap_start = current.len().saturating_sub(CHUNK_OVERLAP_CHARS);
+            let overlap_start = current[overlap_start..]
+                .find(char::is_whitespace)
+                .map(|i| overlap_start + i + 1)
+                .unwrap_or(overlap_start);
+            current = current[overlap_start..].to_string();
+        }
+
+        if !current.is_empty() {
+            current.push_str("\n\n");
+        }
+        current.push_str(para);
+    }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    // For oversized chunks, ask the LLM for the best split point, falling back
+    // to sentence/word heuristics if the LLM call fails.
+    let mut final_chunks = Vec::new();
+    for chunk in chunks {
+        if chunk.len() <= CHUNK_MAX_CHARS {
+            final_chunks.push(chunk);
+        } else {
+            let mut remaining = chunk.as_str();
+            while remaining.len() > CHUNK_MAX_CHARS {
+                // Take a window up to the limit and let the LLM find the best cut.
+                let window = &remaining[..CHUNK_MAX_CHARS];
+                let split_at = if let Some(llm_pos) = llm_find_split(connector, window).await {
+                    llm_pos
+                } else {
+                    // Heuristic fallback
+                    window
+                        .rfind(". ")
+                        .or_else(|| window.rfind('\n'))
+                        .or_else(|| window.rfind(' '))
+                        .map(|p| p + 1)
+                        .unwrap_or(CHUNK_MAX_CHARS)
+                };
                 final_chunks.push(remaining[..split_at].trim().to_string());
                 let overlap_start = split_at.saturating_sub(CHUNK_OVERLAP_CHARS);
                 remaining = &remaining[overlap_start..];
@@ -631,7 +762,29 @@ async fn upload_files(
             .map(|(name, _)| name)
             .unwrap_or(&filename);
 
-        let chunks = chunk_text(&text);
+        // ── Semantic or heuristic chunking ───────────────────────
+        // Resolve the ETL LLM connector from app settings (best-effort; fall back if unavailable).
+        let chunks = {
+            let etl_connector: Option<clawkson_core::LlmConnector> = async {
+                let settings = clawkson_db::settings::get(&state.db).await.ok()?;
+                let etl_id = settings.etl_llm_connector_id?;
+                let row = clawkson_db::llm_connector::get_by_id(&state.db, etl_id).await.ok()??;
+                Some(db_connector_row_to_core(row))
+            }.await;
+
+            if let Some(ref connector) = etl_connector {
+                tracing::info!(
+                    kb_id = %kb_id,
+                    filename = %filename,
+                    connector_id = %connector.id,
+                    connector_name = %connector.name,
+                    "Using LLM semantic chunking for ETL"
+                );
+                chunk_text_semantic(&text, connector).await
+            } else {
+                chunk_text(&text)
+            }
+        };
         let total_chunks = chunks.len();
 
         tracing::info!(

@@ -252,5 +252,9 @@ pub struct ConversationShare {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub default_llm_connector_id: Option<Uuid>,
+    /// LLM connector used during Knowledge Base ETL for semantic chunking.
+    /// When set, the LLM is called to find optimal sentence boundaries instead of
+    /// the built-in heuristic splitter.
+    pub etl_llm_connector_id: Option<Uuid>,
     pub theme: String,
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Agents are the core building blocks of Clawkson. Each agent is a configurable sub-agent that can be wired to an LLM connector, given a system prompt, and tuned for specific tasks.
+Agents are the core building blocks of Clawkson. Each agent is a configurable sub-agent that can be wired to an LLM connector, given a system prompt, tuned for specific tasks, and linked to one or more Knowledge Bases for retrieval-augmented generation.
 
 ## Agent Properties
 
@@ -43,6 +43,14 @@ An agent without an `llm_connector_id` will fall back to the **default** LLM con
 
 The `system_prompt` is prepended as a `system` role message to every LLM call made by this agent. Use it to define the agent's persona, constraints, and capabilities.
 
+## Knowledge Base Linking
+
+Agents can be linked to one or more Knowledge Bases, giving them access to your stored documents and text entries for retrieval-augmented generation.
+
+- **Link:** `POST /api/knowledge/{kb_id}/agents` with `{ "agent_id": "<uuid>" }`
+- **Unlink:** `DELETE /api/knowledge/{kb_id}/agents/{agent_id}`
+- **List linked agents:** `GET /api/knowledge/{kb_id}/agents`
+
 ## Agent Lifecycle
 
 1. **Created** — Agent is defined with a name and description
@@ -50,6 +58,19 @@ The `system_prompt` is prepended as a `system` role message to every LLM call ma
 3. **Online** — Agent is running and ready to receive messages
 4. **Busy** — Agent is processing a task
 5. **Offline** — Agent is stopped
+
+## Container Management
+
+Each agent can be run inside an isolated Docker container. The following API endpoints manage the container lifecycle:
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/agents/{id}/start` | Start the container |
+| POST | `/api/agents/{id}/stop` | Stop the container |
+| GET | `/api/agents/{id}/logs` | Stream container logs (SSE) |
+| POST | `/api/agents/{id}/exec` | Execute a command inside the container |
+| GET | `/api/agents/{id}/status` | Get current container status |
+| POST | `/api/agents/{id}/remove` | Remove the container |
 
 ## Orchestration
 

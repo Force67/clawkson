@@ -4,26 +4,79 @@
 
 - **Rust** (stable, 2021 edition)
 - **Bun** (v1.0+)
-- **Docker** (optional, for agent containers)
+- **Docker** (for PostgreSQL + VectorChord + MinIO, and optional agent containers)
+
+## Environment Setup
+
+Copy the example env file and fill in your values:
+
+```bash
+cp .env.vectorchord.example .env
+```
+
+The `.env` file is loaded automatically at startup via `dotenvy`. The required and optional environment variables are:
+
+### Database (required)
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (used by SQLx tooling) |
+| `CLAWKSON_DB_HOST` | Postgres host (default: `localhost`) |
+| `CLAWKSON_DB_PORT` | Postgres port (default: `55435`) |
+| `CLAWKSON_DB_NAME` | Database name (default: `clawkson`) |
+| `CLAWKSON_DB_ADMIN_USER` | Admin user for bootstrapping (default: `postgres`) |
+| `CLAWKSON_DB_ADMIN_PASSWORD` | Admin password |
+| `CLAWKSON_DB_USER` | App user (default: `clawkson_app`) |
+| `CLAWKSON_DB_PASSWORD` | App user password |
+
+### S3-compatible storage (optional — required for Knowledge Base document upload)
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLAWKSON_S3_ENDPOINT` | `http://localhost:9100` | MinIO / S3-compatible endpoint |
+| `CLAWKSON_S3_ACCESS_KEY` | `clawkson` | Access key |
+| `CLAWKSON_S3_SECRET_KEY` | `clawkson-secret-key` | Secret key |
+| `CLAWKSON_S3_BUCKET` | `clawkson-documents` | Bucket name (auto-created if absent) |
+
+### Frontend CORS (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed CORS origin for the frontend dev server |
+
+### Container manager (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `CLAWKSON_WORKSPACE_ROOT` | `/tmp/clawkson-workspaces` | Host path for agent Docker workspace bind-mounts |
 
 ## Setup
 
-### Backend
+### 1. Start infrastructure (PostgreSQL + VectorChord + MinIO)
+
+```bash
+docker compose up -d
+# PostgreSQL + VectorChord on 127.0.0.1:55435
+# MinIO on 127.0.0.1:9100
+```
+
+### 2. Backend
+
+The binary crate is `clawkson-server`. The server bootstraps the database and runs migrations automatically on startup.
 
 ```bash
 # From the project root
-cargo build
-cargo run -p clawkson-api
-# API will be available at http://localhost:47821
+cargo run -p clawkson-server
+# API available at http://localhost:47821
 ```
 
-### Frontend
+### 3. Frontend
 
 ```bash
 cd apps/web
 bun install
 bun run dev
-# Dev server at http://localhost:47822
+# Dev server at http://localhost:5173
 ```
 
 ### Full Stack (Development)
@@ -31,25 +84,21 @@ bun run dev
 Run the backend and frontend in separate terminals:
 
 ```bash
-# Terminal 1 — Backend
-cargo run -p clawkson-api
+# Terminal 1 — infrastructure
+docker compose up -d
 
-# Terminal 2 — Frontend
+# Terminal 2 — backend
+cargo run -p clawkson-server
+
+# Terminal 3 — frontend
 cd apps/web && bun run dev
 ```
 
-### VectorChord (Optional)
+## First Run
 
-Clawkson includes a local VectorChord Docker Compose setup for vector search experiments and future knowledge storage work.
+On first startup the database schema is created and all migrations are applied automatically. The **first user to register** becomes the administrator.
 
-```bash
-cp .env.vectorchord.example .env
-docker compose up -d vectorchord
-cargo run -p clawkson-db
-# PostgreSQL + VectorChord will be available at 127.0.0.1:55435 by default
-```
-
-See [VectorChord](./vectorchord.md) for environment variables, credentials, and first-boot behavior.
+Navigate to `http://localhost:5173` and use the Register page to create your admin account.
 
 ## Project Structure
 
@@ -57,6 +106,7 @@ See [VectorChord](./vectorchord.md) for environment variables, credentials, and 
 clawkson/
 ├── AGENTS.md              # Project specification
 ├── openapi.yml            # API contract (source of truth)
+├── docker-compose.yml     # VectorChord + MinIO services
 ├── docs/                  # Living documentation
 ├── apps/
 │   └── web/               # React frontend (Bun + Vite)
@@ -64,11 +114,15 @@ clawkson/
 │           ├── components/ # Reusable UI components
 │           └── pages/      # Page components (one per route)
 └── crates/
-    ├── clawkson-core/      # Domain models
-    ├── clawkson-db/        # Database bootstrap + SQLx migrations
-    └── clawkson-api/       # HTTP API server
+    ├── clawkson-server/    # Binary entry point (HTTP server startup)
+    ├── clawkson-api/       # HTTP route handlers and middleware
+    ├── clawkson-core/      # Domain models (shared types)
+    ├── clawkson-db/        # Database bootstrap, SQLx migrations
+    └── clawkson-container/ # Docker container management for agents
 ```
 
 ## Configuration
 
-LLM connectors and other settings are configured through the **Settings** page in the web UI, or will be configurable via the API.
+LLM connectors (API keys, provider type, model) and application settings are managed through the **Settings** page in the web UI or via the `/api/llm-connectors` and `/api/settings` API endpoints.
+
+See [Connectors](./connectors.md) for full details on LLM connector configuration.
