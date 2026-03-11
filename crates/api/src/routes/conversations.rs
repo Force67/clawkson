@@ -207,6 +207,44 @@ async fn create_conversation(
     Ok(Json(conv_to_api(row)))
 }
 
+/// Delete S3 attachment objects and the container workspace for a conversation.
+/// Called before the DB delete so the attachment records are still available for lookup.
+/// Errors are logged but do not prevent conversation deletion.
+async fn cleanup_conversation_files(state: &AppState, conversation_id: Uuid, agent_id: Option<Uuid>) {
+    // 1. Delete S3 objects for all attachments
+    if let Some(s3) = &state.s3 {
+        match clawkson_db::chat_attachment::list_for_conversation(state.db.pool(), conversation_id).await {
+            Ok(attachments) => {
+                for att in attachments {
+                    if let Err(e) = s3.delete_object(&att.s3_key).await {
+                        tracing::warn!(%conversation_id, s3_key = %att.s3_key, error = %e, "failed to delete S3 object during conversation cleanup");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(%conversation_id, error = %e, "failed to list attachments for cleanup");
+            }
+        }
+    }
+
+    // 2. Remove container and workspace directory
+    if let (Some(cm), Some(agent_id)) = (&state.container_manager, agent_id) {
+        if let Err(e) = cm.remove_container(agent_id, conversation_id, true).await {
+            tracing::debug!(%conversation_id, error = %e, "container cleanup (may not exist)");
+        }
+        // Also clean up workspace dir even if no container was tracked
+        // (workspace may exist from a previous session where the container was already removed)
+        let workspace = cm.workspace_root()
+            .join(agent_id.to_string())
+            .join(conversation_id.to_string());
+        if workspace.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&workspace) {
+                tracing::warn!(%conversation_id, path = %workspace.display(), error = %e, "failed to remove workspace directory");
+            }
+        }
+    }
+}
+
 async fn delete_conversation(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -221,6 +259,8 @@ async fn delete_conversation(
     if !auth.is_admin() && conv.owner_id != Some(auth.id()) {
         return StatusCode::FORBIDDEN;
     }
+    // Clean up S3 objects and workspace before DB cascade deletes the records
+    cleanup_conversation_files(&state, id, conv.agent_id).await;
     match clawkson_db::conversation::delete(&state.db, id).await {
         Ok(true) => StatusCode::NO_CONTENT,
         Ok(false) => StatusCode::NOT_FOUND,
@@ -264,6 +304,7 @@ async fn delete_all_conversations(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
     for conv in rows {
+        cleanup_conversation_files(&state, conv.id, conv.agent_id).await;
         if let Err(_) = clawkson_db::conversation::delete(&state.db, conv.id).await {
             return StatusCode::INTERNAL_SERVER_ERROR;
         }

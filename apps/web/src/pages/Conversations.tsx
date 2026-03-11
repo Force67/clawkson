@@ -254,7 +254,7 @@ export function ConversationsPage() {
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [reasoningEnabled, setReasoningEnabled] = useState(false)
+  const [reasoningEnabled, setReasoningEnabled] = useState(true)
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium')
   const [searchEnabled, setSearchEnabled] = useState(true)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
