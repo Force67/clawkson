@@ -76,6 +76,13 @@ async fn main() -> Result<()> {
         tracing::warn!("S3 storage unavailable — document storage disabled (is RustFS running?)");
     }
 
+    // ── PDF rendering check ────────────────────────────────────────
+    if clawkson_api::pdf::check_poppler_available().await {
+        tracing::info!("PDF vision rendering ready (poppler-utils)");
+    } else {
+        tracing::warn!("poppler-utils not installed — PDF pages will use text extraction fallback (install poppler-utils for vision)");
+    }
+
     // ── HTTP server ───────────────────────────────────────────────
     let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3);
 

@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug, Serialize)]
 struct ContainerStatusResponse {
     agent_id: String,
+    conversation_id: String,
     state: String,
     image: String,
     workspace_path: String,
@@ -39,11 +40,18 @@ fn err_json(msg: impl Into<String>) -> Json<ErrorResponse> {
     })
 }
 
-/// POST /api/agents/{id}/container/start
+/// Query parameter for specifying the conversation a container belongs to.
+#[derive(Debug, Deserialize)]
+struct ConversationQuery {
+    conversation_id: Uuid,
+}
+
+/// POST /api/agents/{id}/container/start?conversation_id=...
 async fn start_container(
     auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
+    Query(query): Query<ConversationQuery>,
 ) -> Result<Json<ContainerStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     if !auth.is_admin() {
         return Err((StatusCode::FORBIDDEN, err_json("admin only")));
@@ -80,12 +88,13 @@ async fn start_container(
     };
 
     let info = cm
-        .start_container(agent_id, &config)
+        .start_container(agent_id, query.conversation_id, &config)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(Json(ContainerStatusResponse {
         agent_id: info.agent_id.to_string(),
+        conversation_id: info.conversation_id.to_string(),
         state: serde_json::to_value(&info.state)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
@@ -95,11 +104,12 @@ async fn start_container(
     }))
 }
 
-/// POST /api/agents/{id}/container/stop
+/// POST /api/agents/{id}/container/stop?conversation_id=...
 async fn stop_container(
     auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
+    Query(query): Query<ConversationQuery>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     if !auth.is_admin() {
         return Err((StatusCode::FORBIDDEN, err_json("admin only")));
@@ -110,18 +120,19 @@ async fn stop_container(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
-    cm.stop_container(agent_id)
+    cm.stop_container(agent_id, query.conversation_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// DELETE /api/agents/{id}/container
+/// DELETE /api/agents/{id}/container?conversation_id=...
 async fn remove_container(
     auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
+    Query(query): Query<ConversationQuery>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     if !auth.is_admin() {
         return Err((StatusCode::FORBIDDEN, err_json("admin only")));
@@ -132,18 +143,20 @@ async fn remove_container(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
-    cm.remove_container(agent_id, true)
+    cm.remove_container(agent_id, query.conversation_id, true)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// GET /api/agents/{id}/container
+/// GET /api/agents/{id}/container?conversation_id=...
+/// Returns the container for a specific conversation.
 async fn get_container(
     _auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
+    Query(query): Query<ConversationQuery>,
 ) -> Result<Json<ContainerStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     let cm = state
         .container_manager
@@ -151,12 +164,13 @@ async fn get_container(
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
     let info = cm
-        .get_container(agent_id)
+        .get_container(agent_id, query.conversation_id)
         .await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("no container for this agent")))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("no container for this agent/conversation")))?;
 
     Ok(Json(ContainerStatusResponse {
         agent_id: info.agent_id.to_string(),
+        conversation_id: info.conversation_id.to_string(),
         state: serde_json::to_value(&info.state)
             .ok()
             .and_then(|v| v.as_str().map(String::from))
@@ -168,10 +182,11 @@ async fn get_container(
 
 #[derive(Debug, Deserialize)]
 struct LogsQuery {
+    conversation_id: Uuid,
     tail: Option<usize>,
 }
 
-/// GET /api/agents/{id}/container/logs
+/// GET /api/agents/{id}/container/logs?conversation_id=...
 async fn get_logs(
     _auth: AuthUser,
     State(state): State<AppState>,
@@ -184,11 +199,18 @@ async fn get_logs(
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
     let logs = cm
-        .logs(agent_id, query.tail)
+        .logs(agent_id, query.conversation_id, query.tail)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(Json(serde_json::json!({ "logs": logs })))
+}
+
+#[derive(Debug, Deserialize)]
+struct ExecCommandRequest {
+    conversation_id: Uuid,
+    #[serde(flatten)]
+    exec: ExecRequest,
 }
 
 /// POST /api/agents/{id}/container/exec
@@ -196,7 +218,7 @@ async fn exec_command(
     auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
-    Json(req): Json<ExecRequest>,
+    Json(req): Json<ExecCommandRequest>,
 ) -> Result<Json<ExecResult>, (StatusCode, Json<ErrorResponse>)> {
     if !auth.is_admin() {
         return Err((StatusCode::FORBIDDEN, err_json("admin only")));
@@ -208,7 +230,7 @@ async fn exec_command(
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
     let result = cm
-        .exec(agent_id, &req)
+        .exec(agent_id, req.conversation_id, &req.exec)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 

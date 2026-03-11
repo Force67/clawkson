@@ -8,7 +8,7 @@ import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { StatusBadge } from '../components/StatusBadge'
 import { EmptyState } from '../components/EmptyState'
-import { WorkspaceBrowser } from '../components/WorkspaceBrowser'
+// WorkspaceBrowser is available but requires conversationId context
 import { api, type Agent, type LlmConnector, type AgentStatus } from '../lib/api'
 import styles from './Agents.module.css'
 
@@ -97,7 +97,9 @@ function ConfigPanel({ agent, connectors, onSave, onClose }: ConfigPanelProps) {
 
         {tab === 'workspace' ? (
           <div className={styles.panelWorkspace}>
-            <WorkspaceBrowser agentId={agent.id} liveWatch />
+            <p style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Workspaces are now scoped per conversation for isolation. Browse files from within a conversation.
+            </p>
           </div>
         ) : (
         <form onSubmit={handleSave} className={styles.panelBody}>

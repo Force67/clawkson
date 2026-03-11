@@ -17,8 +17,6 @@ import {
   Hash,
   Zap,
   Container,
-  Play,
-  Square,
   BookOpen,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -26,7 +24,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
-import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type Skill, type AgentStatus, type ContainerStatus } from '../lib/api'
+import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type Skill, type AgentStatus } from '../lib/api'
 import styles from './Dashboard.module.css'
 
 // ── Agent Config Panel ────────────────────────────────────────────
@@ -477,15 +475,12 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
 interface AgentCardProps {
   agent: Agent
   connector?: LlmConnector
-  containerStatus?: ContainerStatus
   onConfigure: () => void
   onDelete: () => void
   onStatusChange: (status: AgentStatus) => void
-  onContainerToggle: () => void
 }
 
-function AgentCard({ agent, connector, containerStatus, onConfigure, onDelete, onStatusChange, onContainerToggle }: AgentCardProps) {
-  const containerRunning = containerStatus?.state === 'running'
+function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
 
   return (
     <div className={styles.agentCard}>
@@ -524,8 +519,8 @@ function AgentCard({ agent, connector, containerStatus, onConfigure, onDelete, o
           </span>
         )}
         {agent.container_enabled && (
-          <span className={`${styles.configTag} ${containerRunning ? styles.configTagActive : ''}`}>
-            <Container size={11} /> {containerRunning ? 'Container running' : 'Sandbox'}
+          <span className={styles.configTag}>
+            <Container size={11} /> Sandbox
           </span>
         )}
       </div>
@@ -543,15 +538,6 @@ function AgentCard({ agent, connector, containerStatus, onConfigure, onDelete, o
           ))}
         </div>
         <div className={styles.agentCardBtns}>
-          {agent.container_enabled && (
-            <button
-              className={`${styles.containerBtn} ${containerRunning ? styles.containerBtnActive : ''}`}
-              onClick={onContainerToggle}
-              title={containerRunning ? 'Stop container' : 'Start container'}
-            >
-              {containerRunning ? <Square size={12} /> : <Play size={12} />}
-            </button>
-          )}
           <button className={styles.configureBtn} onClick={onConfigure} title="Configure">
             <Settings2 size={14} /> Configure
           </button>
@@ -575,22 +561,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
-  const [containerStatuses, setContainerStatuses] = useState<Record<string, ContainerStatus>>({})
   const navigate = useNavigate()
-
-  const fetchContainerStatuses = async (agentList: Agent[]) => {
-    const enabled = agentList.filter(a => a.container_enabled)
-    const statuses: Record<string, ContainerStatus> = {}
-    await Promise.allSettled(
-      enabled.map(async (a) => {
-        try {
-          const status = await api.containers.status(a.id)
-          statuses[a.id] = status
-        } catch { /* no container running */ }
-      })
-    )
-    setContainerStatuses(statuses)
-  }
 
   useEffect(() => {
     Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list(), api.knowledge.listBases(), api.skills.list()])
@@ -600,7 +571,6 @@ export function DashboardPage() {
         setConnectors(conns)
         setKnowledgeBases(kbs)
         setSkills(sks)
-        fetchContainerStatuses(agts)
       })
       .finally(() => setLoading(false))
   }, [])
@@ -628,24 +598,8 @@ export function DashboardPage() {
     setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
   }
 
-  const handleContainerToggle = async (agentId: string) => {
-    const current = containerStatuses[agentId]
-    try {
-      if (current?.state === 'running') {
-        await api.containers.stop(agentId)
-        setContainerStatuses(prev => {
-          const next = { ...prev }
-          delete next[agentId]
-          return next
-        })
-      } else {
-        const status = await api.containers.start(agentId)
-        setContainerStatuses(prev => ({ ...prev, [agentId]: status }))
-      }
-    } catch (err) {
-      console.error('Container toggle failed:', err)
-    }
-  }
+  // Container start/stop is now handled per-conversation automatically.
+  // The dashboard shows sandbox capability but doesn't manage individual containers.
 
   const stats = [
     { label: 'Total Agents', value: String(agents.length), icon: Bot, sub: `${onlineCount} online`, color: 'var(--accent)' },
@@ -727,11 +681,9 @@ export function DashboardPage() {
               key={agent.id}
               agent={agent}
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
-              containerStatus={containerStatuses[agent.id]}
               onConfigure={() => setConfiguring(agent)}
               onDelete={() => handleDelete(agent.id)}
               onStatusChange={status => handleStatusChange(agent.id, status)}
-              onContainerToggle={() => handleContainerToggle(agent.id)}
             />
           ))}
         </div>

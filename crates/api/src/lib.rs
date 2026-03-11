@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod embeddings;
 pub mod llm;
+pub mod pdf;
 pub mod routes;
 pub mod s3;
 pub mod state;

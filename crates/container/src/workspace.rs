@@ -229,4 +229,136 @@ mod tests {
     fn rejects_dotdot_after_subdir() {
         assert!(sandbox_path(&root(), "outputs/../../etc/passwd").is_err());
     }
+
+    // ── Per-conversation workspace isolation tests ─────────────
+
+    /// Build a workspace root like the ContainerManager would:
+    /// {workspace_root}/{agent_id}/{conversation_id}
+    fn conv_workspace(base: &Path, agent: &str, conv: &str) -> PathBuf {
+        base.join(agent).join(conv)
+    }
+
+    #[test]
+    fn conversation_workspaces_are_disjoint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let agent = "agent-aaa";
+
+        let ws_a = conv_workspace(base, agent, "conv-111");
+        let ws_b = conv_workspace(base, agent, "conv-222");
+
+        // Create both workspaces with outputs dirs
+        for ws in [&ws_a, &ws_b] {
+            std::fs::create_dir_all(ws.join("outputs")).unwrap();
+            std::fs::create_dir_all(ws.join("inputs")).unwrap();
+        }
+
+        // Write a file into conv-111's workspace
+        std::fs::write(ws_a.join("outputs/secret.txt"), "user-1-data").unwrap();
+
+        // Write a different file into conv-222's workspace
+        std::fs::write(ws_b.join("outputs/other.txt"), "user-2-data").unwrap();
+
+        // conv-111 should only see secret.txt
+        let listing_a = list_workspace(&ws_a, "outputs").unwrap();
+        assert_eq!(listing_a.entries.len(), 1);
+        assert_eq!(listing_a.entries[0].name, "secret.txt");
+
+        // conv-222 should only see other.txt
+        let listing_b = list_workspace(&ws_b, "outputs").unwrap();
+        assert_eq!(listing_b.entries.len(), 1);
+        assert_eq!(listing_b.entries[0].name, "other.txt");
+
+        // Reading from conv-222 cannot reach conv-111's files
+        let escape = sandbox_path(&ws_b, "../conv-111/outputs/secret.txt");
+        assert!(escape.is_err(), "path traversal between conversations must be rejected");
+    }
+
+    #[test]
+    fn collect_outputs_scoped_to_conversation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let agent = "agent-bbb";
+
+        let ws_a = conv_workspace(base, agent, "conv-aaa");
+        let ws_b = conv_workspace(base, agent, "conv-bbb");
+
+        for ws in [&ws_a, &ws_b] {
+            std::fs::create_dir_all(ws.join("outputs")).unwrap();
+        }
+
+        // Agent produces files in both conversation workspaces
+        std::fs::write(ws_a.join("outputs/report.csv"), "a,b,c").unwrap();
+        std::fs::write(ws_b.join("outputs/chart.png"), "PNG...").unwrap();
+        std::fs::write(ws_b.join("outputs/data.json"), "{}").unwrap();
+
+        // Collecting outputs from ws_a should only see report.csv
+        let files_a = collect_output_files(&ws_a, "outputs").unwrap();
+        assert_eq!(files_a.len(), 1);
+        assert_eq!(files_a[0].path, "outputs/report.csv");
+
+        // Collecting outputs from ws_b should see chart.png and data.json
+        let files_b = collect_output_files(&ws_b, "outputs").unwrap();
+        assert_eq!(files_b.len(), 2);
+        let names: Vec<&str> = files_b.iter().map(|f| f.path.as_str()).collect();
+        assert!(names.contains(&"outputs/chart.png"));
+        assert!(names.contains(&"outputs/data.json"));
+    }
+
+    #[test]
+    fn sandbox_prevents_cross_conversation_access() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+
+        let ws = conv_workspace(base, "agent-x", "conv-target");
+        std::fs::create_dir_all(&ws).unwrap();
+
+        // Try various escape patterns — all must fail
+        let attacks = [
+            "../conv-other/outputs/secret",
+            "../../agent-y/conv-z/outputs/secret",
+            "../../../etc/passwd",
+            "outputs/../../../other-conv/data",
+        ];
+
+        for attack in attacks {
+            let result = sandbox_path(&ws, attack);
+            assert!(
+                result.is_err(),
+                "sandbox_path should reject '{}' but got {:?}",
+                attack,
+                result,
+            );
+        }
+    }
+
+    #[test]
+    fn write_and_read_within_conversation_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+
+        let ws = conv_workspace(base, "agent-rw", "conv-rw");
+        std::fs::create_dir_all(ws.join("inputs")).unwrap();
+        std::fs::create_dir_all(ws.join("outputs")).unwrap();
+
+        // Write to inputs
+        let input_path = sandbox_path(&ws, "inputs/data.csv").unwrap();
+        std::fs::write(&input_path, "col1,col2\n1,2\n").unwrap();
+
+        // Read it back
+        let content = std::fs::read_to_string(&input_path).unwrap();
+        assert_eq!(content, "col1,col2\n1,2\n");
+
+        // Write to outputs
+        let output_path = sandbox_path(&ws, "outputs/result.txt").unwrap();
+        std::fs::write(&output_path, "done").unwrap();
+
+        // List outputs
+        let listing = list_workspace(&ws, "outputs").unwrap();
+        assert_eq!(listing.entries.len(), 1);
+        assert_eq!(listing.entries[0].name, "result.txt");
+
+        // Confirm the listing path is correct
+        assert_eq!(listing.entries[0].path, "outputs/result.txt");
+    }
 }

@@ -354,6 +354,10 @@ async fn save_message(
 /// After the assistant responds, scan `/workspace/outputs/` for files produced by the
 /// container, upload them to S3, and link them as attachments to the assistant message.
 /// This makes output files automatically downloadable in the chat UI.
+///
+/// Files are NOT deleted after upload — the agent may reference them in later messages.
+/// A `.clawkson-attached` manifest tracks which files have already been uploaded so they
+/// are not re-attached on subsequent turns.
 async fn attach_workspace_outputs(
     state: &AppState,
     agent_id: Uuid,
@@ -372,9 +376,19 @@ async fn attach_workspace_outputs(
 
     let workspace_dir = cm
         .workspace_root()
-        .join(agent_id.to_string());
+        .join(agent_id.to_string())
+        .join(conv_id.to_string());
     let outputs_dir = workspace_dir.join("outputs");
     let inputs_dir = workspace_dir.join("inputs");
+
+    // Load the set of files already attached in previous turns.
+    let manifest_path = workspace_dir.join(".clawkson-attached");
+    let already_attached: std::collections::HashSet<String> = tokio::fs::read_to_string(&manifest_path)
+        .await
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
 
     // Collect output files from both /workspace/outputs/ and /workspace/ root
     // (agents sometimes write directly to /workspace/ instead of /workspace/outputs/).
@@ -397,14 +411,26 @@ async fn attach_workspace_outputs(
             if path == inputs_dir || path == outputs_dir {
                 continue;
             }
+            // Skip the manifest file itself
+            if path == manifest_path {
+                continue;
+            }
             if entry.file_type().await.map(|ft| ft.is_file()).unwrap_or(false) {
                 files_to_attach.push(path);
             }
         }
     }
 
+    // Filter out files that were already attached in a previous turn.
+    files_to_attach.retain(|p| {
+        let key = p.strip_prefix(&workspace_dir)
+            .map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_default();
+        !already_attached.contains(&key)
+    });
+
     tracing::debug!(
-        "attach_workspace_outputs: agent={agent_id}, found {} files to attach",
+        "attach_workspace_outputs: agent={agent_id}, found {} new files to attach",
         files_to_attach.len()
     );
 
@@ -413,10 +439,10 @@ async fn attach_workspace_outputs(
     }
 
     let pool = state.db.pool();
+    let mut newly_attached: Vec<String> = Vec::new();
 
     for path in &files_to_attach {
-        let is_file = true; // already filtered above
-        tracing::debug!("attaching output: {} (is_file={})", path.display(), is_file);
+        tracing::debug!("attaching output: {}", path.display());
 
         let filename = match path.file_name().and_then(|n| n.to_str()) {
             Some(n) => n.to_string(),
@@ -470,8 +496,21 @@ async fn attach_workspace_outputs(
             }
         }
 
-        // Remove from outputs dir after successful upload so we don't re-attach next time
-        let _ = tokio::fs::remove_file(&path).await;
+        // Record this file as attached so we skip it on subsequent turns.
+        let rel_key = path.strip_prefix(&workspace_dir)
+            .map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_else(|_| filename.clone());
+        newly_attached.push(rel_key);
+    }
+
+    // Append newly attached files to the manifest.
+    if !newly_attached.is_empty() {
+        let mut manifest = already_attached.into_iter().collect::<Vec<_>>();
+        manifest.extend(newly_attached);
+        let content = manifest.join("\n") + "\n";
+        if let Err(e) = tokio::fs::write(&manifest_path, content).await {
+            tracing::warn!("failed to write attached-files manifest: {e}");
+        }
     }
 }
 
@@ -713,7 +752,10 @@ async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntr
 /// Enrich history: resolve attachment metadata into either base64 data URLs (for
 /// vision-capable providers) or appended text descriptions (fallback).
 ///
-/// Returns a plain `Vec<(MessageRole, String)>` ready for `llm.rs`.
+/// PDFs are rendered to page images (via poppler-utils) so the LLM can visually
+/// read each page. Non-PDF attachments (images) are passed through as data URLs.
+///
+/// Returns a plain `Vec<(MessageRole, String, Vec<String>)>` ready for `llm.rs`.
 async fn enrich_history(
     state: &AppState,
     history: Vec<HistoryEntry>,
@@ -725,16 +767,53 @@ async fn enrich_history(
 
         if !attachments.is_empty() {
             if supports_vision {
-                // Fetch image bytes from S3 and encode as data URLs.
                 if let Some(s3) = &state.s3 {
                     for att in &attachments {
                         match s3.get_object(&att.s3_key).await {
-                            Ok((bytes, ct)) => {
-                                let b64 = base64::Engine::encode(
-                                    &base64::engine::general_purpose::STANDARD,
-                                    &bytes,
-                                );
-                                image_urls.push(format!("data:{ct};base64,{b64}"));
+                            Ok((bytes, _ct)) => {
+                                if att.content_type == "application/pdf" {
+                                    // Render PDF pages to images for visual comprehension.
+                                    match crate::pdf::pdf_to_page_images(&bytes).await {
+                                        Ok(result) => {
+                                            if !result.page_images.is_empty() {
+                                                // Prepend a note about the PDF
+                                                let page_note = if result.total_pages > result.page_images.len() {
+                                                    format!(
+                                                        "\n\n[Attached PDF: {} — showing {} of {} pages as images]",
+                                                        att.filename, result.page_images.len(), result.total_pages
+                                                    )
+                                                } else {
+                                                    format!(
+                                                        "\n\n[Attached PDF: {} — {} page(s)]",
+                                                        att.filename, result.total_pages
+                                                    )
+                                                };
+                                                content.push_str(&page_note);
+                                                image_urls.extend(result.page_images);
+                                            } else if let Some(text) = result.fallback_text {
+                                                // Rendering failed, use extracted text
+                                                content.push_str(&format!(
+                                                    "\n\n[Attached PDF: {} — extracted text:]\n{}",
+                                                    att.filename, text
+                                                ));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("failed to render PDF {}: {e}", att.filename);
+                                            content.push_str(&format!(
+                                                "\n\n[Attached PDF: {} — rendering failed: {e}]",
+                                                att.filename
+                                            ));
+                                        }
+                                    }
+                                } else {
+                                    // Non-PDF attachment (image, etc.) — pass through as data URL.
+                                    let b64 = base64::Engine::encode(
+                                        &base64::engine::general_purpose::STANDARD,
+                                        &bytes,
+                                    );
+                                    image_urls.push(format!("data:{};base64,{b64}", att.content_type));
+                                }
                             }
                             Err(e) => {
                                 tracing::warn!("failed to fetch attachment {} from S3: {e}", att.id);
@@ -743,8 +822,25 @@ async fn enrich_history(
                     }
                 }
             } else {
-                // Text fallback: describe each attachment inline.
+                // Non-vision fallback: extract PDF text or describe the attachment inline.
                 for att in &attachments {
+                    if att.content_type == "application/pdf" {
+                        // Try to extract text even without vision support
+                        if let Some(s3) = &state.s3 {
+                            if let Ok((bytes, _)) = s3.get_object(&att.s3_key).await {
+                                match crate::pdf::pdf_to_page_images(&bytes).await {
+                                    Ok(result) if result.fallback_text.is_some() => {
+                                        content.push_str(&format!(
+                                            "\n\n[Attached PDF: {} — extracted text:]\n{}",
+                                            att.filename, result.fallback_text.unwrap()
+                                        ));
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
                     let kb = att.size_bytes / 1024;
                     content.push_str(&format!(
                         "\n\n[Attached file: {} ({}, {} KB) — image content not available for this model]",
@@ -762,14 +858,14 @@ async fn enrich_history(
 /// Build the tool registry for an agent (code execution + knowledge search + http).
 /// When `search_enabled` is false the knowledge tools are omitted even if the
 /// agent has linked knowledge bases.
-async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
+async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
 
     // Code execution tool (requires container)
     if agent_cfg.container_enabled {
         if let Some(cm) = &state.container_manager {
-            // Auto-start container if needed
-            if cm.get_container(agent_cfg.agent_id).await.is_none() {
+            // Auto-start container for this conversation if needed
+            if cm.get_container(agent_cfg.agent_id, conversation_id).await.is_none() {
                 let config = agent_cfg.container_config
                     .as_ref()
                     .map(|ac| clawkson_container::ContainerConfig {
@@ -779,20 +875,20 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, user_id:
                         network_enabled: ac.network_enabled,
                     })
                     .unwrap_or_default();
-                if let Err(e) = cm.start_container(agent_cfg.agent_id, &config).await {
+                if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &config).await {
                     tracing::error!("failed to auto-start container: {e}");
                 }
             }
             let workspace_root = cm.workspace_root().to_path_buf();
-            let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, cm.clone(), workspace_root.clone());
+            let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone());
             registry.register(tool.into_dyn());
 
             // Workspace tools — let the LLM read, write, and list files in its workspace
-            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, workspace_root.clone());
+            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
             registry.register(read_tool.into_dyn());
-            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, workspace_root.clone());
+            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
             registry.register(write_tool.into_dyn());
-            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, workspace_root);
+            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root);
             registry.register(list_tool.into_dyn());
         }
     }
@@ -839,11 +935,12 @@ async fn run_completion(
     agent_cfg: &AgentConfig,
     history: &[(MessageRole, String, Vec<String>)],
     reasoning_effort: Option<&ReasoningEffort>,
+    conversation_id: Uuid,
     user_id: Uuid,
     search_enabled: bool,
     timeout_secs: u64,
 ) -> anyhow::Result<String> {
-    let registry = build_tool_registry(state, agent_cfg, user_id, search_enabled).await;
+    let registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
 
     if !registry.definitions().is_empty() {
         return crate::llm::complete_with_tools(
@@ -925,6 +1022,7 @@ async fn chat(
                     let workspace_root = cm.workspace_root().to_path_buf();
                     let inputs_dir = workspace_root
                         .join(agent_id.to_string())
+                        .join(conv_id.to_string())
                         .join("inputs");
                     let _ = tokio::fs::create_dir_all(&inputs_dir).await;
 
@@ -1009,7 +1107,7 @@ async fn chat(
         .map(|s| s.llm_request_timeout_secs as u64)
         .unwrap_or(120);
 
-    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), auth.id(), req.search_enabled, timeout_secs).await {
+    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), conv_id, auth.id(), req.search_enabled, timeout_secs).await {
         Ok(text) => text,
         Err(e) => {
             tracing::error!("LLM completion failed: {e}");
@@ -1122,7 +1220,10 @@ async fn chat_stream(
             if container_enabled {
                 if let Some(s3) = &state.s3 {
                     let workspace_root = cm.workspace_root().to_path_buf();
-                    let inputs_dir = workspace_root.join(agent_id.to_string()).join("inputs");
+                    let inputs_dir = workspace_root
+                        .join(agent_id.to_string())
+                        .join(conv_id.to_string())
+                        .join("inputs");
                     let _ = tokio::fs::create_dir_all(&inputs_dir).await;
                     let pool = state.db.pool();
                     for att_id in &req.attachment_ids {
@@ -1188,7 +1289,7 @@ async fn chat_stream(
         container_config: None,
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
-    let registry = build_tool_registry(&state, &cfg, auth.id(), req.search_enabled).await;
+    let registry = build_tool_registry(&state, &cfg, conv_id, auth.id(), req.search_enabled).await;
     let system_prompt = cfg.system_prompt.clone();
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;

@@ -37,6 +37,7 @@ export interface AgentContainerConfig {
 
 export interface ContainerStatus {
   agent_id: string
+  conversation_id: string
   state: string
   image: string
   workspace_path: string
@@ -437,28 +438,29 @@ export const api = {
   },
 
   containers: {
-    status: (agentId: string) =>
-      request<ContainerStatus>(`/api/agents/${agentId}/container`),
-    start: (agentId: string) =>
-      request<ContainerStatus>(`/api/agents/${agentId}/container/start`, { method: 'POST' }),
-    stop: (agentId: string) =>
-      request<void>(`/api/agents/${agentId}/container/stop`, { method: 'POST' }),
-    remove: (agentId: string) =>
-      request<void>(`/api/agents/${agentId}/container`, { method: 'DELETE' }),
-    logs: (agentId: string, tail?: number) =>
-      request<{ logs: string }>(`/api/agents/${agentId}/container/logs${tail ? `?tail=${tail}` : ''}`),
-    exec: (agentId: string, command: string, timeout?: number, outputDir?: string) =>
+    status: (agentId: string, conversationId: string) =>
+      request<ContainerStatus>(`/api/agents/${agentId}/container?conversation_id=${conversationId}`),
+    start: (agentId: string, conversationId: string) =>
+      request<ContainerStatus>(`/api/agents/${agentId}/container/start?conversation_id=${conversationId}`, { method: 'POST' }),
+    stop: (agentId: string, conversationId: string) =>
+      request<void>(`/api/agents/${agentId}/container/stop?conversation_id=${conversationId}`, { method: 'POST' }),
+    remove: (agentId: string, conversationId: string) =>
+      request<void>(`/api/agents/${agentId}/container?conversation_id=${conversationId}`, { method: 'DELETE' }),
+    logs: (agentId: string, conversationId: string, tail?: number) =>
+      request<{ logs: string }>(`/api/agents/${agentId}/container/logs?conversation_id=${conversationId}${tail ? `&tail=${tail}` : ''}`),
+    exec: (agentId: string, conversationId: string, command: string, timeout?: number, outputDir?: string) =>
       request<ExecResult>(`/api/agents/${agentId}/container/exec`, {
         method: 'POST',
-        body: JSON.stringify({ command, timeout, output_dir: outputDir }),
+        body: JSON.stringify({ conversation_id: conversationId, command, timeout, output_dir: outputDir }),
       }),
     workspace: {
-      list: (agentId: string, path?: string) =>
+      list: (agentId: string, conversationId: string, path?: string) =>
         request<WorkspaceListing>(
-          `/api/agents/${agentId}/container/workspace${path ? `?path=${encodeURIComponent(path)}` : ''}`
+          `/api/agents/${agentId}/container/workspace?conversation_id=${conversationId}${path ? `&path=${encodeURIComponent(path)}` : ''}`
         ),
-      upload: async (agentId: string, files: File[], path?: string): Promise<WorkspaceUploadResponse> => {
+      upload: async (agentId: string, conversationId: string, files: File[], path?: string): Promise<WorkspaceUploadResponse> => {
         const form = new FormData()
+        form.append('conversation_id', conversationId)
         if (path) form.append('path', path)
         for (const f of files) form.append('files', f)
         const res = await fetch(`${BASE}/api/agents/${agentId}/container/workspace/upload`, {
@@ -473,15 +475,15 @@ export const api = {
         }
         return res.json()
       },
-      downloadUrl: (agentId: string, path: string) =>
-        `${BASE}/api/agents/${agentId}/container/workspace/download?path=${encodeURIComponent(path)}`,
-      delete: (agentId: string, path: string, recursive?: boolean) =>
+      downloadUrl: (agentId: string, conversationId: string, path: string) =>
+        `${BASE}/api/agents/${agentId}/container/workspace/download?conversation_id=${conversationId}&path=${encodeURIComponent(path)}`,
+      delete: (agentId: string, conversationId: string, path: string, recursive?: boolean) =>
         request<void>(`/api/agents/${agentId}/container/workspace`, {
           method: 'DELETE',
-          body: JSON.stringify({ path, recursive: recursive ?? false }),
+          body: JSON.stringify({ conversation_id: conversationId, path, recursive: recursive ?? false }),
         }),
-      watchUrl: (agentId: string) =>
-        `${BASE}/api/agents/${agentId}/container/workspace/watch`,
+      watchUrl: (agentId: string, conversationId: string) =>
+        `${BASE}/api/agents/${agentId}/container/workspace/watch?conversation_id=${conversationId}`,
     },
   },
 

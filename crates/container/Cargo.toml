@@ -13,3 +13,6 @@ thiserror.workspace = true
 tracing.workspace = true
 futures.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

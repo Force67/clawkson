@@ -24,9 +24,12 @@ const LABEL_PREFIX: &str = "clawkson";
 /// Default output directory scanned after exec (relative to workspace root).
 const DEFAULT_OUTPUT_DIR: &str = "outputs";
 
+/// Composite key for per-conversation container isolation.
+type ContainerKey = (Uuid, Uuid); // (agent_id, conversation_id)
+
 pub struct ContainerManager {
     docker: Docker,
-    containers: Arc<RwLock<HashMap<Uuid, ContainerInfo>>>,
+    containers: Arc<RwLock<HashMap<ContainerKey, ContainerInfo>>>,
     workspace_root: PathBuf,
 }
 
@@ -80,24 +83,31 @@ impl ContainerManager {
         Ok(())
     }
 
-    /// Create and start a container for an agent.
+    /// Create and start a container for an agent+conversation pair.
+    /// Each conversation gets its own isolated container and workspace directory.
     pub async fn start_container(
         &self,
         agent_id: Uuid,
+        conversation_id: Uuid,
         config: &ContainerConfig,
     ) -> Result<ContainerInfo, ContainerError> {
+        let key = (agent_id, conversation_id);
+
         // Stop existing container if any
-        if self.containers.read().await.contains_key(&agent_id) {
-            self.stop_container(agent_id).await.ok();
+        if self.containers.read().await.contains_key(&key) {
+            self.stop_container(agent_id, conversation_id).await.ok();
         }
 
         // Ensure image is available
         self.ensure_image(&config.image).await?;
 
-        // Create workspace directory with inputs/ and outputs/ subdirectories.
+        // Create workspace directory scoped to agent+conversation.
+        // Layout: {workspace_root}/{agent_id}/{conversation_id}/
         // Set permissions to 777 so the container process can write regardless of
         // which user it runs as (CAP_DROP ALL removes DAC_OVERRIDE from root).
-        let workspace = self.workspace_root.join(agent_id.to_string());
+        let workspace = self.workspace_root
+            .join(agent_id.to_string())
+            .join(conversation_id.to_string());
         for dir in [&workspace, &workspace.join("inputs"), &workspace.join("outputs")] {
             std::fs::create_dir_all(dir)?;
             #[cfg(unix)]
@@ -118,6 +128,10 @@ impl ContainerManager {
         labels.insert(
             format!("{LABEL_PREFIX}.agent_id"),
             agent_id.to_string(),
+        );
+        labels.insert(
+            format!("{LABEL_PREFIX}.conversation_id"),
+            conversation_id.to_string(),
         );
         labels.insert(format!("{LABEL_PREFIX}.managed"), "true".to_string());
 
@@ -163,8 +177,12 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        // Create container
-        let name = format!("clawkson-{}", agent_id.as_simple());
+        // Create container — name includes both agent and conversation for uniqueness
+        let name = format!(
+            "clawkson-{}-{}",
+            &agent_id.as_simple().to_string()[..8],
+            &conversation_id.as_simple().to_string()[..8],
+        );
         let response = self
             .docker
             .create_container(
@@ -183,24 +201,26 @@ impl ContainerManager {
 
         let info = ContainerInfo {
             agent_id,
+            conversation_id,
             docker_id: response.id,
             state: ContainerState::Running,
             image: config.image.clone(),
             workspace_path: workspace_str,
         };
 
-        self.containers.write().await.insert(agent_id, info.clone());
-        tracing::info!(%agent_id, "container started");
+        self.containers.write().await.insert(key, info.clone());
+        tracing::info!(%agent_id, %conversation_id, "container started");
 
         Ok(info)
     }
 
     /// Stop a container.
-    pub async fn stop_container(&self, agent_id: Uuid) -> Result<(), ContainerError> {
+    pub async fn stop_container(&self, agent_id: Uuid, conversation_id: Uuid) -> Result<(), ContainerError> {
+        let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
             containers
-                .get(&agent_id)
+                .get(&key)
                 .cloned()
                 .ok_or(ContainerError::NotFound(agent_id))?
         };
@@ -213,11 +233,11 @@ impl ContainerManager {
             .await
             .ok(); // Ignore errors from already-stopped containers
 
-        if let Some(c) = self.containers.write().await.get_mut(&agent_id) {
+        if let Some(c) = self.containers.write().await.get_mut(&key) {
             c.state = ContainerState::Stopped;
         }
 
-        tracing::info!(%agent_id, "container stopped");
+        tracing::info!(%agent_id, %conversation_id, "container stopped");
         Ok(())
     }
 
@@ -225,9 +245,11 @@ impl ContainerManager {
     pub async fn remove_container(
         &self,
         agent_id: Uuid,
+        conversation_id: Uuid,
         remove_workspace: bool,
     ) -> Result<(), ContainerError> {
-        let info = self.containers.write().await.remove(&agent_id);
+        let key = (agent_id, conversation_id);
+        let info = self.containers.write().await.remove(&key);
 
         if let Some(info) = &info {
             // Force remove (stops if running)
@@ -249,27 +271,37 @@ impl ContainerManager {
                 }
             }
 
-            tracing::info!(%agent_id, "container removed");
+            tracing::info!(%agent_id, %conversation_id, "container removed");
         }
 
         Ok(())
     }
 
-    /// Get container status.
-    pub async fn get_container(&self, agent_id: Uuid) -> Option<ContainerInfo> {
-        self.containers.read().await.get(&agent_id).cloned()
+    /// Get container status for a specific conversation.
+    pub async fn get_container(&self, agent_id: Uuid, conversation_id: Uuid) -> Option<ContainerInfo> {
+        self.containers.read().await.get(&(agent_id, conversation_id)).cloned()
+    }
+
+    /// List all containers for a given agent (across all conversations).
+    pub async fn list_agent_containers(&self, agent_id: Uuid) -> Vec<ContainerInfo> {
+        self.containers.read().await.values()
+            .filter(|info| info.agent_id == agent_id)
+            .cloned()
+            .collect()
     }
 
     /// Execute a command in the container.
     pub async fn exec(
         &self,
         agent_id: Uuid,
+        conversation_id: Uuid,
         request: &ExecRequest,
     ) -> Result<ExecResult, ContainerError> {
+        let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
             containers
-                .get(&agent_id)
+                .get(&key)
                 .cloned()
                 .ok_or(ContainerError::NotFound(agent_id))?
         };
@@ -288,8 +320,8 @@ impl ContainerManager {
             Ok(r) => r,
             Err(ContainerError::Docker(ref e)) if e.to_string().contains("404") => {
                 // Container was removed externally (e.g. Docker prune). Clean up stale entry.
-                tracing::warn!(%agent_id, "container gone from Docker (404), removing stale entry");
-                self.containers.write().await.remove(&agent_id);
+                tracing::warn!(%agent_id, %conversation_id, "container gone from Docker (404), removing stale entry");
+                self.containers.write().await.remove(&key);
                 return Err(ContainerError::NotFound(agent_id));
             }
             Err(e) => return Err(e),
@@ -314,20 +346,24 @@ impl ContainerManager {
     pub async fn workspace_list(
         &self,
         agent_id: Uuid,
+        conversation_id: Uuid,
         rel: &str,
     ) -> Result<workspace::WorkspaceListing, ContainerError> {
-        let workspace = self.agent_workspace(agent_id).await?;
+        let workspace = self.conversation_workspace(agent_id, conversation_id).await?;
         workspace::list_workspace(&workspace, rel)
     }
 
-    /// Resolve the workspace path for an agent (container need not be running).
-    pub async fn agent_workspace(&self, agent_id: Uuid) -> Result<PathBuf, ContainerError> {
+    /// Resolve the workspace path for a conversation (container need not be running).
+    pub async fn conversation_workspace(&self, agent_id: Uuid, conversation_id: Uuid) -> Result<PathBuf, ContainerError> {
+        let key = (agent_id, conversation_id);
         // Check if we have a running/stopped container first.
-        if let Some(info) = self.containers.read().await.get(&agent_id) {
+        if let Some(info) = self.containers.read().await.get(&key) {
             return Ok(PathBuf::from(&info.workspace_path));
         }
         // Fall back to the on-disk workspace directory.
-        let workspace = self.workspace_root.join(agent_id.to_string());
+        let workspace = self.workspace_root
+            .join(agent_id.to_string())
+            .join(conversation_id.to_string());
         Ok(workspace)
     }
 
@@ -340,12 +376,14 @@ impl ContainerManager {
     pub async fn logs(
         &self,
         agent_id: Uuid,
+        conversation_id: Uuid,
         tail: Option<usize>,
     ) -> Result<String, ContainerError> {
+        let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
             containers
-                .get(&agent_id)
+                .get(&key)
                 .cloned()
                 .ok_or(ContainerError::NotFound(agent_id))?
         };

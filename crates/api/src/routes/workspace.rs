@@ -37,16 +37,16 @@ fn err_with(code: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<Error
     (code, Json(ErrorResponse { error: msg.into() }))
 }
 
-/// Get the workspace root for an agent from the container manager.
+/// Get the workspace root for an agent+conversation from the container manager.
 /// The container does NOT need to be running — the directory on the host
 /// is the source of truth.
-async fn get_workspace(state: &AppState, agent_id: Uuid) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
+async fn get_workspace(state: &AppState, agent_id: Uuid, conversation_id: Uuid) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
     let cm = state
         .container_manager
         .as_ref()
         .ok_or_else(|| err_with(StatusCode::SERVICE_UNAVAILABLE, "Docker not available"))?;
 
-    cm.agent_workspace(agent_id)
+    cm.conversation_workspace(agent_id, conversation_id)
         .await
         .map_err(|e| err_with(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
@@ -55,6 +55,8 @@ async fn get_workspace(state: &AppState, agent_id: Uuid) -> Result<PathBuf, (Sta
 
 #[derive(Debug, Deserialize)]
 struct WorkspaceQuery {
+    /// The conversation this workspace belongs to.
+    conversation_id: Uuid,
     /// Sub-path within the workspace to list (default: workspace root).
     path: Option<String>,
 }
@@ -66,7 +68,7 @@ async fn list_workspace(
     Path(agent_id): Path<Uuid>,
     Query(query): Query<WorkspaceQuery>,
 ) -> Result<Json<clawkson_container::WorkspaceListing>, (StatusCode, Json<ErrorResponse>)> {
-    let workspace = get_workspace(&state, agent_id).await?;
+    let workspace = get_workspace(&state, agent_id, query.conversation_id).await?;
     let rel = query.path.as_deref().unwrap_or("");
 
     clawkson_container::list_workspace(&workspace, rel)
@@ -87,6 +89,7 @@ struct UploadWorkspaceResponse {
 }
 
 /// Upload one or more files into a workspace directory.
+/// The multipart form must include a "conversation_id" field.
 async fn upload_to_workspace(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -97,20 +100,30 @@ async fn upload_to_workspace(
         return Err(err_with(StatusCode::FORBIDDEN, "admin only"));
     }
 
-    let workspace = get_workspace(&state, agent_id).await?;
-
-    // We need to collect the target path before or alongside files.
-    // Strategy: parse all fields; if "path" appears first, use it; otherwise
-    // default to workspace root.
+    // We need to collect the target path and conversation_id before or alongside files.
+    // Strategy: parse all fields; text fields like "path" and "conversation_id"
+    // should appear before file fields.
     let mut target_rel = String::new();
+    let mut conversation_id: Option<Uuid> = None;
     let mut uploaded = Vec::new();
     let mut errors = Vec::new();
+    // Collect files first, then write after we have conversation_id.
+    let mut pending_files: Vec<(String, axum::body::Bytes)> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| err(e.to_string()))? {
         let name = field.name().unwrap_or("").to_string();
 
         if name == "path" {
             target_rel = field.text().await.map_err(|e| err(e.to_string()))?;
+            continue;
+        }
+
+        if name == "conversation_id" {
+            let text = field.text().await.map_err(|e| err(e.to_string()))?;
+            conversation_id = Some(
+                text.parse::<Uuid>()
+                    .map_err(|_| err("invalid conversation_id UUID"))?
+            );
             continue;
         }
 
@@ -128,6 +141,14 @@ async fn upload_to_workspace(
             }
         };
 
+        pending_files.push((filename, data));
+    }
+
+    let conv_id = conversation_id
+        .ok_or_else(|| err("conversation_id is required"))?;
+    let workspace = get_workspace(&state, agent_id, conv_id).await?;
+
+    for (filename, data) in pending_files {
         // Sandbox: resolve target directory, then append filename.
         let dir = match clawkson_container::sandbox_path(&workspace, &target_rel) {
             Ok(d) => d,
@@ -166,6 +187,7 @@ async fn upload_to_workspace(
 
 #[derive(Debug, Deserialize)]
 struct DownloadQuery {
+    conversation_id: Uuid,
     path: String,
 }
 
@@ -176,7 +198,7 @@ async fn download_from_workspace(
     Path(agent_id): Path<Uuid>,
     Query(query): Query<DownloadQuery>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let workspace = get_workspace(&state, agent_id).await?;
+    let workspace = get_workspace(&state, agent_id, query.conversation_id).await?;
 
     let file_path = clawkson_container::sandbox_path(&workspace, &query.path)
         .map_err(|e| err_with(StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -235,6 +257,7 @@ fn mime_guess(filename: &str) -> &'static str {
 
 #[derive(Debug, Deserialize)]
 struct DeleteWorkspaceRequest {
+    conversation_id: Uuid,
     path: String,
     #[serde(default)]
     recursive: bool,
@@ -251,7 +274,7 @@ async fn delete_workspace_entry(
         return Err(err_with(StatusCode::FORBIDDEN, "admin only"));
     }
 
-    let workspace = get_workspace(&state, agent_id).await?;
+    let workspace = get_workspace(&state, agent_id, body.conversation_id).await?;
 
     let target = clawkson_container::sandbox_path(&workspace, &body.path)
         .map_err(|e| err_with(StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -297,12 +320,18 @@ struct WatchEvent {
 /// This uses a simple polling approach with a 2-second interval rather
 /// than inotify, keeping the implementation cross-platform and dependency-
 /// free. A future iteration can swap in the `notify` crate.
+#[derive(Debug, Deserialize)]
+struct WatchQuery {
+    conversation_id: Uuid,
+}
+
 async fn watch_workspace(
     _auth: AuthUser,
     State(state): State<AppState>,
     Path(agent_id): Path<Uuid>,
+    Query(query): Query<WatchQuery>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let workspace = get_workspace(&state, agent_id).await?;
+    let workspace = get_workspace(&state, agent_id, query.conversation_id).await?;
 
     // Seed with the current snapshot.
     let initial_snapshot = snapshot_workspace(&workspace);

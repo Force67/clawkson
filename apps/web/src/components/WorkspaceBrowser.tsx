@@ -9,6 +9,7 @@ import styles from './WorkspaceBrowser.module.css'
 
 interface WorkspaceBrowserProps {
   agentId: string
+  conversationId: string
   /** If true, show a live-watch indicator and subscribe to the watch SSE. */
   liveWatch?: boolean
 }
@@ -25,7 +26,7 @@ function formatDate(iso: string | null): string {
   return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
 }
 
-export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowserProps) {
+export function WorkspaceBrowser({ agentId, conversationId, liveWatch = false }: WorkspaceBrowserProps) {
   const [listing, setListing] = useState<WorkspaceListing | null>(null)
   const [currentPath, setCurrentPath] = useState('')
   const [loading, setLoading] = useState(false)
@@ -42,7 +43,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
     setLoading(true)
     setError('')
     try {
-      const result = await api.containers.workspace.list(agentId, path)
+      const result = await api.containers.workspace.list(agentId, conversationId, path)
       setListing(result)
       setCurrentPath(path)
     } catch (e) {
@@ -50,7 +51,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
     } finally {
       setLoading(false)
     }
-  }, [agentId])
+  }, [agentId, conversationId])
 
   useEffect(() => {
     load('')
@@ -60,7 +61,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
   useEffect(() => {
     if (!liveWatch) return
 
-    const url = api.containers.workspace.watchUrl(agentId)
+    const url = api.containers.workspace.watchUrl(agentId, conversationId)
     const es = new EventSource(url, { withCredentials: true })
     eventSourceRef.current = es
 
@@ -114,7 +115,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
     setUploading(true)
     setUploadError('')
     try {
-      const result = await api.containers.workspace.upload(agentId, files, currentPath || undefined)
+      const result = await api.containers.workspace.upload(agentId, conversationId, files, currentPath || undefined)
       if (result.errors.length) {
         setUploadError(result.errors.join('; '))
       }
@@ -135,7 +136,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
     setUploading(true)
     setUploadError('')
     try {
-      const result = await api.containers.workspace.upload(agentId, files, currentPath || undefined)
+      const result = await api.containers.workspace.upload(agentId, conversationId, files, currentPath || undefined)
       if (result.errors.length) setUploadError(result.errors.join('; '))
       await load(currentPath)
     } catch (err) {
@@ -151,7 +152,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
     if (!confirm(`Delete "${entry.name}"${entry.is_dir ? ' and all its contents' : ''}?`)) return
     setDeletingPath(entry.path)
     try {
-      await api.containers.workspace.delete(agentId, entry.path, entry.is_dir)
+      await api.containers.workspace.delete(agentId, conversationId, entry.path, entry.is_dir)
       await load(currentPath)
     } catch (err) {
       setError(String(err))
@@ -283,7 +284,7 @@ export function WorkspaceBrowser({ agentId, liveWatch = false }: WorkspaceBrowse
                   <td className={styles.tdActions} onClick={e => e.stopPropagation()}>
                     {!entry.is_dir && (
                       <a
-                        href={api.containers.workspace.downloadUrl(agentId, entry.path)}
+                        href={api.containers.workspace.downloadUrl(agentId, conversationId, entry.path)}
                         download={entry.name}
                         className={styles.actionBtn}
                         title="Download"

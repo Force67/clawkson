@@ -37,6 +37,9 @@ impl Default for ContainerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerInfo {
     pub agent_id: Uuid,
+    /// The conversation this container is scoped to.
+    /// Each conversation gets its own isolated workspace and container.
+    pub conversation_id: Uuid,
     pub docker_id: String,
     pub state: ContainerState,
     pub image: String,

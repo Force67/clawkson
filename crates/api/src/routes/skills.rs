@@ -175,6 +175,8 @@ fn builtin_templates() -> Vec<SkillTemplate> {
         include_str!("../../../../skills/api-caller.json"),
         include_str!("../../../../skills/summarizer.json"),
         include_str!("../../../../skills/technical-writer.json"),
+        include_str!("../../../../skills/pdf-analyze.json"),
+        include_str!("../../../../skills/compare-documents.json"),
     ];
 
     template_sources
