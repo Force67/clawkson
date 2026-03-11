@@ -221,6 +221,7 @@ fn mime_guess(filename: &str) -> &'static str {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
+        "svg" => "image/svg+xml",
         "pdf" => "application/pdf",
         "zip" => "application/zip",
         "py" => "text/x-python",

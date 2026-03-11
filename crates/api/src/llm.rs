@@ -14,6 +14,96 @@ use futures::StreamExt;
 
 use crate::routes::conversations::ReasoningEffort;
 
+/// Strip tool-call metadata artifacts that some models leak into text content.
+/// Some models (especially via Azure) emit tool calls as text rather than structured
+/// tool_calls. This strips those artifacts so the user sees clean output.
+fn sanitize_tool_artifacts(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // Strip "to=functions.xxx" patterns and everything after
+    if let Some(pos) = result.find("to=functions.") {
+        result = result[..pos].to_string();
+    }
+
+    // Strip inline JSON blobs that look like tool call arguments
+    // e.g. {"language":"python","code":"..."} or {"path":"/workspace/..."}
+    // We look for JSON objects that contain known tool parameter keys
+    let tool_param_patterns = [
+        r#""language""#, r#""code""#, r#""path""#, r#""count""#, r#""entries""#,
+        r#""timeout""#, r#""exit_code""#, r#""stderr""#, r#""stdout""#,
+    ];
+
+    // Walk through and remove JSON-like blocks containing tool params
+    let mut cleaned = String::new();
+    let mut i = 0;
+
+    while i < result.len() {
+        if result[i..].starts_with('{') {
+            // Try to find matching closing brace
+            if let Some(end) = find_matching_brace(&result[i..]) {
+                let block = &result[i..i + end + 1];
+                let is_tool_artifact = tool_param_patterns.iter().any(|p| block.contains(p));
+                if is_tool_artifact {
+                    // Skip this block
+                    i += end + 1;
+                    continue;
+                }
+            }
+        }
+        if let Some(ch) = result[i..].chars().next() {
+            cleaned.push(ch);
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    // Strip trailing non-ASCII garbled characters (common with some models)
+    let trimmed = cleaned.trim_end();
+    let clean_end = trimmed
+        .char_indices()
+        .rev()
+        .find(|(_, c)| c.is_ascii() || *c == '\n')
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(trimmed.len());
+    trimmed[..clean_end].trim().to_string()
+}
+
+/// Find the index of the matching closing brace for a JSON-like block.
+fn find_matching_brace(s: &str) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for (i, c) in s.char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if c == '\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+        if c == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn resolve_base_url(connector: &LlmConnector) -> String {
     match &connector.provider_type {
         LlmProviderType::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
@@ -178,9 +268,16 @@ pub async fn complete_with_tools(
 
         let response = provider.complete(request).await?;
 
+        tracing::debug!(
+            "LLM round {}: tool_calls={}, content_len={}",
+            _round,
+            response.message.tool_calls.len(),
+            response.message.content.as_ref().map(|c| c.len()).unwrap_or(0),
+        );
+
         if response.message.tool_calls.is_empty() {
             // No tool calls — return the text response
-            return Ok(response.message.content.unwrap_or_default());
+            return Ok(sanitize_tool_artifacts(&response.message.content.unwrap_or_default()));
         }
 
         // Add the assistant message with tool calls
@@ -196,10 +293,23 @@ pub async fn complete_with_tools(
                 .id
                 .clone()
                 .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()));
+            tracing::debug!(
+                "Tool call: {} args={}",
+                call.function.name,
+                serde_json::to_string(&call.function.arguments).unwrap_or_default(),
+            );
             let result = registry.invoke(&call.function).await;
             let result_str = match result {
-                Ok(value) => serde_json::to_string(&value).unwrap_or_default(),
-                Err(err) => serde_json::json!({ "error": err.to_string() }).to_string(),
+                Ok(value) => {
+                    let s = serde_json::to_string(&value).unwrap_or_default();
+                    tracing::debug!("Tool result ({}): {}…", call.function.name, &s[..s.len().min(500)]);
+                    s
+                }
+                Err(err) => {
+                    let s = serde_json::json!({ "error": err.to_string() }).to_string();
+                    tracing::warn!("Tool error ({}): {}", call.function.name, s);
+                    s
+                }
             };
             messages.push(ChatMessage::tool(&call_id, result_str));
         }
@@ -208,7 +318,7 @@ pub async fn complete_with_tools(
     // If we exhausted rounds, do one final completion without tools
     let request = CompletionRequest::new(connector.model.clone(), messages);
     let response = provider.complete(request).await?;
-    Ok(response.message.content.unwrap_or_default())
+    Ok(sanitize_tool_artifacts(&response.message.content.unwrap_or_default()))
 }
 
 /// Stream a chat completion, yielding text deltas via a callback.

@@ -74,6 +74,17 @@ pub struct Message {
     pub role: MessageRole,
     pub content: String,
     pub created_at: DateTime<Utc>,
+    /// Attachments linked to this message (populated on read, not on create).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<MessageAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageAttachment {
+    pub id: Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

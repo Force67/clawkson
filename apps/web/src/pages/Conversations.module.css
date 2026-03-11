@@ -4,7 +4,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: calc(100% + 64px);
   margin: -32px -40px;
 }
 
@@ -508,6 +508,110 @@
 
 .bubbleAssistant {
   align-items: flex-start;
+}
+
+/* ── Inline image attachments ────────────────────────────────── */
+
+.msgImages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.msgImageLink {
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.15s ease;
+  text-decoration: none;
+  max-width: 400px;
+}
+
+.msgImageLink:hover {
+  border-color: var(--accent);
+}
+
+.msgImage {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: var(--bg-tertiary);
+}
+
+.msgImageCaption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  transition: color 0.15s ease;
+}
+
+.msgImageLink:hover .msgImageCaption {
+  color: var(--accent-text);
+}
+
+/* ── Message attachment chips ────────────────────────────────── */
+
+.msgAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 2px;
+}
+
+.msgAttachmentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  max-width: 200px;
+}
+
+.msgAttachmentUser {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+.msgAttachmentAssistant {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.msgAttachmentAssistant:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.msgAttachmentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.msgAttachmentDl {
+  flex-shrink: 0;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.msgAttachmentAssistant:hover .msgAttachmentDl {
+  opacity: 1;
 }
 
 /* ── Streaming indicators ────────────────────────────────────── */

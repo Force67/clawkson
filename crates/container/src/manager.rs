@@ -94,9 +94,18 @@ impl ContainerManager {
         // Ensure image is available
         self.ensure_image(&config.image).await?;
 
-        // Create workspace directory
+        // Create workspace directory with inputs/ and outputs/ subdirectories.
+        // Set permissions to 777 so the container process can write regardless of
+        // which user it runs as (CAP_DROP ALL removes DAC_OVERRIDE from root).
         let workspace = self.workspace_root.join(agent_id.to_string());
-        std::fs::create_dir_all(&workspace)?;
+        for dir in [&workspace, &workspace.join("inputs"), &workspace.join("outputs")] {
+            std::fs::create_dir_all(dir)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o777))?;
+            }
+        }
 
         let workspace_str = workspace
             .canonicalize()
@@ -275,7 +284,16 @@ impl ContainerManager {
             .min(MAX_TIMEOUT);
 
         let cmd = vec!["sh", "-c", &request.command];
-        let mut result = exec_in_container(&self.docker, &info.docker_id, cmd, timeout).await?;
+        let mut result = match exec_in_container(&self.docker, &info.docker_id, cmd, timeout).await {
+            Ok(r) => r,
+            Err(ContainerError::Docker(ref e)) if e.to_string().contains("404") => {
+                // Container was removed externally (e.g. Docker prune). Clean up stale entry.
+                tracing::warn!(%agent_id, "container gone from Docker (404), removing stale entry");
+                self.containers.write().await.remove(&agent_id);
+                return Err(ContainerError::NotFound(agent_id));
+            }
+            Err(e) => return Err(e),
+        };
 
         // Collect output files if requested (default: scan "outputs/" dir).
         let output_dir = request.output_dir.as_deref().unwrap_or(DEFAULT_OUTPUT_DIR);

@@ -98,6 +98,7 @@ fn msg_to_api(row: clawkson_db::message::Message) -> Message {
         },
         content: row.content,
         created_at: row.created_at,
+        attachments: Vec::new(),
     }
 }
 
@@ -282,7 +283,27 @@ async fn list_messages(
     let rows = clawkson_db::message::list_for_conversation(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(rows.into_iter().map(msg_to_api).collect()))
+
+    let pool = state.db.pool();
+    let mut messages: Vec<Message> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let msg_id = row.id;
+        let mut msg = msg_to_api(row);
+        if let Ok(atts) = clawkson_db::chat_attachment::list_for_message(pool, msg_id).await {
+            msg.attachments = atts
+                .into_iter()
+                .map(|a| clawkson_core::MessageAttachment {
+                    id: a.id,
+                    filename: a.filename,
+                    content_type: a.content_type,
+                    size_bytes: a.size_bytes,
+                })
+                .collect();
+        }
+        messages.push(msg);
+    }
+
+    Ok(Json(messages))
 }
 
 async fn send_message(
@@ -330,6 +351,130 @@ async fn save_message(
     Ok(msg_to_api(row))
 }
 
+/// After the assistant responds, scan `/workspace/outputs/` for files produced by the
+/// container, upload them to S3, and link them as attachments to the assistant message.
+/// This makes output files automatically downloadable in the chat UI.
+async fn attach_workspace_outputs(
+    state: &AppState,
+    agent_id: Uuid,
+    assistant_msg_id: Uuid,
+    owner_id: Uuid,
+    conv_id: Uuid,
+) {
+    let cm = match &state.container_manager {
+        Some(cm) => cm,
+        None => return,
+    };
+    let s3 = match &state.s3 {
+        Some(s3) => s3,
+        None => return,
+    };
+
+    let workspace_dir = cm
+        .workspace_root()
+        .join(agent_id.to_string());
+    let outputs_dir = workspace_dir.join("outputs");
+    let inputs_dir = workspace_dir.join("inputs");
+
+    // Collect output files from both /workspace/outputs/ and /workspace/ root
+    // (agents sometimes write directly to /workspace/ instead of /workspace/outputs/).
+    let mut files_to_attach: Vec<std::path::PathBuf> = Vec::new();
+
+    // Scan /workspace/outputs/
+    if let Ok(mut entries) = tokio::fs::read_dir(&outputs_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if entry.file_type().await.map(|ft| ft.is_file()).unwrap_or(false) {
+                files_to_attach.push(entry.path());
+            }
+        }
+    }
+
+    // Scan /workspace/ root (skip inputs/ and outputs/ subdirs)
+    if let Ok(mut entries) = tokio::fs::read_dir(&workspace_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            // Skip the inputs and outputs subdirectories themselves
+            if path == inputs_dir || path == outputs_dir {
+                continue;
+            }
+            if entry.file_type().await.map(|ft| ft.is_file()).unwrap_or(false) {
+                files_to_attach.push(path);
+            }
+        }
+    }
+
+    tracing::debug!(
+        "attach_workspace_outputs: agent={agent_id}, found {} files to attach",
+        files_to_attach.len()
+    );
+
+    if files_to_attach.is_empty() {
+        return;
+    }
+
+    let pool = state.db.pool();
+
+    for path in &files_to_attach {
+        let is_file = true; // already filtered above
+        tracing::debug!("attaching output: {} (is_file={})", path.display(), is_file);
+
+        let filename = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        let data = match tokio::fs::read(&path).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("failed to read output file {filename}: {e}");
+                continue;
+            }
+        };
+
+        let content_type = match filename.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
+            "json" => "application/json",
+            "csv" => "text/csv",
+            "txt" | "md" | "log" => "text/plain",
+            "html" | "htm" => "text/html",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "svg" => "image/svg+xml",
+            "pdf" => "application/pdf",
+            "zip" => "application/zip",
+            "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            _ => "application/octet-stream",
+        };
+
+        let file_id = Uuid::new_v4();
+        let s3_key = format!("outputs/{}/{}/{}", owner_id, file_id, filename);
+        let size = data.len() as i64;
+
+        if let Err(e) = s3.put_object(&s3_key, data, content_type).await {
+            tracing::warn!("failed to upload output {filename} to S3: {e}");
+            continue;
+        }
+
+        match clawkson_db::chat_attachment::create(
+            pool, file_id, owner_id, Some(conv_id),
+            &filename, content_type, &s3_key, size,
+        ).await {
+            Ok(_) => {
+                if let Err(e) = clawkson_db::chat_attachment::link_to_message(pool, file_id, assistant_msg_id).await {
+                    tracing::warn!("failed to link output attachment {filename} to message: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("failed to create DB record for output {filename}: {e}");
+            }
+        }
+
+        // Remove from outputs dir after successful upload so we don't re-attach next time
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
 /// Load agent config for chat handlers.
 struct AgentConfig {
     agent_id: Uuid,
@@ -369,9 +514,17 @@ async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConf
 
         let sandbox_instructions = format!(
             "\n\n<sandbox-environment>\n\
-             You are NOT running inside a Docker container. You are an AI assistant that has \
-             access to a sandboxed Docker container (image: {image}) via the code_execution tool. \
-             Use the code_execution tool to run Python or Bash code inside the container.\n\n\
+             IMPORTANT: You do NOT have direct shell access. You are NOT running inside a container \
+             or on the user's machine. You are an AI assistant that can execute code REMOTELY in a \
+             sandboxed Docker container (image: {image}) by calling the code_execution tool. \
+             Every time you need to run code, you MUST use the code_execution tool — it sends your \
+             code to the container and returns the output.\n\n\
+             Your available tools for working with the container:\n\
+             - code_execution: Run Python or Bash code inside the container.\n\
+             - workspace_read: Read a file from the container's /workspace directory.\n\
+             - workspace_write: Write a file to the container's /workspace directory.\n\
+             - workspace_list: List files and directories in /workspace.\n\
+             Always use these tools rather than describing code inline or asking the user to run things.\n\n\
              Important guidelines:\n\
              - Proactively install packages and dependencies when needed. Do not ask the user for \
                permission to install — just run `pip install <package>` or `apt-get install -y <package>` \
@@ -379,10 +532,26 @@ async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConf
                installing packages is safe and expected.\n\
              - When a task requires a library you are not sure is pre-installed, install it first \
                in a separate code_execution call, then proceed with the actual task.\n\
-             - The container has a /workspace directory. Read inputs from /workspace/inputs/ and \
-               write outputs to /workspace/outputs/.\n\
+             - The container has a /workspace directory that is the ONLY writable persistent location. \
+               The rest of the filesystem is read-only. Read inputs from /workspace/inputs/ and \
+               write outputs to /workspace/outputs/. These directories are pre-created and writable. \
+               NEVER fall back to /tmp or other directories — always use /workspace.\n\
              {network_note}\
              - You can chain multiple code_execution calls to build up complex workflows step by step.\n\
+             - NEVER show code to the user unless they explicitly ask to see it. Just describe what \
+               you are doing and present the results. The user does not want to see code blocks, \
+               tool call parameters, or raw scripts in your responses.\n\
+             - After generating output files, ALWAYS read them back (using workspace_read) and \
+               present the contents or a summary directly in your response. Never ask the user \
+               if they want to see the results — just show them. If the user asks a question \
+               about the data (e.g. \"how many are there?\"), answer it directly from the data.\n\
+             - If a tool call fails (e.g. container error, timeout, permission denied), just retry \
+               automatically. NEVER ask the user whether to retry or what to do — just fix the \
+               issue and try again silently. The user expects results, not status updates about errors.\n\
+             - Files you write to /workspace/outputs/ are AUTOMATICALLY attached to your response \
+               and offered to the user as downloadable files in the chat interface. When you generate \
+               output files (CSVs, reports, charts, exports, etc.), mention the filenames in your \
+               response so the user knows they can download them directly from the chat.\n\
              </sandbox-environment>",
             network_note = if network {
                 "- Networking is enabled — you can fetch URLs, call APIs, and download data from the internet.\n"
@@ -684,7 +853,7 @@ async fn run_completion(
             agent_cfg.temperature,
             agent_cfg.max_tokens,
             &registry,
-            5,
+            10,
             reasoning_effort,
             timeout_secs,
         )
@@ -849,7 +1018,7 @@ async fn chat(
     };
 
     // 7. Save assistant message + touch conversation
-    let assistant_msg = save_message(&state, conv_id, MessageRole::Assistant, &assistant_content)
+    let mut assistant_msg = save_message(&state, conv_id, MessageRole::Assistant, &assistant_content)
         .await
         .unwrap_or(Message {
             id: Uuid::new_v4(),
@@ -857,8 +1026,26 @@ async fn chat(
             role: MessageRole::Assistant,
             content: assistant_content,
             created_at: chrono::Utc::now(),
+            attachments: Vec::new(),
         });
     let _ = clawkson_db::conversation::touch(&state.db, conv_id).await;
+
+    // 8. Auto-attach any files the agent wrote to /workspace/outputs/
+    if cfg.container_enabled {
+        attach_workspace_outputs(&state, agent_id, assistant_msg.id, auth.id(), conv_id).await;
+        // Re-fetch attachments so the response includes them
+        if let Ok(atts) = clawkson_db::chat_attachment::list_for_message(state.db.pool(), assistant_msg.id).await {
+            assistant_msg.attachments = atts
+                .into_iter()
+                .map(|a| clawkson_core::MessageAttachment {
+                    id: a.id,
+                    filename: a.filename,
+                    content_type: a.content_type,
+                    size_bytes: a.size_bytes,
+                })
+                .collect();
+        }
+    }
 
     Json(ChatResponse {
         user_message: user_msg,
@@ -1006,6 +1193,7 @@ async fn chat_stream(
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;
     let reasoning_effort = req.reasoning_effort.clone();
+    let container_enabled = cfg.container_enabled;
 
     let timeout_secs = clawkson_db::settings::get(&state.db)
         .await
@@ -1018,6 +1206,7 @@ async fn chat_stream(
     //   anything else  = message delta
     let (tx, mut rx) = mpsc::channel::<String>(64);
     let state2 = state.clone();
+    let owner_id = auth.id();
 
     tokio::spawn(async move {
         let has_tools = !registry.definitions().is_empty();
@@ -1029,7 +1218,7 @@ async fn chat_stream(
                 temperature,
                 max_tokens,
                 &registry,
-                5,
+                10,
                 reasoning_effort.as_ref(),
                 timeout_secs,
             )
@@ -1075,6 +1264,13 @@ async fn chat_stream(
             }
         };
         let _ = clawkson_db::conversation::touch(&state2.db, conv_id).await;
+
+        // Auto-attach any files the agent wrote to /workspace/outputs/
+        tracing::debug!("post-chat: container_enabled={container_enabled}, agent_id={agent_id}, msg_id={msg_id}");
+        if container_enabled {
+            attach_workspace_outputs(&state2, agent_id, msg_id, owner_id, conv_id).await;
+        }
+
         let _ = tx.try_send(format!("\x00DONE:{msg_id}"));
     });
 

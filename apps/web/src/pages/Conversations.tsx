@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type MessageAttachment, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── New Conversation Dialog ───────────────────────────────────────
@@ -89,8 +89,17 @@ interface MsgBubbleProps {
   agentName?: string
 }
 
+function AttachmentIcon({ contentType }: { contentType: string }) {
+  if (contentType.startsWith('image/')) return <ImageIcon size={11} />
+  if (contentType === 'application/pdf') return <FileText size={11} />
+  return <FileIcon size={11} />
+}
+
 function MsgBubble({ msg, agentName }: MsgBubbleProps) {
   const isUser = msg.role === 'user'
+  const attachments = msg.attachments ?? []
+  const imageAttachments = attachments.filter(a => a.content_type.startsWith('image/'))
+  const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/'))
   return (
     <div className={`${styles.messageRow} ${isUser ? styles.messageRowUser : styles.messageRowAssistant}`}>
       <div className={`${styles.bubble} ${isUser ? styles.bubbleUser : styles.bubbleAssistant}`}>
@@ -103,6 +112,41 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
         <div className={`${styles.bubbleContent} ${isUser ? styles.bubbleContentUser : styles.bubbleContentAssistant}`}>
           {msg.content}
         </div>
+        {imageAttachments.length > 0 && (
+          <div className={styles.msgImages}>
+            {imageAttachments.map(att => (
+              <a key={att.id} href={api.uploads.downloadUrl(att.id)} target="_blank" rel="noopener noreferrer" className={styles.msgImageLink}>
+                <img
+                  src={api.uploads.downloadUrl(att.id)}
+                  alt={att.filename}
+                  className={styles.msgImage}
+                  loading="lazy"
+                />
+                <span className={styles.msgImageCaption}>
+                  <Download size={10} />
+                  {att.filename}
+                </span>
+              </a>
+            ))}
+          </div>
+        )}
+        {fileAttachments.length > 0 && (
+          <div className={styles.msgAttachments}>
+            {fileAttachments.map(att => (
+              <a
+                key={att.id}
+                href={api.uploads.downloadUrl(att.id)}
+                download={att.filename}
+                className={`${styles.msgAttachmentChip} ${isUser ? styles.msgAttachmentUser : styles.msgAttachmentAssistant}`}
+                title={`${att.filename} (${formatFileSize(att.size_bytes)})`}
+              >
+                <AttachmentIcon contentType={att.content_type} />
+                <span className={styles.msgAttachmentName}>{att.filename}</span>
+                {!isUser && <Download size={10} className={styles.msgAttachmentDl} />}
+              </a>
+            ))}
+          </div>
+        )}
         <span className={styles.bubbleTime}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>

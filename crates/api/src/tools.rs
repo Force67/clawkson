@@ -49,13 +49,16 @@ impl KernelFunction for CodeExecutionTool {
     fn definition(&self) -> FunctionDefinition {
         let mut def = FunctionDefinition::new("code_execution")
             .with_description(
-                "Execute code in a sandboxed Docker container. \
-                 Use this to run Python or Bash code. You are NOT inside the container — \
-                 this tool sends code to a separate, isolated container for execution. \
+                "Execute code REMOTELY in a sandboxed Docker container. \
+                 You are NOT inside the container — this tool sends your code to a separate, \
+                 isolated container for execution and returns the output. \
+                 Use this for running Python or Bash code. \
                  Proactively install any needed packages (pip install, apt-get install -y) \
                  without asking — the container is ephemeral and safe to modify. \
-                 The container has a /workspace directory for file operations — \
+                 The container's filesystem is read-only except for /workspace, which is \
+                 the only writable persistent location. Always use /workspace for file operations — \
                  read inputs from /workspace/inputs/ and write outputs to /workspace/outputs/. \
+                 Never fall back to /tmp or other paths. \
                  After execution, any files written to /workspace/outputs/ are automatically \
                  returned to you so you can read or summarise their contents.",
             );
@@ -105,7 +108,22 @@ impl KernelFunction for CodeExecutionTool {
             output_dir: Some("outputs".to_string()),
         };
 
-        match self.container_manager.exec(self.agent_id, &request).await {
+        let exec_result = match self.container_manager.exec(self.agent_id, &request).await {
+            Err(clawkson_container::ContainerError::NotFound(_)) => {
+                // Container gone — try to auto-restart and retry once
+                tracing::info!(agent_id = %self.agent_id, "container not found, attempting auto-restart");
+                let config = clawkson_container::ContainerConfig::default();
+                if let Err(e) = self.container_manager.start_container(self.agent_id, &config).await {
+                    return Ok(serde_json::json!({
+                        "error": format!("Container lost and restart failed: {e}. Please try again."),
+                    }));
+                }
+                self.container_manager.exec(self.agent_id, &request).await
+            }
+            other => other,
+        };
+
+        match exec_result {
             Ok(result) => {
                 let mut response = serde_json::json!({
                     "stdout": result.stdout,
