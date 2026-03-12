@@ -318,6 +318,42 @@ export interface AuthResponse {
 }
 
 export type SharePermission = 'read' | 'write'
+export type EventCategory = 'work' | 'personal' | 'meeting' | 'health' | 'travel' | 'creative'
+
+export interface CalendarEvent {
+  id: string
+  owner_id: string
+  title: string
+  date: string
+  start_time: string
+  end_time: string
+  category: EventCategory
+  location?: string
+  notes?: string
+  completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CalendarShareResponse {
+  share: CalendarShareInfo
+  user: ShareUserInfo
+}
+
+export interface CalendarShareInfo {
+  id: string
+  owner_id: string
+  shared_with: string
+  permission: SharePermission
+  created_at: string
+}
+
+export interface SharedCalendar {
+  owner_id: string
+  email: string
+  display_name: string
+  permission: SharePermission
+}
 
 export interface ConversationShare {
   id: string
@@ -647,6 +683,48 @@ export const api = {
       request<void>(`/api/knowledge/${kbId}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     unlinkAgent: (kbId: string, agentId: string) =>
       request<void>(`/api/knowledge/${kbId}/agents/${agentId}`, { method: 'DELETE' }),
+  },
+
+  calendar: {
+    list: (params?: { from?: string; to?: string; owner_id?: string }) => {
+      const qs = new URLSearchParams()
+      if (params?.from) qs.set('from', params.from)
+      if (params?.to) qs.set('to', params.to)
+      if (params?.owner_id) qs.set('owner_id', params.owner_id)
+      const query = qs.toString()
+      return request<CalendarEvent[]>(`/api/calendar${query ? `?${query}` : ''}`)
+    },
+    get: (id: string) => request<CalendarEvent>(`/api/calendar/${id}`),
+    create: (body: {
+      title: string; date: string; start_time: string; end_time: string;
+      category?: string; location?: string; notes?: string
+    }) =>
+      request<CalendarEvent>('/api/calendar', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: {
+      title: string; date: string; start_time: string; end_time: string;
+      category: string; location?: string; notes?: string; completed?: boolean
+    }) =>
+      request<CalendarEvent>(`/api/calendar/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/calendar/${id}`, { method: 'DELETE' }),
+    toggleComplete: (id: string, completed: boolean) =>
+      request<void>(`/api/calendar/${id}/complete`, { method: 'PATCH', body: JSON.stringify({ completed }) }),
+    // Sharing
+    listShares: () => request<CalendarShareResponse[]>('/api/calendar/shares'),
+    createShare: (email: string, permission: SharePermission) =>
+      request<CalendarShareResponse>('/api/calendar/shares', {
+        method: 'POST', body: JSON.stringify({ email, permission }),
+      }),
+    removeShare: (userId: string) =>
+      request<void>(`/api/calendar/shares/${userId}`, { method: 'DELETE' }),
+    listSharedCalendars: () => request<SharedCalendar[]>('/api/calendar/shared'),
+    listSharedEvents: (ownerId: string, params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams()
+      if (params?.from) qs.set('from', params.from)
+      if (params?.to) qs.set('to', params.to)
+      const query = qs.toString()
+      return request<CalendarEvent[]>(`/api/calendar/shared/${ownerId}${query ? `?${query}` : ''}`)
+    },
   },
 
   uploads: {

@@ -12,6 +12,7 @@ import { SettingsPage } from './pages/Settings'
 import { AgentsPage } from './pages/Agents'
 import { ContainersPage } from './pages/Containers'
 import { DocsPage } from './pages/Docs'
+import { CalendarPage } from './pages/Calendar'
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/containers" element={<ContainersPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/docs" element={<DocsPage />} />
       </Route>

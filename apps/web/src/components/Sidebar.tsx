@@ -8,6 +8,7 @@ import {
   Sparkles,
   Bot,
   Container,
+  CalendarDays,
   SlidersHorizontal,
   ScrollText,
   ChevronsLeft,
@@ -24,15 +25,42 @@ interface SidebarProps {
   onToggle: () => void
 }
 
-const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Dashboard', icon: Gauge },
-  { path: '/agents', label: 'Agents', icon: Bot },
-  { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
-  { path: '/knowledge', label: 'Knowledge Base', icon: Library },
-  { path: '/connectors', label: 'Connectors', icon: Cable },
-  { path: '/tools', label: 'Tools', icon: Cog },
-  { path: '/skills', label: 'Skills', icon: Sparkles },
-  { path: '/containers', label: 'Containers', icon: Container },
+interface NavItem {
+  path: string
+  label: string
+  icon: typeof Gauge
+}
+
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Overview',
+    items: [
+      { path: '/dashboard', label: 'Dashboard', icon: Gauge },
+      { path: '/agents', label: 'Agents', icon: Bot },
+      { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
+      { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+    ],
+  },
+  {
+    label: 'Resources',
+    items: [
+      { path: '/knowledge', label: 'Knowledge Base', icon: Library },
+      { path: '/skills', label: 'Skills', icon: Sparkles },
+      { path: '/tools', label: 'Tools', icon: Cog },
+      { path: '/connectors', label: 'Connectors', icon: Cable },
+    ],
+  },
+  {
+    label: 'Infrastructure',
+    items: [
+      { path: '/containers', label: 'Containers', icon: Container },
+    ],
+  },
 ]
 
 const NAV_BOTTOM_ITEMS = [
@@ -56,24 +84,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className={styles.nav}>
-        {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
-          const isActive =
-            location.pathname === path ||
-            location.pathname.startsWith(path + '/')
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className={styles.navGroup}>
+            {!collapsed && (
+              <span className={styles.navGroupLabel}>{group.label}</span>
+            )}
+            {collapsed && <div className={styles.navGroupDivider} />}
+            {group.items.map(({ path, label, icon: Icon }) => {
+              const isActive =
+                location.pathname === path ||
+                location.pathname.startsWith(path + '/')
 
-          return (
-            <NavLink
-              key={path}
-              to={path}
-              className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-              title={collapsed ? label : undefined}
-            >
-              {isActive && <div className={styles.activeGlow} />}
-              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
-              {!collapsed && <span className={styles.navLabel}>{label}</span>}
-            </NavLink>
-          )
-        })}
+              return (
+                <NavLink
+                  key={path}
+                  to={path}
+                  className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+                  title={collapsed ? label : undefined}
+                >
+                  {isActive && <div className={styles.activeGlow} />}
+                  <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
+                  {!collapsed && <span className={styles.navLabel}>{label}</span>}
+                </NavLink>
+              )
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Bottom navigation */}

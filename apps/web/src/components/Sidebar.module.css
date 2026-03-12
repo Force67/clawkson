@@ -53,7 +53,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   padding: 8px 10px;
   overflow-y: auto;
 }
@@ -115,6 +115,37 @@
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--accent);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navGroup + .navGroup {
+  margin-top: 6px;
+}
+
+.navGroupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 6px 10px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.navGroupDivider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  margin: 4px 8px;
+}
+
+.navGroup:first-child .navGroupDivider {
+  display: none;
 }
 
 .navLabel {

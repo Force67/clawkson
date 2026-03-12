@@ -434,6 +434,39 @@ pub struct ConversationShare {
     pub created_at: DateTime<Utc>,
 }
 
+// ── Calendar ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarEvent {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub title: String,
+    /// YYYY-MM-DD
+    pub date: String,
+    /// HH:MM
+    pub start_time: String,
+    /// HH:MM
+    pub end_time: String,
+    pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub completed: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarShare {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub shared_with: Uuid,
+    pub permission: SharePermission,
+    pub created_at: DateTime<Utc>,
+}
+
 // ── Settings ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

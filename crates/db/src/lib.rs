@@ -3,6 +3,8 @@ mod config;
 mod migrate;
 
 pub mod agent;
+pub mod calendar_event;
+pub mod calendar_share;
 pub mod chat_attachment;
 pub mod connector;
 pub mod conversation;
