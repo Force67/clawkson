@@ -33,6 +33,49 @@ export interface AgentContainerConfig {
   cpu_limit: number | null
   memory_limit_mb: number | null
   network_enabled: boolean
+  permissions?: AgentPermissions
+}
+
+// ── Agent Permissions (Android-style) ─────────────────────────────
+
+export type FilesystemMode = 'read_write' | 'read_only' | 'none'
+
+export interface NetworkPermission {
+  enabled: boolean
+  internet: boolean
+  local_network: boolean
+  allowed_domains: string[]
+}
+
+export interface FilesystemPermission {
+  mode: FilesystemMode
+  max_workspace_size_mb: number | null
+}
+
+export interface ExecutionPermission {
+  shell: boolean
+  python: boolean
+  allowed_runtimes: string[]
+  max_execution_time_secs: number | null
+}
+
+export interface ResourcePermission {
+  max_processes: number | null
+  max_tmp_size_mb: number | null
+  readonly_rootfs: boolean
+}
+
+export interface DataAccessPermission {
+  knowledge_bases: boolean
+  conversation_history: boolean
+}
+
+export interface AgentPermissions {
+  network: NetworkPermission
+  filesystem: FilesystemPermission
+  execution: ExecutionPermission
+  resources: ResourcePermission
+  data_access: DataAccessPermission
 }
 
 export interface ContainerStatus {
@@ -450,6 +493,7 @@ export const api = {
   },
 
   containers: {
+    list: () => request<ContainerStatus[]>('/api/containers'),
     status: (agentId: string, conversationId: string) =>
       request<ContainerStatus>(`/api/agents/${agentId}/container?conversation_id=${conversationId}`),
     start: (agentId: string, conversationId: string) =>

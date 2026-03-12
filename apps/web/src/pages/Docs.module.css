@@ -61,11 +61,11 @@
   border: 1px solid rgba(0, 0, 0, 0.07);
   padding: 2px 6px;
   border-radius: 4px;
-  color: #c1272d;
+  color: #4a6cf7;
 }
 
 .article a {
-  color: #c1272d;
+  color: #4a6cf7;
   text-decoration: underline;
   text-underline-offset: 2px;
 }

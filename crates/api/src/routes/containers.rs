@@ -20,6 +20,11 @@ pub fn router() -> Router<AppState> {
         .route("/exec", post(exec_command))
 }
 
+/// Standalone router for the /api/containers prefix (list all).
+pub fn list_router() -> Router<AppState> {
+    Router::new().route("/", get(list_all_containers))
+}
+
 #[derive(Debug, Serialize)]
 struct ContainerStatusResponse {
     agent_id: String,
@@ -83,6 +88,7 @@ async fn start_container(
                 cpu_limit: ac.cpu_limit,
                 memory_limit_mb: ac.memory_limit_mb,
                 network_enabled: ac.network_enabled,
+                permissions: ac.permissions,
             })
             .unwrap_or_default()
     };
@@ -235,4 +241,33 @@ async fn exec_command(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(Json(result))
+}
+
+/// GET /api/containers — list all active containers across all agents.
+async fn list_all_containers(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ContainerStatusResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let cm = state
+        .container_manager
+        .as_ref()
+        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
+
+    let all = cm.list_all_containers().await;
+
+    let items: Vec<ContainerStatusResponse> = all
+        .into_iter()
+        .map(|info| ContainerStatusResponse {
+            agent_id: info.agent_id.to_string(),
+            conversation_id: info.conversation_id.to_string(),
+            state: serde_json::to_value(&info.state)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| "unknown".to_string()),
+            image: info.image,
+            workspace_path: info.workspace_path,
+        })
+        .collect();
+
+    Ok(Json(items))
 }

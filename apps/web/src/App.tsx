@@ -9,6 +9,8 @@ import { ConnectorsPage } from './pages/Connectors'
 import { ToolsPage } from './pages/Tools'
 import { SkillsPage } from './pages/Skills'
 import { SettingsPage } from './pages/Settings'
+import { AgentsPage } from './pages/Agents'
+import { ContainersPage } from './pages/Containers'
 import { DocsPage } from './pages/Docs'
 
 function AppRoutes() {
@@ -43,13 +45,14 @@ function AppRoutes() {
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/agents" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/agents" element={<AgentsPage />} />
         <Route path="/conversations" element={<ConversationsPage />} />
         <Route path="/conversations/:id" element={<ConversationsPage />} />
         <Route path="/knowledge" element={<KnowledgeBasePage />} />
         <Route path="/connectors" element={<ConnectorsPage />} />
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
+        <Route path="/containers" element={<ContainersPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/docs" element={<DocsPage />} />
       </Route>

@@ -17,7 +17,7 @@
 }
 
 .syntaxHint svg {
-  color: #c1272d;
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 
@@ -25,8 +25,8 @@
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  color: #c1272d;
-  background: rgba(193, 39, 45, 0.08);
+  color: #4a6cf7;
+  background: rgba(74, 108, 247, 0.08);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -106,9 +106,9 @@
 }
 
 .toolIcon[data-active='true'] {
-  background: rgba(193, 39, 45, 0.08);
-  border-color: rgba(193, 39, 45, 0.15);
-  color: #c1272d;
+  background: rgba(74, 108, 247, 0.08);
+  border-color: rgba(74, 108, 247, 0.15);
+  color: #4a6cf7;
 }
 
 .toolInfo {

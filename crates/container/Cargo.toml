@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+clawkson-core = { path = "../core" }
 bollard = "0.18"
 tokio.workspace = true
 serde.workspace = true

@@ -27,12 +27,12 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
-  background: rgba(193, 39, 45, 0.08);
-  border: 1px solid rgba(193, 39, 45, 0.12);
+  background: rgba(74, 108, 247, 0.08);
+  border: 1px solid rgba(74, 108, 247, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c1272d;
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 
@@ -106,8 +106,8 @@
 }
 
 .providerPillActive {
-  border-color: var(--pc, #c1272d);
-  background: color-mix(in srgb, var(--pc, #c1272d) 10%, rgba(255, 255, 255, 0.7));
+  border-color: var(--pc, #4a6cf7);
+  background: color-mix(in srgb, var(--pc, #4a6cf7) 10%, rgba(255, 255, 255, 0.7));
   color: var(--text-primary);
 }
 
@@ -117,7 +117,7 @@
 }
 
 .providerPillCheck {
-  color: var(--pc, #c1272d);
+  color: var(--pc, #4a6cf7);
 }
 
 /* ── Form elements ───────────────────────────────────────────── */
@@ -181,8 +181,8 @@
 }
 
 .formInput:focus {
-  border-color: #c1272d;
-  box-shadow: 0 0 0 2px rgba(193, 39, 45, 0.1);
+  border-color: #4a6cf7;
+  box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.1);
 }
 
 .formInput::placeholder { color: var(--text-tertiary); }
@@ -213,7 +213,7 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.testBtn:hover { border-color: rgba(193, 39, 45, 0.3); color: #c1272d; background: rgba(193, 39, 45, 0.05); }
+.testBtn:hover { border-color: rgba(74, 108, 247, 0.3); color: #4a6cf7; background: rgba(74, 108, 247, 0.05); }
 .testBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .testResult {
@@ -236,17 +236,17 @@
 
 .testResultFail {
   color: var(--error);
-  background: rgba(193, 39, 45, 0.06);
-  border-color: rgba(193, 39, 45, 0.15);
+  background: rgba(74, 108, 247, 0.06);
+  border-color: rgba(74, 108, 247, 0.15);
 }
 
 .errorMsg {
   font-size: 12px;
   color: var(--error);
   padding: 8px 12px;
-  background: rgba(193, 39, 45, 0.06);
+  background: rgba(74, 108, 247, 0.06);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(193, 39, 45, 0.15);
+  border: 1px solid rgba(74, 108, 247, 0.15);
   margin-bottom: 8px;
 }
 
@@ -284,7 +284,7 @@
 }
 
 .azureDeploymentRemove:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
 
@@ -309,8 +309,8 @@
 }
 
 .azureDeploymentAdd:hover {
-  color: #c1272d;
-  border-color: rgba(193, 39, 45, 0.3);
+  color: #4a6cf7;
+  border-color: rgba(74, 108, 247, 0.3);
 }
 
 /* ── Inference list ──────────────────────────────────────────── */
@@ -338,12 +338,12 @@
 .inferenceRow:hover { border-color: rgba(0, 0, 0, 0.1); }
 
 .inferenceRowDefault {
-  border-color: rgba(193, 39, 45, 0.2);
-  background: rgba(193, 39, 45, 0.04);
+  border-color: rgba(74, 108, 247, 0.2);
+  background: rgba(74, 108, 247, 0.04);
 }
 
 .inferenceRowEditing {
-  border-color: rgba(193, 39, 45, 0.3);
+  border-color: rgba(74, 108, 247, 0.3);
   opacity: 0.4;
   pointer-events: none;
 }
@@ -402,11 +402,11 @@
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #c1272d;
+  color: #4a6cf7;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(193, 39, 45, 0.08);
-  border: 1px solid rgba(193, 39, 45, 0.18);
+  background: rgba(74, 108, 247, 0.08);
+  border: 1px solid rgba(74, 108, 247, 0.18);
 }
 
 .setDefaultBtn {
@@ -445,12 +445,12 @@
 }
 
 .editBtn:hover {
-  background: rgba(193, 39, 45, 0.07);
-  color: #c1272d;
+  background: rgba(74, 108, 247, 0.07);
+  color: #4a6cf7;
 }
 
 .deleteBtn:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
 
@@ -504,7 +504,7 @@
   transition: border-color 0.2s;
 }
 
-.select:focus { border-color: #c1272d; }
+.select:focus { border-color: #4a6cf7; }
 
 .selectChevron {
   position: absolute;

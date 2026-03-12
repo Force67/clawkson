@@ -6,6 +6,8 @@ import {
   Cable,
   Cog,
   Sparkles,
+  Bot,
+  Container,
   SlidersHorizontal,
   ScrollText,
   ChevronsLeft,
@@ -24,11 +26,13 @@ interface SidebarProps {
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: Gauge },
+  { path: '/agents', label: 'Agents', icon: Bot },
   { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
   { path: '/knowledge', label: 'Knowledge Base', icon: Library },
   { path: '/connectors', label: 'Connectors', icon: Cable },
   { path: '/tools', label: 'Tools', icon: Cog },
   { path: '/skills', label: 'Skills', icon: Sparkles },
+  { path: '/containers', label: 'Containers', icon: Container },
 ]
 
 const NAV_BOTTOM_ITEMS = [
@@ -45,9 +49,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
-          <Disc3 size={18} strokeWidth={1.5} />
+          <Disc3 size={17} strokeWidth={1.5} />
         </div>
-        {!collapsed && <span className={styles.brandText}>Clawkson</span>}
+        {!collapsed && <span className={styles.brandText}>clawkson</span>}
       </div>
 
       {/* Navigation */}
@@ -65,7 +69,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               title={collapsed ? label : undefined}
             >
               {isActive && <div className={styles.activeGlow} />}
-              <Icon size={17} strokeWidth={isActive ? 1.75 : 1.25} />
+              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
               {!collapsed && <span className={styles.navLabel}>{label}</span>}
             </NavLink>
           )
@@ -87,7 +91,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               title={collapsed ? label : undefined}
             >
               {isActive && <div className={styles.activeGlow} />}
-              <Icon size={17} strokeWidth={isActive ? 1.75 : 1.25} />
+              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
               {!collapsed && <span className={styles.navLabel}>{label}</span>}
             </NavLink>
           )

@@ -23,12 +23,12 @@
   --text-tertiary: #999;
   --text-inverse: #fff;
 
-  /* ── Red tape — the only deliberate color ──────────────────── */
-  --accent: #c1272d;
-  --accent-hover: #d63031;
-  --accent-muted: rgba(193, 39, 45, 0.07);
-  --accent-text: #c1272d;
-  --accent-glow: rgba(193, 39, 45, 0.12);
+  /* ── Blue slate — the only deliberate color ─────────────────── */
+  --accent: #4a6cf7;
+  --accent-hover: #3b5de8;
+  --accent-muted: rgba(74, 108, 247, 0.07);
+  --accent-text: #4a6cf7;
+  --accent-glow: rgba(74, 108, 247, 0.12);
 
   --success: #1a9a5c;
   --warning: #c08b1a;
@@ -43,7 +43,7 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
-  --shadow-glow: 0 0 20px rgba(193, 39, 45, 0.08);
+  --shadow-glow: 0 0 20px rgba(74, 108, 247, 0.08);
 
   /* ── Frosted glass ─────────────────────────────────────────── */
   --glass-blur: blur(14px);

@@ -27,6 +27,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/tools", tools::router())
         .nest("/llm-connectors", llm_connectors::router())
         .nest("/settings", settings::router())
+        .nest("/containers", containers::list_router())
         .nest("/agents/{id}/container", containers::router())
         .nest("/agents/{id}/container", workspace::router())
         .nest("/skills", skills::router())

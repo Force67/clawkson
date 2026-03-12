@@ -25,8 +25,8 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
-  background: rgba(193, 39, 45, 0.08);
-  color: #c1272d;
+  background: rgba(74, 108, 247, 0.08);
+  color: #4a6cf7;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -70,7 +70,7 @@
 }
 
 .deleteBtn:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
 
@@ -114,10 +114,10 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
-  color: #c1272d;
+  color: #4a6cf7;
   padding: 2px 8px;
-  background: rgba(193, 39, 45, 0.07);
-  border: 1px solid rgba(193, 39, 45, 0.15);
+  background: rgba(74, 108, 247, 0.07);
+  border: 1px solid rgba(74, 108, 247, 0.15);
   border-radius: 999px;
 }
 
@@ -165,7 +165,7 @@
 }
 
 .detailIcon {
-  color: #c1272d;
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 
@@ -217,8 +217,8 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: var(--radius-md);
-  background: rgba(193, 39, 45, 0.06);
-  border: 1px solid rgba(193, 39, 45, 0.15);
+  background: rgba(74, 108, 247, 0.06);
+  border: 1px solid rgba(74, 108, 247, 0.15);
   color: var(--error);
   font-size: 12px;
   font-family: var(--font-mono);
@@ -272,7 +272,7 @@
 }
 
 .input:focus {
-  border-color: #c1272d;
+  border-color: #4a6cf7;
 }
 
 .textarea {
@@ -291,7 +291,7 @@
 }
 
 .textarea:focus {
-  border-color: #c1272d;
+  border-color: #4a6cf7;
 }
 
 .formActions {
@@ -380,8 +380,8 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(193, 39, 45, 0.08);
-  color: #c1272d;
+  background: rgba(74, 108, 247, 0.08);
+  color: #4a6cf7;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -442,8 +442,8 @@
 }
 
 .agentLinked {
-  border-color: rgba(193, 39, 45, 0.18);
-  background: rgba(193, 39, 45, 0.04);
+  border-color: rgba(74, 108, 247, 0.18);
+  background: rgba(74, 108, 247, 0.04);
 }
 
 .agentInfo {
@@ -470,19 +470,19 @@
 }
 
 .agentToggle:hover {
-  background: rgba(193, 39, 45, 0.06);
-  color: #c1272d;
-  border-color: rgba(193, 39, 45, 0.2);
+  background: rgba(74, 108, 247, 0.06);
+  color: #4a6cf7;
+  border-color: rgba(74, 108, 247, 0.2);
 }
 
 .agentToggleActive {
-  background: rgba(193, 39, 45, 0.06);
-  border-color: rgba(193, 39, 45, 0.2);
+  background: rgba(74, 108, 247, 0.06);
+  border-color: rgba(74, 108, 247, 0.2);
   color: var(--error);
 }
 
 .agentToggleActive:hover {
-  background: rgba(193, 39, 45, 0.1);
+  background: rgba(74, 108, 247, 0.1);
   color: var(--error);
   border-color: var(--error);
 }
@@ -523,7 +523,7 @@
 }
 
 .entryIcon {
-  color: #c1272d;
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 

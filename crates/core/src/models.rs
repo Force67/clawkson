@@ -40,9 +40,150 @@ pub struct AgentContainerConfig {
     /// Memory limit in megabytes (e.g. 512).
     pub memory_limit_mb: Option<u64>,
     /// Whether networking is enabled (default: false).
+    /// Kept for backward compat; prefer `permissions.network.enabled`.
     #[serde(default)]
     pub network_enabled: bool,
+    /// Android-style granular permissions. Defaults applied when absent.
+    #[serde(default)]
+    pub permissions: AgentPermissions,
 }
+
+// ── Android-Style Permissions ─────────────────────────────────────
+
+/// Top-level permission groups for agent sandboxes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentPermissions {
+    #[serde(default)]
+    pub network: NetworkPermission,
+    #[serde(default)]
+    pub filesystem: FilesystemPermission,
+    #[serde(default)]
+    pub execution: ExecutionPermission,
+    #[serde(default)]
+    pub resources: ResourcePermission,
+    #[serde(default)]
+    pub data_access: DataAccessPermission,
+}
+
+impl Default for AgentPermissions {
+    fn default() -> Self {
+        Self {
+            network: NetworkPermission::default(),
+            filesystem: FilesystemPermission::default(),
+            execution: ExecutionPermission::default(),
+            resources: ResourcePermission::default(),
+            data_access: DataAccessPermission::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkPermission {
+    /// Master toggle: allow any network access at all.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allow public internet access.
+    #[serde(default)]
+    pub internet: bool,
+    /// Allow local/private network access (10.x, 172.x, 192.168.x).
+    #[serde(default)]
+    pub local_network: bool,
+    /// If non-empty, restrict outbound to these domains only.
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+}
+
+impl Default for NetworkPermission {
+    fn default() -> Self {
+        Self { enabled: false, internet: false, local_network: false, allowed_domains: vec![] }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesystemMode {
+    /// Full read/write access to /workspace.
+    ReadWrite,
+    /// Read-only workspace mount.
+    ReadOnly,
+    /// No persistent filesystem (tmpfs only).
+    None,
+}
+
+impl Default for FilesystemMode {
+    fn default() -> Self { Self::ReadWrite }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesystemPermission {
+    /// Workspace mount mode.
+    #[serde(default)]
+    pub mode: FilesystemMode,
+    /// Max workspace size in MB (soft limit, for display/quota).
+    pub max_workspace_size_mb: Option<u64>,
+}
+
+impl Default for FilesystemPermission {
+    fn default() -> Self {
+        Self { mode: FilesystemMode::ReadWrite, max_workspace_size_mb: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionPermission {
+    /// Allow shell commands (sh/bash).
+    #[serde(default = "default_true")]
+    pub shell: bool,
+    /// Allow Python execution.
+    #[serde(default = "default_true")]
+    pub python: bool,
+    /// Additional allowed runtimes (e.g. "node", "ruby").
+    #[serde(default)]
+    pub allowed_runtimes: Vec<String>,
+    /// Max single-command execution time in seconds.
+    pub max_execution_time_secs: Option<u64>,
+}
+
+impl Default for ExecutionPermission {
+    fn default() -> Self {
+        Self { shell: true, python: true, allowed_runtimes: vec![], max_execution_time_secs: Some(300) }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourcePermission {
+    /// Max number of processes (PID limit).
+    pub max_processes: Option<i64>,
+    /// Max tmp space in MB.
+    pub max_tmp_size_mb: Option<u64>,
+    /// Read-only root filesystem.
+    #[serde(default = "default_true")]
+    pub readonly_rootfs: bool,
+}
+
+impl Default for ResourcePermission {
+    fn default() -> Self {
+        Self { max_processes: Some(256), max_tmp_size_mb: Some(64), readonly_rootfs: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataAccessPermission {
+    /// Can the agent access linked knowledge bases.
+    #[serde(default = "default_true")]
+    pub knowledge_bases: bool,
+    /// Can the agent read its own conversation history.
+    #[serde(default = "default_true")]
+    pub conversation_history: bool,
+}
+
+impl Default for DataAccessPermission {
+    fn default() -> Self {
+        Self { knowledge_bases: true, conversation_history: true }
+    }
+}
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -138,17 +138,37 @@ impl ContainerManager {
         let nano_cpus = config.cpu_limit.map(|c| (c * 1e9) as i64);
         let memory = config.memory_limit_mb.map(|m| (m * 1024 * 1024) as i64);
 
-        let network_mode = if config.network_enabled {
-            None
+        let perms = &config.permissions;
+
+        // Network: use permissions.network.enabled, falling back to legacy field
+        let net_enabled = perms.network.enabled || config.network_enabled;
+        let network_mode = if net_enabled {
+            None // use default bridge
         } else {
             Some("none".to_string())
         };
 
+        // Filesystem: bind mount mode from permissions
+        let binds = match perms.filesystem.mode {
+            clawkson_core::FilesystemMode::ReadWrite => {
+                Some(vec![format!("{workspace_str}:/workspace")])
+            }
+            clawkson_core::FilesystemMode::ReadOnly => {
+                Some(vec![format!("{workspace_str}:/workspace:ro")])
+            }
+            clawkson_core::FilesystemMode::None => None,
+        };
+
+        // Resource limits
+        let pids_limit = perms.resources.max_processes;
+        let readonly_rootfs = Some(perms.resources.readonly_rootfs);
+        let tmp_size = perms.resources.max_tmp_size_mb.unwrap_or(64);
+
         let host_config = HostConfig {
-            binds: Some(vec![format!("{workspace_str}:/workspace")]),
+            binds,
             nano_cpus,
             memory,
-            pids_limit: Some(256),
+            pids_limit,
             network_mode,
             cap_drop: Some(vec![
                 "ALL".to_string(),
@@ -158,10 +178,10 @@ impl ContainerManager {
                 "SETUID".to_string(),
                 "SETGID".to_string(),
             ]),
-            readonly_rootfs: Some(true),
+            readonly_rootfs,
             // tmpfs for writable areas the runtime needs
             tmpfs: Some(HashMap::from([
-                ("/tmp".to_string(), "size=64m".to_string()),
+                ("/tmp".to_string(), format!("size={tmp_size}m")),
                 ("/var/tmp".to_string(), "size=16m".to_string()),
                 ("/root".to_string(), "size=16m".to_string()),
             ])),
@@ -288,6 +308,11 @@ impl ContainerManager {
             .filter(|info| info.agent_id == agent_id)
             .cloned()
             .collect()
+    }
+
+    /// List all managed containers across all agents and conversations.
+    pub async fn list_all_containers(&self) -> Vec<ContainerInfo> {
+        self.containers.read().await.values().cloned().collect()
     }
 
     /// Execute a command in the container.

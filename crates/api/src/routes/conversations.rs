@@ -914,6 +914,7 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversa
                         cpu_limit: ac.cpu_limit,
                         memory_limit_mb: ac.memory_limit_mb,
                         network_enabled: ac.network_enabled,
+                        permissions: ac.permissions.clone(),
                     })
                     .unwrap_or_default();
                 if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &config).await {

@@ -117,13 +117,13 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(193, 39, 45, 0.25);
+  box-shadow: 0 1px 4px rgba(74, 108, 247, 0.25);
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .newConversationBtn:hover {
   background: #a82028;
-  box-shadow: 0 2px 10px rgba(193, 39, 45, 0.3);
+  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.3);
 }
 
 .sidebarHeader {
@@ -163,8 +163,8 @@
 }
 
 .searchInput:focus {
-  border-color: rgba(193, 39, 45, 0.4);
-  box-shadow: 0 0 0 3px rgba(193, 39, 45, 0.08);
+  border-color: rgba(74, 108, 247, 0.4);
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08);
 }
 
 /* ── Conversation list ───────────────────────────────────────── */
@@ -220,12 +220,12 @@
 }
 
 .convoItemActive {
-  background: rgba(193, 39, 45, 0.06);
-  border-color: rgba(193, 39, 45, 0.15);
+  background: rgba(74, 108, 247, 0.06);
+  border-color: rgba(74, 108, 247, 0.15);
 }
 
 .convoItemActive:hover {
-  background: rgba(193, 39, 45, 0.06);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 .convoItemTop {
@@ -471,7 +471,7 @@
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--accent);
 }
 
@@ -546,7 +546,7 @@
 }
 
 .msgImageLink:hover {
-  border-color: rgba(193, 39, 45, 0.35);
+  border-color: rgba(74, 108, 247, 0.35);
 }
 
 .msgImage {
@@ -609,7 +609,7 @@
 
 .msgAttachmentAssistant:hover {
   background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(193, 39, 45, 0.3);
+  border-color: rgba(74, 108, 247, 0.3);
   color: var(--accent);
 }
 
@@ -694,7 +694,7 @@
 }
 
 .inputDockDragOver {
-  background: rgba(193, 39, 45, 0.04);
+  background: rgba(74, 108, 247, 0.04);
 }
 
 .dragOverlay {
@@ -708,7 +708,7 @@
   gap: 10px;
   border: 2px dashed var(--accent);
   border-radius: 16px;
-  background: rgba(193, 39, 45, 0.06);
+  background: rgba(74, 108, 247, 0.06);
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
@@ -789,7 +789,7 @@
 }
 
 .attachmentRemove:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
 
@@ -806,8 +806,8 @@
 }
 
 .inputBar:focus-within {
-  border-color: rgba(193, 39, 45, 0.35);
-  box-shadow: 0 0 0 3px rgba(193, 39, 45, 0.08), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  border-color: rgba(74, 108, 247, 0.35);
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
 }
 
 .input {
@@ -871,24 +871,24 @@
 
 .toolChipActive {
   color: var(--accent);
-  border-color: rgba(193, 39, 45, 0.25);
-  background: rgba(193, 39, 45, 0.06);
+  border-color: rgba(74, 108, 247, 0.25);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 .toolChipActive:hover {
-  background: rgba(193, 39, 45, 0.1);
-  border-color: rgba(193, 39, 45, 0.35);
+  background: rgba(74, 108, 247, 0.1);
+  border-color: rgba(74, 108, 247, 0.35);
 }
 
 .toolChipPrimary {
   color: var(--accent);
-  border-color: rgba(193, 39, 45, 0.2);
-  background: rgba(193, 39, 45, 0.06);
+  border-color: rgba(74, 108, 247, 0.2);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 .toolChipPrimary:hover {
-  background: rgba(193, 39, 45, 0.1);
-  border-color: rgba(193, 39, 45, 0.3);
+  background: rgba(74, 108, 247, 0.1);
+  border-color: rgba(74, 108, 247, 0.3);
 }
 
 .statusDot {
@@ -911,14 +911,14 @@
   color: #fff;
   cursor: pointer;
   flex-shrink: 0;
-  box-shadow: 0 1px 4px rgba(193, 39, 45, 0.25);
+  box-shadow: 0 1px 4px rgba(74, 108, 247, 0.25);
   transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
 }
 
 .sendBtn:hover:not(:disabled) {
   background: #a82028;
   transform: translateY(-1px);
-  box-shadow: 0 2px 10px rgba(193, 39, 45, 0.3);
+  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.3);
 }
 
 .sendBtn:disabled {
@@ -1019,9 +1019,9 @@
 /* Danger-tinted icon button */
 
 .iconBtnDanger:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
-  border-color: rgba(193, 39, 45, 0.25);
+  border-color: rgba(74, 108, 247, 0.25);
 }
 
 .iconBtnDanger:disabled {
@@ -1058,8 +1058,8 @@
 }
 
 .formInput:focus {
-  border-color: rgba(193, 39, 45, 0.4);
-  box-shadow: 0 0 0 3px rgba(193, 39, 45, 0.08);
+  border-color: rgba(74, 108, 247, 0.4);
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08);
 }
 
 .formInput::placeholder {
@@ -1103,8 +1103,8 @@
 }
 
 .agentOptionSelected {
-  border-color: rgba(193, 39, 45, 0.25);
-  background: rgba(193, 39, 45, 0.06);
+  border-color: rgba(74, 108, 247, 0.25);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 .agentOptionIcon {
@@ -1330,12 +1330,12 @@
 }
 
 .permBtnActive {
-  background: rgba(193, 39, 45, 0.06);
+  background: rgba(74, 108, 247, 0.06);
   color: var(--accent);
 }
 
 .permBtnActive:hover {
-  background: rgba(193, 39, 45, 0.1);
+  background: rgba(74, 108, 247, 0.1);
 }
 
 .shareError {
@@ -1390,7 +1390,7 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
@@ -1445,8 +1445,8 @@
 
 .permBadgeWrite {
   color: var(--accent);
-  background: rgba(193, 39, 45, 0.06);
-  border-color: rgba(193, 39, 45, 0.2);
+  background: rgba(74, 108, 247, 0.06);
+  border-color: rgba(74, 108, 247, 0.2);
 }
 
 .shareRemoveBtn {
@@ -1464,7 +1464,7 @@
 }
 
 .shareRemoveBtn:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
 
@@ -1549,7 +1549,7 @@
 }
 
 .skillDropdownItemActive {
-  background: rgba(193, 39, 45, 0.06);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 .skillDropdownIcon {
@@ -1559,8 +1559,8 @@
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: rgba(193, 39, 45, 0.08);
-  border: 1px solid rgba(193, 39, 45, 0.12);
+  background: rgba(74, 108, 247, 0.08);
+  border: 1px solid rgba(74, 108, 247, 0.12);
   color: var(--accent);
   flex-shrink: 0;
   margin-top: 1px;

@@ -1,0 +1,283 @@
+/* ══════════════════════════════════════════════════════════════════
+   Containers — Active sandbox overview
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Stats strip ─────────────────────────────────────────────── */
+
+.stats {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+}
+
+.statValue {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.statLabel {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.statRunning { color: var(--success); }
+.statStopped { color: var(--text-tertiary); }
+
+/* ── Container list ──────────────────────────────────────────── */
+
+.containerList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
+}
+
+/* ── Container card ──────────────────────────────────────────── */
+
+.containerCard {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.2s;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+}
+
+.containerCard:hover {
+  border-color: var(--border-bright);
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stateIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.state_running {
+  background: rgba(26, 154, 92, 0.1);
+  color: var(--success);
+}
+
+.state_creating {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--info);
+}
+
+.state_stopped {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-tertiary);
+}
+
+.state_removing {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--error);
+}
+
+.cardInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cardAgent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardConvo {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.convoLink {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: color 0.15s;
+}
+
+.convoLink:hover {
+  color: var(--accent-text);
+}
+
+/* ── State badge ─────────────────────────────────────────────── */
+
+.stateBadge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.badge_running {
+  background: rgba(26, 154, 92, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(26, 154, 92, 0.2);
+}
+
+.badge_creating {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--info);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.badge_stopped {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-tertiary);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.badge_removing {
+  background: rgba(74, 108, 247, 0.06);
+  color: var(--error);
+  border: 1px solid rgba(74, 108, 247, 0.12);
+}
+
+/* ── Meta tags ───────────────────────────────────────────────── */
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.metaTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* ── Card actions ────────────────────────────────────────────── */
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.actionBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.actionBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.actionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actionBtnDanger:hover {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--error);
+  border-color: rgba(74, 108, 247, 0.15);
+}
+
+/* ── Loading ─────────────────────────────────────────────────── */
+
+.loadingState {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 20px;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .containerList {
+    grid-template-columns: 1fr;
+  }
+  .stats {
+    flex-wrap: wrap;
+  }
+}

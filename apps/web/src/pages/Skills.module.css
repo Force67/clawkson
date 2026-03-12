@@ -17,7 +17,7 @@
 }
 
 .syntaxHint svg {
-  color: #c1272d;
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 
@@ -25,8 +25,8 @@
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  color: #c1272d;
-  background: rgba(193, 39, 45, 0.08);
+  color: #4a6cf7;
+  background: rgba(74, 108, 247, 0.08);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -98,9 +98,9 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
-  background: rgba(193, 39, 45, 0.08);
-  border: 1px solid rgba(193, 39, 45, 0.12);
-  color: #c1272d;
+  background: rgba(74, 108, 247, 0.08);
+  border: 1px solid rgba(74, 108, 247, 0.12);
+  color: #4a6cf7;
   flex-shrink: 0;
 }
 
@@ -173,7 +173,7 @@
 }
 
 .iconBtnDanger:hover {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--danger);
 }
 
@@ -223,7 +223,7 @@
 }
 
 .input:focus {
-  border-color: #c1272d;
+  border-color: #4a6cf7;
 }
 
 .textarea {
@@ -413,8 +413,8 @@
 }
 
 .templateCard:hover {
-  border-color: rgba(193, 39, 45, 0.2);
-  background: rgba(193, 39, 45, 0.04);
+  border-color: rgba(74, 108, 247, 0.2);
+  background: rgba(74, 108, 247, 0.04);
 }
 
 .templateName {

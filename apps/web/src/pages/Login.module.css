@@ -6,12 +6,12 @@
   background:
     conic-gradient(
       from 180deg at 40% 60%,
-      rgba(193, 39, 45, 0.04) 0deg,
+      rgba(74, 108, 247, 0.04) 0deg,
       rgba(180, 160, 200, 0.06) 72deg,
       rgba(100, 140, 200, 0.05) 144deg,
       rgba(60, 180, 160, 0.04) 216deg,
       rgba(220, 180, 100, 0.05) 288deg,
-      rgba(193, 39, 45, 0.04) 360deg
+      rgba(74, 108, 247, 0.04) 360deg
     ),
     #e8e6e3;
   padding: 24px;
@@ -34,7 +34,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #c1272d;
+  background: #4a6cf7;
   border-radius: var(--radius-md);
   color: #fff;
   margin: 0 auto 24px;
@@ -96,15 +96,15 @@
 }
 
 .input:focus {
-  border-color: #c1272d;
-  box-shadow: 0 0 0 3px rgba(193, 39, 45, 0.1);
+  border-color: #4a6cf7;
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
 }
 
 .error {
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  background: rgba(193, 39, 45, 0.06);
-  border: 1px solid rgba(193, 39, 45, 0.18);
+  background: rgba(74, 108, 247, 0.06);
+  border: 1px solid rgba(74, 108, 247, 0.18);
   color: var(--error);
   font-size: 12px;
   font-family: var(--font-mono);
@@ -114,7 +114,7 @@
   padding: 11px 20px;
   border-radius: var(--radius-md);
   border: none;
-  background: #c1272d;
+  background: #4a6cf7;
   color: #fff;
   font-size: 10px;
   font-weight: 600;
@@ -145,7 +145,7 @@
 .switchBtn {
   background: none;
   border: none;
-  color: #c1272d;
+  color: #4a6cf7;
   font-size: 13px;
   font-family: var(--font-sans);
   cursor: pointer;

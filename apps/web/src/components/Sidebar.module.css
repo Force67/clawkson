@@ -1,25 +1,7 @@
-/* ── CD slab — holographic chrome disc ───────────────────────── */
-
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
-  background:
-    /* Faint track grooves */
-    repeating-radial-gradient(
-      ellipse 180% 180% at 25% 140%,
-      transparent 0px,
-      transparent 14px,
-      rgba(255, 255, 255, 0.015) 14px,
-      rgba(255, 255, 255, 0.015) 15px
-    ),
-    /* Dark disc base */
-    radial-gradient(
-      ellipse 150% 90% at 20% 110%,
-      #16122e 0%,
-      #100e24 30%,
-      #0c0a1e 60%,
-      #0a0918 100%
-    );
+  background: #fafaf9;
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -27,87 +9,7 @@
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
-  border-right: 3px solid #c1272d;
-}
-
-/* Primary shimmer — bright holographic bands */
-.sidebar::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    /* Subtle diagonal shimmer */
-    linear-gradient(
-      150deg,
-      transparent 0%,
-      rgba(220, 100, 255, 0.045) 8%,
-      rgba(80, 200, 255, 0.055) 16%,
-      rgba(100, 255, 200, 0.035) 24%,
-      transparent 34%,
-      transparent 46%,
-      rgba(255, 100, 200, 0.035) 54%,
-      rgba(160, 80, 255, 0.05) 62%,
-      rgba(80, 220, 255, 0.04) 70%,
-      transparent 82%
-    ),
-    /* Counter-sweep — faint warm */
-    linear-gradient(
-      320deg,
-      rgba(255, 150, 80, 0.03) 0%,
-      rgba(255, 80, 150, 0.025) 12%,
-      transparent 30%,
-      transparent 60%,
-      rgba(80, 140, 255, 0.03) 78%,
-      rgba(220, 80, 255, 0.025) 100%
-    ),
-    /* Faint center glow */
-    radial-gradient(
-      ellipse 70% 40% at 45% 40%,
-      rgba(140, 120, 255, 0.035) 0%,
-      transparent 70%
-    );
-  pointer-events: none;
-  z-index: 1;
-  animation: shimmer 6s ease-in-out infinite alternate;
-}
-
-@keyframes shimmer {
-  0% { opacity: 1; }
-  50% { opacity: 0.65; }
-  100% { opacity: 1; }
-}
-
-/* Edge rainbow — bright spectral strip */
-.sidebar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    /* Top chrome catch */
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.025) 0%,
-      transparent 6%
-    ),
-    /* Right-edge spectral — whisper */
-    linear-gradient(
-      90deg,
-      transparent 75%,
-      rgba(255, 90, 90, 0.025) 80%,
-      rgba(255, 220, 60, 0.02) 85%,
-      rgba(80, 255, 140, 0.025) 89%,
-      rgba(60, 200, 255, 0.03) 93%,
-      rgba(200, 90, 255, 0.025) 97%,
-      rgba(255, 90, 200, 0.02) 100%
-    ),
-    /* Bottom warm reflection */
-    linear-gradient(
-      0deg,
-      rgba(255, 120, 80, 0.02) 0%,
-      transparent 12%
-    );
-  pointer-events: none;
-  z-index: 1;
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .collapsed {
@@ -120,47 +22,29 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 24px 20px 20px;
-  min-height: 68px;
-  position: relative;
-  z-index: 2;
+  padding: 22px 20px 18px;
+  min-height: 64px;
 }
 
 .logo {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  background:
-    conic-gradient(
-      from 180deg,
-      rgba(255, 90, 90, 0.6) 0deg,
-      rgba(255, 220, 60, 0.5) 60deg,
-      rgba(80, 255, 140, 0.6) 120deg,
-      rgba(60, 200, 255, 0.6) 180deg,
-      rgba(200, 90, 255, 0.5) 240deg,
-      rgba(255, 90, 200, 0.6) 300deg,
-      rgba(255, 90, 90, 0.6) 360deg
-    ),
-    #0f0d1a;
+  background: var(--accent);
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 0 16px rgba(140, 100, 255, 0.2),
-    0 0 1px rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
 }
 
 .brandText {
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 3px;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
   white-space: nowrap;
-  color: #fff;
-  font-family: var(--font-mono);
-  text-shadow: 0 0 20px rgba(160, 120, 255, 0.3);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
 }
 
 /* ── Navigation ──────────────────────────────────────────────── */
@@ -169,71 +53,68 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 8px 0;
+  gap: 2px;
+  padding: 8px 10px;
   overflow-y: auto;
-  position: relative;
-  z-index: 2;
 }
 
 .navBottom {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 8px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  position: relative;
-  z-index: 2;
+  gap: 2px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .navItem {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 20px;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 10px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
+  gap: 10px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   text-decoration: none;
   transition: color 0.15s, background 0.15s;
   white-space: nowrap;
   overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 
 .navItem:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
 }
 
 .navItem:hover svg {
-  filter: drop-shadow(0 0 4px rgba(180, 140, 255, 0.4));
+  color: var(--text-primary);
 }
 
 /* Active state */
 .navItemActive {
-  background: linear-gradient(90deg, rgba(193, 39, 45, 0.15) 0%, rgba(140, 80, 220, 0.08) 100%);
-  color: #fff;
-  text-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+  background: rgba(74, 108, 247, 0.07);
+  color: var(--accent);
+}
+
+.navItemActive svg {
+  color: var(--accent);
 }
 
 .navItemActive:hover {
-  background: linear-gradient(90deg, rgba(193, 39, 45, 0.15) 0%, rgba(140, 80, 220, 0.08) 100%);
-  color: #fff;
+  background: rgba(74, 108, 247, 0.09);
+  color: var(--accent);
 }
 
 .activeGlow {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: 4px;
+  bottom: 4px;
   width: 3px;
-  background: #c1272d;
-  box-shadow: 0 0 10px rgba(193, 39, 45, 0.5);
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
 }
 
 .navLabel {
@@ -247,10 +128,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  position: relative;
-  z-index: 2;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .userInfo {
@@ -262,17 +141,17 @@
 }
 
 .avatar {
-  width: 28px;
-  height: 28px;
-  background: rgba(140, 100, 220, 0.15);
-  border: 1px solid rgba(140, 100, 220, 0.2);
-  color: rgba(255, 255, 255, 0.8);
+  width: 30px;
+  height: 30px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   flex-shrink: 0;
 }
 
@@ -283,9 +162,9 @@
 }
 
 .userName {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -295,14 +174,14 @@
 }
 
 .adminBadge {
-  color: #c1272d;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
 .userEmail {
-  font-size: 10px;
+  font-size: 11px;
   font-family: var(--font-mono);
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -314,15 +193,17 @@
   justify-content: center;
   padding: 6px;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-tertiary);
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color 0.15s, background 0.15s;
   flex-shrink: 0;
 }
 
 .logoutBtn:hover {
-  color: #c1272d;
+  color: var(--accent);
+  background: rgba(74, 108, 247, 0.06);
 }
 
 /* ── Toggle ──────────────────────────────────────────────────── */
@@ -331,46 +212,45 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 10px 16px;
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin: 0 10px 14px;
+  padding: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-tertiary);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
-  position: relative;
-  z-index: 2;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
 .toggle:hover {
-  border-color: rgba(140, 100, 220, 0.2);
-  color: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 0 10px rgba(140, 100, 220, 0.1);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* ── Collapsed states ────────────────────────────────────────── */
 
 .collapsed .brand {
   justify-content: center;
-  padding: 24px 0 20px;
+  padding: 22px 0 18px;
 }
 
 .collapsed .nav {
-  padding: 8px 0;
+  padding: 8px 6px;
 }
 
 .collapsed .navBottom {
-  padding: 8px 0;
+  padding: 8px 6px;
 }
 
 .collapsed .navItem {
   justify-content: center;
-  padding: 10px;
+  padding: 9px;
 }
 
 .collapsed .userSection {
   justify-content: center;
-  padding: 14px 8px;
+  padding: 12px 8px;
 }
 
 .collapsed .logoutBtn {

@@ -16,6 +16,9 @@ pub struct ContainerConfig {
     /// Whether networking is enabled.
     #[serde(default)]
     pub network_enabled: bool,
+    /// Granular permissions from the agent config.
+    #[serde(default)]
+    pub permissions: clawkson_core::AgentPermissions,
 }
 
 fn default_image() -> String {
@@ -29,6 +32,7 @@ impl Default for ContainerConfig {
             cpu_limit: Some(1.0),
             memory_limit_mb: Some(512),
             network_enabled: false,
+            permissions: clawkson_core::AgentPermissions::default(),
         }
     }
 }

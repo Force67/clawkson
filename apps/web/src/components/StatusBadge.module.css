@@ -28,6 +28,6 @@
 }
 
 .error {
-  background: rgba(193, 39, 45, 0.08);
+  background: rgba(74, 108, 247, 0.08);
   color: var(--error);
 }
