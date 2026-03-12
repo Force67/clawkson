@@ -30,6 +30,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         // Knowledge bases
         .route("/", get(list_bases).post(create_base))
+        .route("/memory", get(get_memory_kb))
         .route("/{id}", get(get_base).patch(patch_base).delete(delete_base))
         // Entries within a base
         .route("/{id}/entries", get(list_entries).post(create_entry))
@@ -127,6 +128,7 @@ fn row_to_kb(row: &clawkson_db::knowledge_base::KnowledgeBaseWithCount) -> Knowl
         owner_id: row.owner_id,
         name: row.name.clone(),
         description: row.description.clone(),
+        kb_type: row.kb_type.clone(),
         embedding_model: row.embedding_model.clone(),
         entry_count: row.entry_count,
         created_at: row.created_at,
@@ -213,6 +215,27 @@ async fn list_bases(
     Ok(Json(rows.iter().map(row_to_kb).collect()))
 }
 
+/// GET /api/knowledge/memory — get or create the user's memory KB.
+async fn get_memory_kb(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<KnowledgeBase>, StatusCode> {
+    let pool = state.db.pool();
+    let model = clawkson_db::settings::get(&state.db)
+        .await
+        .map(|s| s.embedding_model)
+        .unwrap_or_else(|_| "qwen3-embedding:8b".to_string());
+    let row = clawkson_db::knowledge_base::get_or_create_memory_kb(pool, auth.id(), &model)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Get with count
+    let kb = clawkson_db::knowledge_base::get_by_id(pool, row.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(row_to_kb(&kb)))
+}
+
 async fn get_base(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -252,6 +275,7 @@ async fn create_base(
         owner_id: row.owner_id,
         name: row.name,
         description: row.description,
+        kb_type: row.kb_type,
         embedding_model: row.embedding_model,
         entry_count: 0,
         created_at: row.created_at,
@@ -296,6 +320,11 @@ async fn delete_base(
 ) -> StatusCode {
     let pool = state.db.pool();
     if check_owner(pool, id, auth.id(), auth.is_admin()).await.is_err() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    // Prevent deletion of memory knowledge bases
+    if clawkson_db::knowledge_base::is_memory_kb(pool, id).await.unwrap_or(false) {
         return StatusCode::FORBIDDEN;
     }
 

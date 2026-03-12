@@ -139,6 +139,8 @@ export interface Conversation {
   title: string
   agent_id: string
   owner_id?: string
+  pinned: boolean
+  archived: boolean
   created_at: string
   updated_at: string
 }
@@ -184,6 +186,7 @@ export interface KnowledgeBase {
   owner_id: string
   name: string
   description: string
+  kb_type: string
   embedding_model: string
   entry_count: number
   created_at: string
@@ -462,6 +465,8 @@ export const api = {
       request<Conversation>('/api/conversations', { method: 'POST', body: JSON.stringify(body) }),
     delete: (id: string) =>
       request<void>(`/api/conversations/${id}`, { method: 'DELETE' }),
+    patch: (id: string, body: { title?: string; pinned?: boolean }) =>
+      request<Conversation>(`/api/conversations/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteAll: () =>
       request<void>('/api/conversations', { method: 'DELETE' }),
     messages: (id: string) => request<Message[]>(`/api/conversations/${id}/messages`),
@@ -586,6 +591,7 @@ export const api = {
   knowledge: {
     // Bases
     listBases: () => request<KnowledgeBase[]>('/api/knowledge'),
+    getMemory: () => request<KnowledgeBase>('/api/knowledge/memory'),
     getBase: (id: string) => request<KnowledgeBase>(`/api/knowledge/${id}`),
     createBase: (body: { name: string; description?: string; embedding_model?: string }) =>
       request<KnowledgeBase>('/api/knowledge', { method: 'POST', body: JSON.stringify(body) }),

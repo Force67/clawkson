@@ -55,7 +55,7 @@ pub async fn list_all(db: &Db) -> Result<Vec<Conversation>, DbError> {
     let rows = sqlx::query_as::<_, Conversation>(
         "SELECT * FROM conversations
          WHERE archived = FALSE
-         ORDER BY updated_at DESC",
+         ORDER BY pinned DESC, updated_at DESC",
     )
     .fetch_all(db.pool())
     .await?;
@@ -74,7 +74,7 @@ pub async fn list_for_user(
            AND (owner_id = $1 OR id IN (
                SELECT conversation_id FROM conversation_shares WHERE shared_with = $1
            ))
-         ORDER BY updated_at DESC",
+         ORDER BY pinned DESC, updated_at DESC",
     )
     .bind(user_id)
     .fetch_all(db.pool())

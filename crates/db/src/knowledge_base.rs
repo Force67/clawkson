@@ -9,6 +9,7 @@ pub struct KnowledgeBaseRow {
     pub name: String,
     pub description: String,
     pub embedding_model: String,
+    pub kb_type: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -20,6 +21,7 @@ pub struct KnowledgeBaseWithCount {
     pub name: String,
     pub description: String,
     pub embedding_model: String,
+    pub kb_type: String,
     pub entry_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -70,8 +72,9 @@ pub async fn list_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Knowledge
         FROM knowledge_bases kb
         LEFT JOIN (SELECT knowledge_base_id, COUNT(*) AS cnt FROM knowledge_entries GROUP BY knowledge_base_id) c
             ON c.knowledge_base_id = kb.id
-        WHERE kb.owner_id = $1
-           OR kb.id IN (SELECT knowledge_base_id FROM knowledge_base_shares WHERE shared_with = $1)
+        WHERE kb.kb_type = 'standard'
+          AND (kb.owner_id = $1
+               OR kb.id IN (SELECT knowledge_base_id FROM knowledge_base_shares WHERE shared_with = $1))
         ORDER BY kb.updated_at DESC
         "#,
     )
@@ -88,6 +91,7 @@ pub async fn list_all(pool: &PgPool) -> Result<Vec<KnowledgeBaseWithCount>, sqlx
         FROM knowledge_bases kb
         LEFT JOIN (SELECT knowledge_base_id, COUNT(*) AS cnt FROM knowledge_entries GROUP BY knowledge_base_id) c
             ON c.knowledge_base_id = kb.id
+        WHERE kb.kb_type = 'standard'
         ORDER BY kb.updated_at DESC
         "#,
     )
@@ -117,6 +121,44 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
         .execute(pool)
         .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// Get or create the per-user "Memory" knowledge base.
+pub async fn get_or_create_memory_kb(
+    pool: &PgPool,
+    user_id: Uuid,
+    embedding_model: &str,
+) -> Result<KnowledgeBaseRow, sqlx::Error> {
+    // Try insert first, ignore conflict
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO knowledge_bases (owner_id, name, description, kb_type, embedding_model)
+        VALUES ($1, 'Memory', 'Auto-embedded conversation history', 'memory', $2)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(user_id)
+    .bind(embedding_model)
+    .execute(pool)
+    .await;
+
+    // Now fetch it
+    sqlx::query_as::<_, KnowledgeBaseRow>(
+        "SELECT * FROM knowledge_bases WHERE owner_id = $1 AND kb_type = 'memory'",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Check if a knowledge base is a memory type (cannot be deleted by user).
+pub async fn is_memory_kb(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT kb_type FROM knowledge_bases WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|r| r.0 == "memory").unwrap_or(false))
 }
 
 // ── Sharing ────────────────────────────────────────────────────────

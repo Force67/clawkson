@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { api, streamChat, type Agent, type Conversation, type Message, type MessageAttachment, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo, type ShareResponse, type SharePermission } from '../lib/api'
@@ -436,7 +436,10 @@ export function ConversationsPage() {
   useEffect(() => {
     Promise.all([api.conversations.list(), api.agents.list()])
       .then(([convos, agts]) => {
-        setConversations(convos.sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+        setConversations(convos.sort((a, b) => {
+          if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+          return b.updated_at.localeCompare(a.updated_at)
+        }))
         setAgents(agts)
         if (convos.length > 0) setSelectedId(convos[0].id)
       })
@@ -529,7 +532,10 @@ export function ConversationsPage() {
           setStreaming(false)
           // Refresh conversation list (updated_at changed)
           api.conversations.list().then(convos =>
-            setConversations(convos.sort((a, b) => b.updated_at.localeCompare(a.updated_at)))
+            setConversations(convos.sort((a, b) => {
+          if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+          return b.updated_at.localeCompare(a.updated_at)
+        }))
           )
         })
       },
@@ -787,9 +793,29 @@ export function ConversationsPage() {
                     >
                       <div className={styles.convoItemTop}>
                         <span className={styles.convoTitle}>{conv.title}</span>
-                        <span className={styles.convoTime}>
-                          {relativeTime(conv.updated_at)}
-                        </span>
+                        <div className={styles.convoMeta}>
+                          <span
+                            className={`${styles.pinBtn} ${conv.pinned ? styles.pinBtnActive : ''}`}
+                            role="button"
+                            tabIndex={-1}
+                            onClick={e => {
+                              e.stopPropagation()
+                              api.conversations.patch(conv.id, { pinned: !conv.pinned })
+                                .then(updated => setConversations(prev =>
+                                  prev.map(c => c.id === updated.id ? updated : c)
+                                    .sort((a, b) => {
+                                      if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+                                      return b.updated_at.localeCompare(a.updated_at)
+                                    })
+                                ))
+                            }}
+                          >
+                            <Pin size={11} />
+                          </span>
+                          <span className={styles.convoTime}>
+                            {relativeTime(conv.updated_at)}
+                          </span>
+                        </div>
                       </div>
                       {agent && (
                         <div className={styles.convoAgent}>
@@ -1104,16 +1130,27 @@ function relativeTime(iso: string): string {
 }
 
 function groupConversations(conversations: Conversation[]) {
-  const groups = new Map<string, Conversation[]>()
+  const pinned = conversations.filter(c => c.pinned)
+  const unpinned = conversations.filter(c => !c.pinned)
 
-  conversations.forEach(conversation => {
+  const groups: { label: string; items: Conversation[] }[] = []
+
+  if (pinned.length > 0) {
+    groups.push({ label: 'Pinned', items: pinned })
+  }
+
+  const timeGroups = new Map<string, Conversation[]>()
+  unpinned.forEach(conversation => {
     const label = groupLabel(conversation.updated_at)
-    const items = groups.get(label) ?? []
+    const items = timeGroups.get(label) ?? []
     items.push(conversation)
-    groups.set(label, items)
+    timeGroups.set(label, items)
   })
+  for (const [label, items] of timeGroups.entries()) {
+    groups.push({ label, items })
+  }
 
-  return Array.from(groups.entries()).map(([label, items]) => ({ label, items }))
+  return groups
 }
 
 function groupLabel(iso: string) {

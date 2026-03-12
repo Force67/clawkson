@@ -190,6 +190,7 @@ impl Default for DataAccessPermission {
 }
 
 fn default_true() -> bool { true }
+fn default_kb_type() -> String { "standard".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -210,6 +211,10 @@ pub struct Conversation {
     /// The user who owns this conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<Uuid>,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -251,6 +256,8 @@ pub struct KnowledgeBase {
     pub owner_id: Uuid,
     pub name: String,
     pub description: String,
+    #[serde(default = "default_kb_type")]
+    pub kb_type: String,
     pub embedding_model: String,
     pub entry_count: i64,
     pub created_at: DateTime<Utc>,

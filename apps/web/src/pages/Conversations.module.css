@@ -1591,3 +1591,40 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Pin button ───────────────────────────────────────────── */
+
+.convoMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pinBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  transform: rotate(45deg);
+}
+
+.pinBtn:hover {
+  color: var(--accent);
+}
+
+.pinBtnActive {
+  opacity: 1;
+  color: var(--accent);
+  transform: rotate(0deg);
+}
+
+.convoItem:hover .pinBtn {
+  opacity: 1;
+}

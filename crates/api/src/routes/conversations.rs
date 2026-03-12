@@ -20,7 +20,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_conversations).post(create_conversation).delete(delete_all_conversations))
-        .route("/{id}", get(get_conversation).delete(delete_conversation))
+        .route("/{id}", get(get_conversation).patch(patch_conversation).delete(delete_conversation))
         .route("/{id}/messages", get(list_messages).post(send_message).delete(clear_messages))
         .route("/{id}/chat", axum::routing::post(chat))
         .route("/{id}/chat/stream", axum::routing::post(chat_stream))
@@ -67,6 +67,12 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PatchConversationRequest {
+    pub title: Option<String>,
+    pub pinned: Option<bool>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ChatResponse {
     pub user_message: Message,
@@ -81,6 +87,8 @@ fn conv_to_api(row: clawkson_db::conversation::Conversation) -> Conversation {
         title: row.title,
         agent_id: row.agent_id.unwrap_or(Uuid::nil()),
         owner_id: row.owner_id,
+        pinned: row.pinned,
+        archived: row.archived,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -243,6 +251,35 @@ async fn cleanup_conversation_files(state: &AppState, conversation_id: Uuid, age
             }
         }
     }
+}
+
+async fn patch_conversation(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<PatchConversationRequest>,
+) -> Result<Json<Conversation>, StatusCode> {
+    let writable = can_write(&state, id, auth.id(), auth.is_admin()).await?;
+    if !writable {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if let Some(pinned) = req.pinned {
+        clawkson_db::conversation::set_pinned(&state.db, id, pinned)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    if let Some(title) = &req.title {
+        clawkson_db::conversation::update_title(&state.db, id, title)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let row = clawkson_db::conversation::get_by_id(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(conv_to_api(row)))
 }
 
 async fn delete_conversation(
@@ -935,17 +972,30 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversa
         }
     }
 
-    // Knowledge search tool (available if agent has linked KBs and search is enabled)
+    // Knowledge search tool (available if agent has linked KBs or user has memory, and search is enabled)
     if search_enabled {
         let has_kbs = clawkson_db::knowledge_base::agent_list_kbs(state.db.pool(), agent_cfg.agent_id)
             .await
             .map(|kbs| !kbs.is_empty())
             .unwrap_or(false);
 
-        if has_kbs {
+        // Check if user has a memory KB and include it in search scope
+        let memory_kb_ids: Vec<Uuid> = match clawkson_db::knowledge_base::get_or_create_memory_kb(
+            state.db.pool(),
+            user_id,
+            "",  // model doesn't matter for lookup, only creation
+        ).await {
+            Ok(kb) => vec![kb.id],
+            Err(_) => vec![],
+        };
+
+        let has_memory = !memory_kb_ids.is_empty();
+
+        if has_kbs || has_memory {
             let list_tool = crate::tools::KnowledgeListTool::new(agent_cfg.agent_id, state.db.clone());
             registry.register(list_tool.into_dyn());
-            let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone());
+            let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone())
+                .with_extra_kbs(memory_kb_ids);
             registry.register(search_tool.into_dyn());
         }
     }
@@ -1164,11 +1214,23 @@ async fn chat(
             id: Uuid::new_v4(),
             conversation_id: conv_id,
             role: MessageRole::Assistant,
-            content: assistant_content,
+            content: assistant_content.clone(),
             created_at: chrono::Utc::now(),
             attachments: Vec::new(),
         });
     let _ = clawkson_db::conversation::touch(&state.db, conv_id).await;
+
+    // 7b. Debounced: buffer chat turn for memory embedding
+    {
+        let mem = state.memory.clone();
+        let title = conversation.title.clone();
+        let user_content = expanded_content.clone();
+        let asst_content = assistant_content;
+        let uid = auth.id();
+        tokio::spawn(async move {
+            mem.push_turn(conv_id, uid, title, user_content, asst_content).await;
+        });
+    }
 
     // 8. Auto-attach any files the agent wrote to /workspace/outputs/
     if cfg.container_enabled {
@@ -1408,6 +1470,17 @@ async fn chat_stream(
         };
         let _ = clawkson_db::conversation::touch(&state2.db, conv_id).await;
 
+        // Debounced: buffer chat turn for memory embedding
+        {
+            let mem = state2.memory.clone();
+            let title = conversation.title.clone();
+            let user_content = expanded_content.clone();
+            let asst_content = assistant_content.clone();
+            tokio::spawn(async move {
+                mem.push_turn(conv_id, owner_id, title, user_content, asst_content).await;
+            });
+        }
+
         // Auto-attach any files the agent wrote to /workspace/outputs/
         tracing::debug!("post-chat: container_enabled={container_enabled}, agent_id={agent_id}, msg_id={msg_id}");
         if container_enabled {
@@ -1437,3 +1510,4 @@ async fn chat_stream(
 
     Sse::new(sse_stream).into_response()
 }
+

@@ -525,11 +525,17 @@ impl KernelFunction for KnowledgeListTool {
 pub struct KnowledgeSearchTool {
     agent_id: Uuid,
     db: Db,
+    extra_kb_ids: Vec<Uuid>,
 }
 
 impl KnowledgeSearchTool {
     pub fn new(agent_id: Uuid, db: Db) -> Self {
-        Self { agent_id, db }
+        Self { agent_id, db, extra_kb_ids: Vec::new() }
+    }
+
+    pub fn with_extra_kbs(mut self, kb_ids: Vec<Uuid>) -> Self {
+        self.extra_kb_ids = kb_ids;
+        self
     }
 
     pub fn into_dyn(self) -> DynKernelFunction {
@@ -548,9 +554,9 @@ impl KernelFunction for KnowledgeSearchTool {
     fn definition(&self) -> FunctionDefinition {
         let mut def = FunctionDefinition::new("knowledge_search")
             .with_description(
-                "Search through your linked knowledge bases using semantic similarity. \
+                "Search through your linked knowledge bases and conversation memory using semantic similarity. \
                  Returns the most relevant text passages for the given query. \
-                 Use this whenever you need to look up information, cite sources, or answer questions based on uploaded documents.",
+                 Use this whenever you need to look up information, recall past conversations, cite sources, or answer questions based on uploaded documents.",
             );
 
         def.add_parameter(
@@ -589,16 +595,15 @@ impl KernelFunction for KnowledgeSearchTool {
                 }
             })?;
 
-        if kbs.is_empty() {
+        let mut kb_ids: Vec<Uuid> = kbs.iter().map(|kb| kb.id).collect();
+        kb_ids.extend(&self.extra_kb_ids);
+
+        if kb_ids.is_empty() {
             return Ok(serde_json::json!({
                 "results": [],
                 "message": "No knowledge bases are linked to this agent."
             }));
         }
-
-        // Use the embedding model from the first KB (they should all use the same one)
-        let model = &kbs[0].embedding_model;
-        let kb_ids: Vec<Uuid> = kbs.iter().map(|kb| kb.id).collect();
 
         // Load embedding provider config from settings
         let embed_config = match clawkson_db::settings::get(&self.db).await {
@@ -609,6 +614,11 @@ impl KernelFunction for KnowledgeSearchTool {
             },
             Err(_) => crate::embeddings::EmbeddingConfig::default(),
         };
+
+        // Use the embedding model from the first KB, or fall back to settings default
+        let model = kbs.first()
+            .map(|kb| kb.embedding_model.as_str())
+            .unwrap_or(&embed_config.model);
 
         // Generate embedding for the query
         let query_vec = match crate::embeddings::generate_one(&embed_config, model, &args.query).await {
