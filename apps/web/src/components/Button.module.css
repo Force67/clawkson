@@ -5,12 +5,14 @@
   padding: 9px 18px;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
 }
 
 .button:disabled {
@@ -21,18 +23,16 @@
 .primary {
   background: var(--accent);
   color: var(--text-inverse);
-  box-shadow: 0 1px 4px rgba(217, 123, 74, 0.25);
 }
 .primary:hover:not(:disabled) {
   background: var(--accent-hover);
-  box-shadow: 0 2px 10px rgba(217, 123, 74, 0.3);
-  transform: translateY(-1px);
 }
 
 .secondary {
-  background: var(--bg-hover);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
   color: var(--text-secondary);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--glass-border);
 }
 .secondary:hover:not(:disabled) {
   background: var(--bg-active);
@@ -51,5 +51,5 @@
 
 .sm {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 11px;
 }

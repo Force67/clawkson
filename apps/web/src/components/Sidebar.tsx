@@ -1,18 +1,18 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard,
-  MessageCircle,
-  BookOpen,
-  Plug,
-  Wrench,
-  Zap,
-  Settings,
-  FileText,
-  PanelLeftClose,
-  PanelLeft,
-  Cat,
+  Gauge,
+  MessagesSquare,
+  Library,
+  Cable,
+  Cog,
+  Sparkles,
+  SlidersHorizontal,
+  ScrollText,
+  ChevronsLeft,
+  ChevronsRight,
+  Disc3,
   LogOut,
-  Shield,
+  ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import styles from './Sidebar.module.css'
@@ -23,17 +23,17 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/conversations', label: 'Conversations', icon: MessageCircle },
-  { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
-  { path: '/connectors', label: 'Connectors', icon: Plug },
-  { path: '/tools', label: 'Tools', icon: Wrench },
-  { path: '/skills', label: 'Skills', icon: Zap },
+  { path: '/dashboard', label: 'Dashboard', icon: Gauge },
+  { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
+  { path: '/knowledge', label: 'Knowledge Base', icon: Library },
+  { path: '/connectors', label: 'Connectors', icon: Cable },
+  { path: '/tools', label: 'Tools', icon: Cog },
+  { path: '/skills', label: 'Skills', icon: Sparkles },
 ]
 
 const NAV_BOTTOM_ITEMS = [
-  { path: '/settings', label: 'Settings', icon: Settings },
-  { path: '/docs', label: 'Documentation', icon: FileText },
+  { path: '/settings', label: 'Settings', icon: SlidersHorizontal },
+  { path: '/docs', label: 'Documentation', icon: ScrollText },
 ]
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
@@ -45,7 +45,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
-          <Cat size={24} strokeWidth={2} />
+          <Disc3 size={18} strokeWidth={1.5} />
         </div>
         {!collapsed && <span className={styles.brandText}>Clawkson</span>}
       </div>
@@ -65,7 +65,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               title={collapsed ? label : undefined}
             >
               {isActive && <div className={styles.activeGlow} />}
-              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
+              <Icon size={17} strokeWidth={isActive ? 1.75 : 1.25} />
               {!collapsed && <span className={styles.navLabel}>{label}</span>}
             </NavLink>
           )
@@ -87,7 +87,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               title={collapsed ? label : undefined}
             >
               {isActive && <div className={styles.activeGlow} />}
-              <Icon size={18} strokeWidth={isActive ? 2 : 1.5} />
+              <Icon size={17} strokeWidth={isActive ? 1.75 : 1.25} />
               {!collapsed && <span className={styles.navLabel}>{label}</span>}
             </NavLink>
           )
@@ -105,7 +105,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               <div className={styles.userDetails}>
                 <span className={styles.userName}>
                   {user.display_name}
-                  {user.role === 'admin' && <Shield size={12} className={styles.adminBadge} />}
+                  {user.role === 'admin' && <ShieldCheck size={12} className={styles.adminBadge} />}
                 </span>
                 <span className={styles.userEmail}>{user.email}</span>
               </div>
@@ -123,7 +123,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Collapse toggle */}
       <button className={styles.toggle} onClick={onToggle} title="Toggle sidebar">
-        {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+        {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
       </button>
     </aside>
   )

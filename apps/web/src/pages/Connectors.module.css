@@ -3,7 +3,7 @@
 .platformGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
 .connHeader {
@@ -41,7 +41,7 @@
 .toggleOff { color: var(--text-tertiary); }
 
 .connName {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   margin-bottom: 6px;
 }
@@ -57,8 +57,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
   color: var(--text-tertiary);
 }
 
@@ -88,7 +91,7 @@
 }
 
 .deleteBtn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(193, 39, 45, 0.08);
   color: var(--error);
 }
 
@@ -100,9 +103,11 @@
   align-items: center;
   padding: 56px 24px;
   text-align: center;
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
 }
 
 .emptyIcon {
@@ -112,10 +117,13 @@
 }
 
 .emptyTitle {
-  font-size: 15px;
+  font-size: 10px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
   color: var(--text-secondary);
-  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  margin-bottom: 6px;
 }
 
 .emptyDesc {
@@ -141,30 +149,34 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 200;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
   animation: fadeIn 0.15s ease-out;
 }
 
 .modal {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-
-  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 24px 64px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
   padding: 28px;
   width: 420px;
   max-width: calc(100vw - 32px);
-  box-shadow: var(--shadow-lg);
   animation: fadeUp 0.2s ease-out;
 }
 
 .modalTitle {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
   margin-bottom: 20px;
 }
 
@@ -178,15 +190,18 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .input,
 .select {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 13px;
@@ -198,17 +213,18 @@
 
 .input:focus,
 .select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-muted);
+  border-color: #c1272d;
+  box-shadow: 0 0 0 2px rgba(193, 39, 45, 0.1);
 }
 
 .hint {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .hint a {
-  color: var(--accent-text);
+  color: #c1272d;
   text-decoration: none;
 }
 
@@ -218,9 +234,9 @@
   font-size: 12px;
   color: var(--error);
   padding: 8px 12px;
-  background: rgba(239, 68, 68, 0.08);
+  background: rgba(193, 39, 45, 0.06);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(193, 39, 45, 0.15);
 }
 
 .modalActions {
@@ -228,4 +244,14 @@
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }

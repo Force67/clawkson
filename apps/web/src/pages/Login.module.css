@@ -3,45 +3,58 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-primary);
+  background:
+    conic-gradient(
+      from 180deg at 40% 60%,
+      rgba(193, 39, 45, 0.04) 0deg,
+      rgba(180, 160, 200, 0.06) 72deg,
+      rgba(100, 140, 200, 0.05) 144deg,
+      rgba(60, 180, 160, 0.04) 216deg,
+      rgba(220, 180, 100, 0.05) 288deg,
+      rgba(193, 39, 45, 0.04) 360deg
+    ),
+    #e8e6e3;
   padding: 24px;
 }
 
 .card {
   width: 100%;
   max-width: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 24px 64px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
   padding: 40px 36px;
-  box-shadow: var(--shadow-lg);
 }
 
 .logo {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
-  border-radius: var(--radius-lg);
-  color: var(--text-inverse);
-  margin: 0 auto 20px;
+  background: #c1272d;
+  border-radius: var(--radius-md);
+  color: #fff;
+  margin: 0 auto 24px;
 }
 
 .title {
   text-align: center;
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
   color: var(--text-primary);
+  font-family: var(--font-mono);
   margin: 0 0 6px;
-  letter-spacing: -0.02em;
 }
 
 .subtitle {
   text-align: center;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--text-tertiary);
   margin: 0 0 28px;
 }
 
@@ -58,20 +71,21 @@
 }
 
 .label {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .input {
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
-  background: var(--bg-tertiary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 14px;
   font-family: var(--font-sans);
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -82,37 +96,38 @@
 }
 
 .input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-muted);
+  border-color: #c1272d;
+  box-shadow: 0 0 0 3px rgba(193, 39, 45, 0.1);
 }
 
 .error {
   padding: 10px 14px;
   border-radius: var(--radius-md);
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: rgba(193, 39, 45, 0.06);
+  border: 1px solid rgba(193, 39, 45, 0.18);
   color: var(--error);
-  font-size: 0.85rem;
+  font-size: 12px;
+  font-family: var(--font-mono);
 }
 
 .submit {
   padding: 11px 20px;
   border-radius: var(--radius-md);
   border: none;
-  background: var(--accent);
-  color: var(--text-inverse);
-  font-size: 0.9rem;
+  background: #c1272d;
+  color: #fff;
+  font-size: 10px;
   font-weight: 600;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  transition: background 0.15s;
   margin-top: 4px;
 }
 
 .submit:hover:not(:disabled) {
-  background: var(--accent-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--accent-glow);
+  background: #a61f24;
 }
 
 .submit:disabled {
@@ -123,15 +138,15 @@
 .switchMode {
   text-align: center;
   margin-top: 20px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--text-tertiary);
 }
 
 .switchBtn {
   background: none;
   border: none;
-  color: var(--accent-text);
-  font-size: 0.85rem;
+  color: #c1272d;
+  font-size: 13px;
   font-family: var(--font-sans);
   cursor: pointer;
   text-decoration: underline;
@@ -139,5 +154,5 @@
 }
 
 .switchBtn:hover {
-  color: var(--accent);
+  color: #a61f24;
 }

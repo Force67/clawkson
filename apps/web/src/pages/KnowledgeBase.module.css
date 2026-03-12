@@ -3,14 +3,15 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  gap: 10px;
 }
 
 .loadingState {
   text-align: center;
   padding: 60px 0;
   color: var(--text-tertiary);
-  font-size: 0.9rem;
+  font-size: 13px;
+  font-family: var(--font-mono);
 }
 
 .kbHeader {
@@ -24,8 +25,8 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
-  background: var(--accent-muted);
-  color: var(--accent-text);
+  background: rgba(193, 39, 45, 0.08);
+  color: #c1272d;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -38,14 +39,18 @@
 }
 
 .kbName {
-  font-size: 0.95rem;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .kbCount {
-  font-size: 0.75rem;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
   color: var(--text-tertiary);
 }
 
@@ -65,12 +70,12 @@
 }
 
 .deleteBtn:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(193, 39, 45, 0.08);
   color: var(--error);
 }
 
 .kbDescription {
-  font-size: 0.8rem;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0 0 12px;
@@ -88,22 +93,31 @@
 }
 
 .kbModel {
-  font-size: 0.7rem;
+  font-size: 10px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
-  padding: 2px 6px;
-  background: var(--bg-hover);
-  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 6px;
 }
 
 .sharedBadge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.7rem;
-  color: var(--accent-text);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  color: #c1272d;
   padding: 2px 8px;
-  background: var(--accent-muted);
+  background: rgba(193, 39, 45, 0.07);
+  border: 1px solid rgba(193, 39, 45, 0.15);
   border-radius: 999px;
 }
 
@@ -122,19 +136,24 @@
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--radius-md);
-  background: transparent;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
   color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-family: var(--font-sans);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .backBtn:hover {
-  background: var(--bg-hover);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--text-primary);
+  border-color: rgba(0, 0, 0, 0.12);
 }
 
 .detailTitle {
@@ -146,19 +165,19 @@
 }
 
 .detailIcon {
-  color: var(--accent);
+  color: #c1272d;
   flex-shrink: 0;
 }
 
 .detailName {
-  font-size: 1.1rem;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
 
 .detailDesc {
-  font-size: 0.8rem;
+  font-size: 13px;
   color: var(--text-secondary);
   margin: 2px 0 0;
 }
@@ -184,10 +203,11 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: var(--radius-md);
-  background: rgba(34, 197, 94, 0.08);
-  border: 1px solid rgba(34, 197, 94, 0.15);
+  background: rgba(26, 154, 92, 0.07);
+  border: 1px solid rgba(26, 154, 92, 0.18);
   color: var(--success);
-  font-size: 0.8rem;
+  font-size: 12px;
+  font-family: var(--font-mono);
   margin-bottom: 16px;
 }
 
@@ -197,10 +217,11 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: var(--radius-md);
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.15);
+  background: rgba(193, 39, 45, 0.06);
+  border: 1px solid rgba(193, 39, 45, 0.15);
   color: var(--error);
-  font-size: 0.8rem;
+  font-size: 12px;
+  font-family: var(--font-mono);
   margin-bottom: 16px;
   word-break: break-word;
 }
@@ -213,9 +234,12 @@
 }
 
 .formTitle {
-  font-size: 0.95rem;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   margin: 0 0 16px;
 }
 
@@ -227,36 +251,37 @@
 }
 
 .label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 1.5px;
+  font-family: var(--font-mono);
 }
 
 .input {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background: var(--bg-tertiary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: 13px;
   font-family: var(--font-sans);
   outline: none;
   transition: border-color 0.2s;
 }
 
 .input:focus {
-  border-color: var(--accent);
+  border-color: #c1272d;
 }
 
 .textarea {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-default);
-  background: var(--bg-tertiary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: 13px;
   font-family: var(--font-sans);
   outline: none;
   resize: vertical;
@@ -266,7 +291,7 @@
 }
 
 .textarea:focus {
-  border-color: var(--accent);
+  border-color: #c1272d;
 }
 
 .formActions {
@@ -291,9 +316,12 @@
 }
 
 .panelHeader h3 {
-  font-size: 0.9rem;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   margin: 0;
 }
 
@@ -321,7 +349,7 @@
 }
 
 .shareError {
-  font-size: 0.8rem;
+  font-size: 12px;
   color: var(--error);
   margin-bottom: 10px;
 }
@@ -338,7 +366,8 @@
   justify-content: space-between;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  background: var(--bg-hover);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .shareUser {
@@ -351,23 +380,25 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--accent-muted);
-  color: var(--accent-text);
+  background: rgba(193, 39, 45, 0.08);
+  color: #c1272d;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 11px;
   font-weight: 600;
+  font-family: var(--font-mono);
 }
 
 .shareName {
-  font-size: 0.8rem;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .shareEmail {
-  font-size: 0.7rem;
+  font-size: 11px;
+  font-family: var(--font-mono);
   color: var(--text-tertiary);
 }
 
@@ -385,7 +416,8 @@
 }
 
 .emptyPanel {
-  font-size: 0.8rem;
+  font-size: 12px;
+  font-family: var(--font-mono);
   color: var(--text-tertiary);
   text-align: center;
   padding: 12px 0;
@@ -403,49 +435,54 @@
   justify-content: space-between;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
   transition: all 0.15s;
 }
 
 .agentLinked {
-  border-color: rgba(217, 123, 74, 0.2);
-  background: rgba(217, 123, 74, 0.04);
+  border-color: rgba(193, 39, 45, 0.18);
+  background: rgba(193, 39, 45, 0.04);
 }
 
 .agentInfo {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.85rem;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
 .agentToggle {
   padding: 4px 12px;
-  border: 1px solid var(--border-default);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--radius-sm);
-  background: transparent;
+  background: rgba(0, 0, 0, 0.03);
   color: var(--text-secondary);
-  font-size: 0.75rem;
-  font-family: var(--font-sans);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .agentToggle:hover {
-  background: var(--accent-muted);
-  color: var(--accent-text);
-  border-color: var(--accent);
+  background: rgba(193, 39, 45, 0.06);
+  color: #c1272d;
+  border-color: rgba(193, 39, 45, 0.2);
 }
 
 .agentToggleActive {
-  background: rgba(239, 68, 68, 0.06);
-  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(193, 39, 45, 0.06);
+  border-color: rgba(193, 39, 45, 0.2);
   color: var(--error);
 }
 
 .agentToggleActive:hover {
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(193, 39, 45, 0.1);
   color: var(--error);
   border-color: var(--error);
 }
@@ -460,14 +497,16 @@
 
 .entryCard {
   padding: 14px 18px;
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  transition: border-color 0.15s;
+  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  transition: border-color 0.2s;
 }
 
 .entryCard:hover {
-  border-color: var(--border-default);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 .entryTop {
@@ -484,12 +523,12 @@
 }
 
 .entryIcon {
-  color: var(--accent-text);
+  color: #c1272d;
   flex-shrink: 0;
 }
 
 .entryTitle {
-  font-size: 0.9rem;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -505,10 +544,15 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.7rem;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
   color: var(--success);
   padding: 2px 8px;
-  background: rgba(34, 197, 94, 0.08);
+  background: rgba(26, 154, 92, 0.08);
+  border: 1px solid rgba(26, 154, 92, 0.18);
   border-radius: 999px;
 }
 
@@ -516,10 +560,15 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.7rem;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
   color: var(--warning);
   padding: 2px 8px;
-  background: rgba(245, 158, 11, 0.08);
+  background: rgba(180, 120, 0, 0.08);
+  border: 1px solid rgba(180, 120, 0, 0.15);
   border-radius: 999px;
 }
 
@@ -543,7 +592,7 @@
 }
 
 .entryContent {
-  font-size: 0.8rem;
+  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.6;
   margin: 0;

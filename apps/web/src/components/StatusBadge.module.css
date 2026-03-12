@@ -4,28 +4,30 @@
   gap: 5px;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.2px;
-  text-transform: capitalize;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  backdrop-filter: blur(8px);
 }
 
 .online {
-  background: rgba(52, 211, 153, 0.1);
-  color: #34d399;
+  background: rgba(26, 154, 92, 0.1);
+  color: var(--success);
 }
 
 .offline {
-  background: rgba(74, 85, 104, 0.12);
-  color: #64748b;
+  background: rgba(0, 0, 0, 0.05);
+  color: #888;
 }
 
 .busy {
-  background: rgba(251, 191, 36, 0.1);
-  color: #fbbf24;
+  background: rgba(192, 139, 26, 0.1);
+  color: var(--warning);
 }
 
 .error {
-  background: rgba(248, 113, 113, 0.1);
-  color: #f87171;
+  background: rgba(193, 39, 45, 0.08);
+  color: var(--error);
 }

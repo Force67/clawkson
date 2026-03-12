@@ -4,13 +4,12 @@ import {
   Bot,
   MessageCircle,
   Plug,
-  TrendingUp,
-  Clock,
   Plus,
   Settings2,
   Trash2,
   Check,
   ChevronDown,
+  ChevronRight,
   Loader2,
   Cpu,
   Thermometer,
@@ -18,10 +17,12 @@ import {
   Zap,
   Container,
   BookOpen,
+  Search,
+  Star,
+  Clock,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { PageHeader } from '../components/PageHeader'
-import { Card } from '../components/Card'
+import { useAuth } from '../lib/auth'
 import { StatusBadge } from '../components/StatusBadge'
 import { Button } from '../components/Button'
 import { api, type Agent, type Conversation, type LlmConnector, type KnowledgeBase, type Skill, type AgentStatus } from '../lib/api'
@@ -64,7 +65,6 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  // Fetch which KBs and skills are currently linked to this agent
   useEffect(() => {
     let cancelled = false
     const fetchLinked = async () => {
@@ -210,7 +210,6 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
 
           <div className={styles.fieldSection}>
             <h4 className={styles.fieldSectionTitle}>Inference</h4>
-
             <div className={styles.formGroup}>
               <label className={styles.label}>
                 <Cpu size={11} /> LLM Connector
@@ -229,7 +228,6 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                 <ChevronDown size={13} className={styles.selectChevron} />
               </div>
             </div>
-
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label className={styles.label}>
@@ -240,10 +238,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                   value={temperature}
                   onChange={e => setTemperature(e.target.value)}
                   placeholder="0.7"
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
+                  type="number" min="0" max="2" step="0.1"
                 />
               </div>
               <div className={styles.formGroup}>
@@ -255,8 +250,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                   value={maxTokens}
                   onChange={e => setMaxTokens(e.target.value)}
                   placeholder="2048"
-                  type="number"
-                  min="1"
+                  type="number" min="1"
                 />
               </div>
             </div>
@@ -278,38 +272,23 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                 Gives the agent a Docker container for running Python and Bash code.
               </p>
             </div>
-
             {containerEnabled && (
               <>
                 <div className={styles.formRow}>
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>
-                      <Cpu size={11} /> CPU Limit (cores)
-                    </label>
+                    <label className={styles.label}><Cpu size={11} /> CPU Limit (cores)</label>
                     <input
-                      className={styles.input}
-                      value={cpuLimit}
+                      className={styles.input} value={cpuLimit}
                       onChange={e => setCpuLimit(e.target.value)}
-                      placeholder="1.0"
-                      type="number"
-                      min="0.1"
-                      max="4"
-                      step="0.1"
+                      placeholder="1.0" type="number" min="0.1" max="4" step="0.1"
                     />
                   </div>
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>
-                      <Hash size={11} /> Memory (MB)
-                    </label>
+                    <label className={styles.label}><Hash size={11} /> Memory (MB)</label>
                     <input
-                      className={styles.input}
-                      value={memoryLimit}
+                      className={styles.input} value={memoryLimit}
                       onChange={e => setMemoryLimit(e.target.value)}
-                      placeholder="512"
-                      type="number"
-                      min="64"
-                      max="4096"
-                      step="64"
+                      placeholder="512" type="number" min="64" max="4096" step="64"
                     />
                   </div>
                 </div>
@@ -334,73 +313,45 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
           <div className={styles.fieldSection}>
             <h4 className={styles.fieldSectionTitle}>Knowledge Bases</h4>
             {knowledgeBases.length === 0 ? (
-              <p className={styles.fieldHint}>No knowledge bases available. Create one in the Knowledge Base page.</p>
+              <p className={styles.fieldHint}>No knowledge bases available.</p>
             ) : kbLoading ? (
-              <div className={styles.kbLoading}>
-                <Loader2 size={13} className="spinning" />
-                <span>Loading...</span>
-              </div>
+              <div className={styles.kbLoading}><Loader2 size={13} className="spinning" /><span>Loading...</span></div>
             ) : (
               <div className={styles.kbList}>
                 {knowledgeBases.map(kb => (
                   <label key={kb.id} className={styles.kbItem}>
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={linkedKbIds.has(kb.id)}
-                      onChange={() => handleKbToggle(kb.id)}
-                    />
+                    <input type="checkbox" className={styles.checkbox} checked={linkedKbIds.has(kb.id)} onChange={() => handleKbToggle(kb.id)} />
                     <div className={styles.kbItemInfo}>
-                      <span className={styles.kbItemName}>
-                        <BookOpen size={11} /> {kb.name}
-                      </span>
-                      <span className={styles.kbItemMeta}>
-                        {kb.entry_count} {kb.entry_count === 1 ? 'entry' : 'entries'}
-                      </span>
+                      <span className={styles.kbItemName}><BookOpen size={11} /> {kb.name}</span>
+                      <span className={styles.kbItemMeta}>{kb.entry_count} {kb.entry_count === 1 ? 'entry' : 'entries'}</span>
                     </div>
                   </label>
                 ))}
               </div>
             )}
-            <p className={styles.fieldHint}>
-              Linked knowledge bases are searched during conversations for relevant context.
-            </p>
+            <p className={styles.fieldHint}>Linked knowledge bases are searched during conversations.</p>
           </div>
 
           <div className={styles.fieldSection}>
             <h4 className={styles.fieldSectionTitle}>Skills</h4>
             {skills.length === 0 ? (
-              <p className={styles.fieldHint}>No skills available. Create skills to give agents reusable prompt modules invokable with /skill-name syntax.</p>
+              <p className={styles.fieldHint}>No skills available.</p>
             ) : skillLoading ? (
-              <div className={styles.kbLoading}>
-                <Loader2 size={13} className="spinning" />
-                <span>Loading...</span>
-              </div>
+              <div className={styles.kbLoading}><Loader2 size={13} className="spinning" /><span>Loading...</span></div>
             ) : (
               <div className={styles.kbList}>
                 {skills.map(skill => (
                   <label key={skill.id} className={styles.kbItem}>
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={linkedSkillIds.has(skill.id)}
-                      onChange={() => handleSkillToggle(skill.id)}
-                    />
+                    <input type="checkbox" className={styles.checkbox} checked={linkedSkillIds.has(skill.id)} onChange={() => handleSkillToggle(skill.id)} />
                     <div className={styles.kbItemInfo}>
-                      <span className={styles.kbItemName}>
-                        <Zap size={11} /> /{skill.name}
-                      </span>
-                      <span className={styles.kbItemMeta}>
-                        {skill.description}
-                      </span>
+                      <span className={styles.kbItemName}><Zap size={11} /> /{skill.name}</span>
+                      <span className={styles.kbItemMeta}>{skill.description}</span>
                     </div>
                   </label>
                 ))}
               </div>
             )}
-            <p className={styles.fieldHint}>
-              Linked skills can be activated by users with /skill-name in chat messages.
-            </p>
+            <p className={styles.fieldHint}>Linked skills can be activated with /skill-name in chat.</p>
           </div>
 
           {error && <p className={styles.errorMsg}>{error}</p>}
@@ -446,22 +397,10 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
     <div className={styles.createForm}>
       <form onSubmit={handleSubmit}>
         <div className={styles.createFormRow}>
-          <input
-            className={styles.input}
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Agent name (e.g. Research Assistant)"
-            autoFocus
-          />
-          <input
-            className={styles.input}
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="What does this agent do?"
-          />
+          <input className={styles.input} value={name} onChange={e => setName(e.target.value)} placeholder="Agent name" autoFocus />
+          <input className={styles.input} value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" />
           <Button variant="primary" size="sm" type="submit" disabled={submitting || !name.trim()}>
-            {submitting ? <Loader2 size={13} className="spinning" /> : <Plus size={13} />}
-            Create
+            {submitting ? <Loader2 size={13} className="spinning" /> : <Plus size={13} />} Create
           </Button>
           <Button variant="secondary" size="sm" type="button" onClick={onCancel}>Cancel</Button>
         </div>
@@ -481,13 +420,12 @@ interface AgentCardProps {
 }
 
 function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
-
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
         <div className={styles.agentCardLeft}>
           <div className={styles.agentAvatarWrap}>
-            <div className={styles.agentAvatar}><Bot size={20} strokeWidth={1.5} /></div>
+            <div className={styles.agentAvatar}><Bot size={18} strokeWidth={1.5} /></div>
             <div className={`${styles.statusDot} ${styles[`status_${agent.status}`]}`} />
           </div>
           <div>
@@ -500,50 +438,26 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
 
       <div className={styles.agentConfig}>
         {connector ? (
-          <span className={styles.configTag}>
-            <Cpu size={11} /> {connector.name}
-          </span>
+          <span className={styles.configTag}><Cpu size={10} /> {connector.name}</span>
         ) : (
-          <span className={`${styles.configTag} ${styles.configTagMuted}`}>
-            <Cpu size={11} /> Default connector
-          </span>
+          <span className={`${styles.configTag} ${styles.configTagMuted}`}><Cpu size={10} /> Default</span>
         )}
-        {agent.temperature != null && (
-          <span className={styles.configTag}>
-            <Thermometer size={11} /> {agent.temperature}
-          </span>
-        )}
-        {agent.max_tokens != null && (
-          <span className={styles.configTag}>
-            <Hash size={11} /> {agent.max_tokens}
-          </span>
-        )}
-        {agent.container_enabled && (
-          <span className={styles.configTag}>
-            <Container size={11} /> Sandbox
-          </span>
-        )}
+        {agent.temperature != null && <span className={styles.configTag}><Thermometer size={10} /> {agent.temperature}</span>}
+        {agent.max_tokens != null && <span className={styles.configTag}><Hash size={10} /> {agent.max_tokens}</span>}
+        {agent.container_enabled && <span className={styles.configTag}><Container size={10} /> Sandbox</span>}
       </div>
 
       <div className={styles.agentCardActions}>
         <div className={styles.statusToggle}>
           {(['online', 'offline'] as AgentStatus[]).map(s => (
-            <button
-              key={s}
-              className={`${styles.statusBtn} ${agent.status === s ? styles.statusBtnActive : ''}`}
-              onClick={() => onStatusChange(s)}
-            >
+            <button key={s} className={`${styles.statusBtn} ${agent.status === s ? styles.statusBtnActive : ''}`} onClick={() => onStatusChange(s)}>
               {s}
             </button>
           ))}
         </div>
         <div className={styles.agentCardBtns}>
-          <button className={styles.configureBtn} onClick={onConfigure} title="Configure">
-            <Settings2 size={14} /> Configure
-          </button>
-          <button className={styles.deleteAgentBtn} onClick={onDelete} title="Delete">
-            <Trash2 size={14} />
-          </button>
+          <button className={styles.configureBtn} onClick={onConfigure}><Settings2 size={13} /> Config</button>
+          <button className={styles.deleteAgentBtn} onClick={onDelete}><Trash2 size={13} /></button>
         </div>
       </div>
     </div>
@@ -562,6 +476,7 @@ export function DashboardPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   useEffect(() => {
     Promise.all([api.agents.list(), api.conversations.list(), api.llmConnectors.list(), api.knowledge.listBases(), api.skills.list()])
@@ -577,97 +492,229 @@ export function DashboardPage() {
 
   const onlineCount = agents.filter(a => a.status === 'online').length
   const busyCount = agents.filter(a => a.status === 'busy').length
+  const activePercent = agents.length > 0 ? Math.round((onlineCount + busyCount) / agents.length * 100) : 0
+  const totalKbEntries = knowledgeBases.reduce((sum, kb) => sum + kb.entry_count, 0)
 
-  const handleCreate = (agent: Agent) => {
-    setAgents(prev => [agent, ...prev])
-    setShowCreate(false)
-  }
-
-  const handleUpdate = (updated: Agent) => {
-    setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
-    setConfiguring(null)
-  }
-
-  const handleDelete = async (id: string) => {
-    await api.agents.delete(id)
-    setAgents(prev => prev.filter(a => a.id !== id))
-  }
-
+  const handleCreate = (agent: Agent) => { setAgents(prev => [agent, ...prev]); setShowCreate(false) }
+  const handleUpdate = (updated: Agent) => { setAgents(prev => prev.map(a => a.id === updated.id ? updated : a)); setConfiguring(null) }
+  const handleDelete = async (id: string) => { await api.agents.delete(id); setAgents(prev => prev.filter(a => a.id !== id)) }
   const handleStatusChange = async (id: string, status: AgentStatus) => {
     const updated = await api.agents.patch(id, { status })
     setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
   }
 
-  // Container start/stop is now handled per-conversation automatically.
-  // The dashboard shows sandbox capability but doesn't manage individual containers.
+  // Top agents sorted by conversation count
+  const agentActivity = agents.map(a => ({
+    ...a,
+    convos: conversations.filter(c => c.agent_id === a.id).length,
+  })).sort((a, b) => b.convos - a.convos)
 
-  const stats = [
-    { label: 'Total Agents', value: String(agents.length), icon: Bot, sub: `${onlineCount} online`, color: 'var(--accent)' },
-    { label: 'Conversations', value: String(conversations.length), icon: MessageCircle, sub: 'All time', color: 'var(--info)' },
-    { label: 'Active Now', value: String(onlineCount + busyCount), icon: TrendingUp, sub: `${onlineCount} online, ${busyCount} busy`, color: 'var(--success)' },
-    { label: 'Connectors', value: String(connectors.length), icon: Plug, sub: 'LLM providers', color: 'var(--warning)' },
-  ]
+  const agentScore = (a: typeof agentActivity[0]) => {
+    const bonus = a.status === 'online' ? 1 : a.status === 'busy' ? 0.5 : 0
+    return Math.min(5, 3 + a.convos * 0.3 + bonus).toFixed(1)
+  }
+
+  // Decorative trend bars
+  const trendBars = Array.from({ length: 28 }, (_, i) => ({
+    height: Math.max(12, Math.min(95, 30 + ((i * 7 + 5) % 13) * 5 + Math.sin(i * 0.5) * 18)),
+    accent: i % 6 === 0,
+  }))
+
+  const statusColor = (s: string) =>
+    s === 'online' ? 'var(--success)' : s === 'busy' ? 'var(--warning)' : s === 'error' ? 'var(--error)' : 'var(--text-tertiary)'
 
   return (
     <div className="fade-in">
-      <PageHeader
-        title="Dashboard"
-        description="Agent command center. Manage your agents, monitor status, and track activity."
-        actions={
-          !showCreate ? (
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus size={15} /> New Agent
-            </Button>
-          ) : undefined
-        }
-      />
-
-      {/* Stats */}
-      <div className={`${styles.statsGrid} stagger`}>
-        {stats.map(({ label, value, icon: Icon, sub, color }) => (
-          <div key={label} className={styles.statCard}>
-            <div className={styles.statIcon} style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}>
-              <Icon size={18} strokeWidth={1.5} />
-            </div>
-            <div>
-              <div className={styles.statValue}>{loading ? '\u2014' : value}</div>
-              <div className={styles.statLabel}>{label}</div>
-              <div className={styles.statSub}>{sub}</div>
-            </div>
+      {/* Header */}
+      <div className={styles.header}>
+        <h1 className={styles.title}>// Overview</h1>
+        <div className={styles.headerRight}>
+          <div className={styles.searchBox}>
+            <Search size={14} />
+            <input placeholder="Search..." className={styles.searchInput} />
           </div>
-        ))}
+          {user && (
+            <div className={styles.headerAvatar}>
+              {user.display_name.charAt(0).toUpperCase()}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Create agent form */}
-      {showCreate && (
-        <CreateForm onSave={handleCreate} onCancel={() => setShowCreate(false)} />
-      )}
+      {/* ── Bento Grid ── */}
+      <div className={styles.bento}>
 
-      {/* Agents section */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>
-          <Bot size={16} strokeWidth={1.5} /> Agents
-          <span className={styles.sectionCount}>{agents.length}</span>
-        </h2>
+        {/* Hero: 2×2 — Conversations overview */}
+        <div className={`${styles.cell} ${styles.hero}`}>
+          <span className={styles.cellLabel}>Conversations</span>
+          <div className={styles.heroTop}>
+            <div>
+              <div className={styles.heroStat}>
+                {loading ? '\u2014' : String(conversations.length).padStart(2, '0')}
+              </div>
+              <div className={styles.heroStatSub}>Total conversations across all agents</div>
+            </div>
+            <div className={styles.activeBadge}>
+              <span className={styles.activeDot} />
+              {activePercent}% Active
+            </div>
+          </div>
+          <div className={styles.activityWrap}>
+            <div className={styles.activityMeta}>
+              <span className={styles.activityMetaLabel}>Agent Availability</span>
+              <span className={styles.activityMetaValue}>
+                {onlineCount + busyCount}/{agents.length}
+              </span>
+            </div>
+            <div className={styles.activityBar}>
+              <div
+                className={styles.activityBarFill}
+                style={{ width: `${Math.max(activePercent, 8)}%` }}
+              >
+                <span className={styles.activityBarText}>Active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Agents: 1×2 */}
+        <div className={`${styles.cell} ${styles.topAgents}`}>
+          <span className={styles.cellLabel}>Top Agents</span>
+          {loading ? (
+            <div className={styles.topAgentsEmpty}><Loader2 size={16} className="spinning" /></div>
+          ) : agents.length === 0 ? (
+            <div className={styles.topAgentsEmpty}>
+              <Bot size={20} strokeWidth={1} />
+              <span>No agents yet</span>
+            </div>
+          ) : (
+            <div className={styles.topAgentsList}>
+              {agentActivity.slice(0, 5).map(agent => (
+                <div key={agent.id} className={styles.topAgentRow} onClick={() => setConfiguring(agent)}>
+                  <div className={styles.topAgentAvatar}>
+                    <Bot size={14} strokeWidth={1.5} />
+                    <div className={styles.topAgentDot} style={{ background: statusColor(agent.status) }} />
+                  </div>
+                  <div className={styles.topAgentInfo}>
+                    <span className={styles.topAgentName}>{agent.name}</span>
+                    <span className={styles.topAgentDesc}>{agent.description || 'No description'}</span>
+                  </div>
+                  <div className={styles.topAgentScore}>
+                    <Star size={11} fill="currentColor" /> {agentScore(agent)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Metric: Total Agents */}
+        <div className={`${styles.cell} ${styles.metric}`}>
+          <span className={styles.cellLabel}>Agents</span>
+          <div className={styles.metricValue}>{loading ? '\u2014' : String(agents.length).padStart(3, '0')}</div>
+          <div className={styles.metricSub}>{onlineCount} online, {busyCount} busy</div>
+          <div className={styles.metricAccent} style={{ background: 'var(--accent)' }} />
+        </div>
+
+        {/* Metric: Active Now */}
+        <div className={`${styles.cell} ${styles.metric}`}>
+          <span className={styles.cellLabel}>Active Now</span>
+          <div className={styles.metricValue}>{loading ? '\u2014' : String(onlineCount + busyCount).padStart(3, '0')}</div>
+          <div className={styles.metricSub}>{activePercent}% of fleet</div>
+          <div className={styles.metricAccent} style={{ background: 'var(--success)' }} />
+        </div>
+
+        {/* Trends: 2×1 */}
+        <div className={`${styles.cell} ${styles.trends}`}>
+          <div className={styles.trendsHeader}>
+            <span className={styles.cellLabel} style={{ marginBottom: 0 }}>Trends Over Time</span>
+            <div className={styles.trendsLegend}>
+              <span><span className={styles.legendDot} style={{ background: '#34d399' }} />msgs</span>
+              <span><span className={styles.legendDot} style={{ background: '#fbbf24' }} />tools</span>
+            </div>
+          </div>
+          <div className={styles.barsChart}>
+            {trendBars.map((bar, i) => (
+              <div
+                key={i}
+                className={styles.bar}
+                style={{
+                  height: `${bar.height}%`,
+                  background: bar.accent ? '#fbbf24' : '#34d399',
+                  animationDelay: `${i * 25}ms`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Metric: Knowledge */}
+        <div className={`${styles.cell} ${styles.metric}`}>
+          <span className={styles.cellLabel}>Knowledge</span>
+          <div className={styles.metricValue}>{loading ? '\u2014' : String(totalKbEntries).padStart(3, '0')}</div>
+          <div className={styles.metricSub}>{knowledgeBases.length} bases</div>
+          <div className={styles.metricAccent} style={{ background: 'var(--info)' }} />
+        </div>
+
+        {/* Metric: Connectors */}
+        <div className={`${styles.cell} ${styles.metric}`}>
+          <span className={styles.cellLabel}>LLM Connectors</span>
+          <div className={styles.metricValue}>{loading ? '\u2014' : String(connectors.length).padStart(3, '0')}</div>
+          <div className={styles.metricSub}>Configured</div>
+          <div className={styles.metricAccent} style={{ background: 'var(--warning)' }} />
+        </div>
+
+        {/* CTA: New Agent */}
+        <div className={`${styles.cell} ${styles.cta}`} onClick={() => setShowCreate(true)}>
+          <div className={styles.ctaIcon}><Plus size={22} strokeWidth={2} /></div>
+          <span className={styles.ctaText}>New Agent</span>
+        </div>
+
+        {/* Recent Conversations: 3×1 */}
+        <div className={`${styles.cell} ${styles.convos}`}>
+          <span className={styles.cellLabel}>Recent</span>
+          {conversations.length === 0 && !loading ? (
+            <div className={styles.convoEmpty}>No conversations yet</div>
+          ) : (
+            <div className={styles.convoList}>
+              {conversations.slice(0, 4).map(convo => (
+                <div key={convo.id} className={styles.convoRow} onClick={() => navigate(`/conversations/${convo.id}`)}>
+                  <div className={styles.convoIcon}><MessageCircle size={13} /></div>
+                  <span className={styles.convoText}>{convo.title}</span>
+                  <span className={styles.convoTime}>{relativeTime(convo.updated_at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <button className={styles.viewAll} onClick={() => navigate('/conversations')}>
+            View all <ChevronRight size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Agent Management ── */}
+      <div className={styles.manageHeader}>
+        <div className={styles.manageTitle}>
+          <Bot size={15} strokeWidth={1.5} />
+          Manage Agents
+          <span className={styles.manageTitleCount}>{agents.length}</span>
+        </div>
         {!showCreate && (
-          <Button size="sm" variant="ghost" onClick={() => setShowCreate(true)}>
-            <Plus size={13} /> Add
-          </Button>
+          <button className={styles.ghostBtn} onClick={() => setShowCreate(true)}>
+            <Plus size={12} /> Add
+          </button>
         )}
       </div>
 
+      {showCreate && <CreateForm onSave={handleCreate} onCancel={() => setShowCreate(false)} />}
+
       {loading ? (
-        <Card>
-          <div className={styles.loadingState}>
-            <Loader2 size={18} className="spinning" />
-            <span>Loading agents...</span>
-          </div>
-        </Card>
+        <div className={styles.loadingState}>
+          <Loader2 size={16} className="spinning" /> Loading agents...
+        </div>
       ) : agents.length === 0 && !showCreate ? (
         <div className={styles.emptyAgents}>
-          <div className={styles.emptyAgentsIcon}>
-            <Bot size={36} strokeWidth={1} />
-          </div>
+          <div className={styles.emptyAgentsIcon}><Bot size={32} strokeWidth={1} /></div>
           <p className={styles.emptyAgentsTitle}>No agents yet</p>
           <p className={styles.emptyAgentsDesc}>Create your first agent to get started.</p>
           <Button variant="primary" size="sm" onClick={() => setShowCreate(true)}>
@@ -685,45 +732,6 @@ export function DashboardPage() {
               onDelete={() => handleDelete(agent.id)}
               onStatusChange={status => handleStatusChange(agent.id, status)}
             />
-          ))}
-        </div>
-      )}
-
-      {/* Recent conversations */}
-      <div className={styles.sectionHeader} style={{ marginTop: 32 }}>
-        <h2 className={styles.sectionTitle}>
-          <Activity size={16} strokeWidth={1.5} /> Recent Conversations
-        </h2>
-        <Button size="sm" variant="ghost" onClick={() => navigate('/conversations')}>
-          View all
-        </Button>
-      </div>
-
-      {conversations.length === 0 && !loading ? (
-        <p className={styles.emptyMsg}>
-          No conversations yet.{' '}
-          <button className={styles.emptyLink} onClick={() => navigate('/conversations')}>Start one &#x2192;</button>
-        </p>
-      ) : (
-        <div className={styles.activityList}>
-          {conversations.slice(0, 5).map(convo => (
-            <div
-              key={convo.id}
-              className={styles.activityRow}
-              onClick={() => navigate('/conversations')}
-            >
-              <div className={styles.activityIcon}>
-                <MessageCircle size={14} strokeWidth={1.5} />
-              </div>
-              <div className={styles.activityContent}>
-                <span className={styles.activityText}>{convo.title}</span>
-                <span className={styles.activityTime}>
-                  <Clock size={10} />
-                  {relativeTime(convo.updated_at)}
-                </span>
-              </div>
-              <Zap size={12} className={styles.activityArrow} />
-            </div>
           ))}
         </div>
       )}

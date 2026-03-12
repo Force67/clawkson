@@ -1,17 +1,19 @@
 .card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
   padding: 22px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.2s ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
 }
 
 .card:hover {
-  border-color: var(--border-default);
+  border-color: var(--border-bright);
 }
 
 .cardInteractive:hover {
-  border-color: rgba(217, 123, 74, 0.3);
-  box-shadow: 0 0 0 1px var(--accent-muted);
+  border-color: rgba(193, 39, 45, 0.3);
   cursor: pointer;
 }
