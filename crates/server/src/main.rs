@@ -147,7 +147,7 @@ async fn seed_soul_prompt(db: &clawkson_db::Db) {
         None => raw.trim().to_string(),
     };
 
-    match clawkson_db::settings::update(db, None, None, None, Some(&prompt), None).await {
+    match clawkson_db::settings::update(db, None, None, None, Some(&prompt), None, None, None, None).await {
         Ok(_) => tracing::info!(path = %path, chars = prompt.len(), "agent base prompt seeded from SOUL.md"),
         Err(e) => tracing::error!("failed to seed agent base prompt: {e}"),
     }

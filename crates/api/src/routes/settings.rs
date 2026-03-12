@@ -29,19 +29,41 @@ pub struct PatchSettingsRequest {
     /// Maximum seconds to wait for an LLM HTTP response before timing out.
     /// Range: 10–600. Default is 120.
     pub llm_request_timeout_secs: Option<i32>,
+    /// OpenAI-compatible base URL for the embedding provider.
+    pub embedding_api_base_url: Option<String>,
+    /// API key for the embedding provider.
+    pub embedding_api_key: Option<String>,
+    /// Model name for embedding generation.
+    pub embedding_model: Option<String>,
+}
+
+/// Mask an API key for display: show first 4 and last 4 chars.
+fn mask_key(key: &str) -> String {
+    if key.len() <= 10 {
+        "*".repeat(key.len())
+    } else {
+        format!("{}...{}", &key[..4], &key[key.len() - 4..])
+    }
+}
+
+fn row_to_settings(row: clawkson_db::settings::SettingsRow) -> Settings {
+    Settings {
+        default_llm_connector_id: row.default_llm_connector_id,
+        etl_llm_connector_id: row.etl_llm_connector_id,
+        theme: row.theme,
+        agent_base_prompt: row.agent_base_prompt,
+        llm_request_timeout_secs: row.llm_request_timeout_secs,
+        embedding_api_base_url: row.embedding_api_base_url,
+        embedding_api_key: mask_key(&row.embedding_api_key),
+        embedding_model: row.embedding_model,
+    }
 }
 
 async fn get_settings(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Settings>, StatusCode> {
     let row = clawkson_db::settings::get(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(Settings {
-        default_llm_connector_id: row.default_llm_connector_id,
-        etl_llm_connector_id: row.etl_llm_connector_id,
-        theme: row.theme,
-        agent_base_prompt: row.agent_base_prompt,
-        llm_request_timeout_secs: row.llm_request_timeout_secs,
-    }))
+    Ok(Json(row_to_settings(row)))
 }
 
 async fn patch_settings(
@@ -63,15 +85,12 @@ async fn patch_settings(
         req.theme.as_deref(),
         req.agent_base_prompt.as_deref(),
         timeout,
+        req.embedding_api_base_url.as_deref(),
+        req.embedding_api_key.as_deref(),
+        req.embedding_model.as_deref(),
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(Settings {
-        default_llm_connector_id: row.default_llm_connector_id,
-        etl_llm_connector_id: row.etl_llm_connector_id,
-        theme: row.theme,
-        agent_base_prompt: row.agent_base_prompt,
-        llm_request_timeout_secs: row.llm_request_timeout_secs,
-    }))
+    Ok(Json(row_to_settings(row)))
 }

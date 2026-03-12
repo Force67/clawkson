@@ -297,4 +297,10 @@ pub struct Settings {
     /// Maximum seconds to wait for an LLM HTTP response before timing out.
     /// Default is 120. Increase for slow providers or heavy models.
     pub llm_request_timeout_secs: i32,
+    /// OpenAI-compatible base URL for the embedding provider.
+    pub embedding_api_base_url: String,
+    /// API key for the embedding provider (masked on retrieval).
+    pub embedding_api_key: String,
+    /// Model name for embedding generation.
+    pub embedding_model: String,
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   ChevronDown, Plus, Check, Loader2, X,
   Cloud, Zap, Globe, Star, Key, Trash2, Pencil, Cpu, Palette, Database,
@@ -315,6 +315,128 @@ function InferenceForm({ editing, onSave, onCancel }: InferenceFormProps) {
   )
 }
 
+// ── Embedding Config Form ────────────────────────────────────────
+
+interface EmbeddingConfigFormProps {
+  settings: Settings | null
+  onUpdate: (s: Settings) => void
+}
+
+function EmbeddingConfigForm({ settings, onUpdate }: EmbeddingConfigFormProps) {
+  const [baseUrl, setBaseUrl] = useState('')
+  const [model, setModel] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const pendingRef = useRef<Record<string, string>>({})
+
+  // Sync local state from loaded settings (once, or when settings load)
+  useEffect(() => {
+    if (settings) {
+      setBaseUrl(settings.embedding_api_base_url ?? '')
+      setModel(settings.embedding_model ?? '')
+    }
+  }, [settings?.embedding_api_base_url, settings?.embedding_model])
+
+  // Flush any pending save on unmount (page navigation)
+  useEffect(() => {
+    return () => {
+      clearTimeout(debounceRef.current)
+      const pending = pendingRef.current
+      if (Object.keys(pending).length > 0) {
+        api.settings.patch(pending).catch(() => {})
+      }
+    }
+  }, [])
+
+  const debouncedSave = (patch: Record<string, string>) => {
+    // Accumulate fields so rapid edits to different fields are batched
+    pendingRef.current = { ...pendingRef.current, ...patch }
+    clearTimeout(debounceRef.current)
+    setSaving(true)
+    debounceRef.current = setTimeout(async () => {
+      const toSave = { ...pendingRef.current }
+      pendingRef.current = {}
+      try {
+        const s = await api.settings.patch(toSave)
+        onUpdate(s)
+      } catch (e) {
+        console.error('Failed to save embedding settings:', e)
+      } finally {
+        setSaving(false)
+      }
+    }, 600)
+  }
+
+  return (
+    <>
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel}>Embedding API Base URL</label>
+        <input
+          className={styles.formInput}
+          value={baseUrl}
+          placeholder="http://localhost:11434/v1"
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          onChange={e => {
+            setBaseUrl(e.target.value)
+            const val = e.target.value.trim()
+            if (val) debouncedSave({ embedding_api_base_url: val })
+          }}
+        />
+        <p className={styles.formHint}>
+          Any OpenAI-compatible <code>/v1/embeddings</code> endpoint — Ollama, vLLM, LiteLLM, OpenAI, etc.
+        </p>
+      </div>
+
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel}>Embedding API Key</label>
+        <input
+          className={styles.formInput}
+          type="password"
+          value={apiKey}
+          placeholder="Leave blank to keep existing key"
+          autoComplete="off"
+          onChange={e => {
+            setApiKey(e.target.value)
+            const val = e.target.value.trim()
+            if (val) debouncedSave({ embedding_api_key: val })
+          }}
+          onBlur={() => {
+            if (apiKey.trim()) setApiKey('')
+          }}
+        />
+        {settings?.embedding_api_key && (
+          <p className={styles.formHint}>
+            Current key: <code>{settings.embedding_api_key}</code>
+          </p>
+        )}
+      </div>
+
+      <div className={styles.formGroup}>
+        <label className={styles.formLabel}>
+          Embedding Model
+          {saving && <Loader2 size={11} className="spinning" style={{ marginLeft: 6, display: 'inline-block' }} />}
+        </label>
+        <input
+          className={styles.formInput}
+          value={model}
+          placeholder="qwen3-embedding:8b"
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          onChange={e => {
+            setModel(e.target.value)
+            const val = e.target.value.trim()
+            if (val) debouncedSave({ embedding_model: val })
+          }}
+        />
+        <p className={styles.formHint}>
+          The model used to generate vector embeddings for knowledge base entries and search queries.
+          Each knowledge base can optionally override this with its own model.
+        </p>
+      </div>
+    </>
+  )
+}
+
 // ── Settings Page ───────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -445,13 +567,15 @@ export function SettingsPage() {
               <div>
                 <h3 className={styles.sectionTitle}>ETL Processing</h3>
                 <p className={styles.sectionDesc}>
-                  Select a model for semantic chunking during Knowledge Base ingestion.
-                  When set, the LLM finds optimal sentence boundaries instead of the built-in
-                  heuristic splitter — improving retrieval quality for dense or complex documents.
+                  Configure the embedding provider and optional semantic chunking for Knowledge Base ingestion.
                 </p>
               </div>
             </div>
           </div>
+
+          <EmbeddingConfigForm settings={settings} onUpdate={setSettings} />
+
+          <div className={styles.etlDivider} />
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel}>Semantic Chunking Model</label>

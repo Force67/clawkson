@@ -244,6 +244,12 @@ export interface Settings {
   agent_base_prompt: string
   /** Maximum seconds to wait for an LLM HTTP response. Range 10–600. Default 120. */
   llm_request_timeout_secs: number
+  /** OpenAI-compatible base URL for the embedding provider. */
+  embedding_api_base_url: string
+  /** API key for the embedding provider (masked on retrieval). */
+  embedding_api_key: string
+  /** Model name for embedding generation. */
+  embedding_model: string
 }
 
 // ── Auth types ────────────────────────────────────────────────────
@@ -349,6 +355,12 @@ export interface PatchSettingsRequest {
   agent_base_prompt?: string
   /** Maximum seconds to wait for LLM responses. Range 10–600. */
   llm_request_timeout_secs?: number
+  /** OpenAI-compatible base URL for the embedding provider. */
+  embedding_api_base_url?: string
+  /** API key for the embedding provider. */
+  embedding_api_key?: string
+  /** Model name for embedding generation. */
+  embedding_model?: string
 }
 
 // ── API client ─────────────────────────────────────────────────────

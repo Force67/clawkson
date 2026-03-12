@@ -600,8 +600,18 @@ impl KernelFunction for KnowledgeSearchTool {
         let model = &kbs[0].embedding_model;
         let kb_ids: Vec<Uuid> = kbs.iter().map(|kb| kb.id).collect();
 
+        // Load embedding provider config from settings
+        let embed_config = match clawkson_db::settings::get(&self.db).await {
+            Ok(row) => crate::embeddings::EmbeddingConfig {
+                base_url: row.embedding_api_base_url,
+                api_key: row.embedding_api_key,
+                model: row.embedding_model,
+            },
+            Err(_) => crate::embeddings::EmbeddingConfig::default(),
+        };
+
         // Generate embedding for the query
-        let query_vec = match crate::embeddings::generate_one(model, &args.query).await {
+        let query_vec = match crate::embeddings::generate_one(&embed_config, model, &args.query).await {
             Ok(v) => v,
             Err(e) => {
                 return Ok(serde_json::json!({

@@ -11,7 +11,20 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
+use crate::embeddings::EmbeddingConfig;
 use crate::state::AppState;
+
+/// Load embedding provider config from app_settings.
+async fn load_embedding_config(state: &AppState) -> EmbeddingConfig {
+    match clawkson_db::settings::get(&state.db).await {
+        Ok(row) => EmbeddingConfig {
+            base_url: row.embedding_api_base_url,
+            api_key: row.embedding_api_key,
+            model: row.embedding_model,
+        },
+        Err(_) => EmbeddingConfig::default(),
+    }
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -830,6 +843,7 @@ async fn upload_files(
     let mut embed_failed = 0usize;
 
     if entries_created > 0 {
+        let embed_config = load_embedding_config(&state).await;
         let kb = clawkson_db::knowledge_base::get_by_id(pool, kb_id)
             .await
             .ok()
@@ -838,7 +852,7 @@ async fn upload_files(
         let model = kb
             .as_ref()
             .map(|k| k.embedding_model.as_str())
-            .unwrap_or("qwen3-embedding:8b");
+            .unwrap_or(&embed_config.model);
 
         let unembedded = clawkson_db::knowledge_entry::list_without_embedding(pool, kb_id)
             .await
@@ -867,7 +881,7 @@ async fn upload_files(
                 "Processing embedding batch"
             );
 
-            match crate::embeddings::generate(model, texts).await {
+            match crate::embeddings::generate(&embed_config, model, texts).await {
                 Ok(vectors) => {
                     for (entry, vec) in chunk.iter().zip(vectors.iter()) {
                         if let Err(e) = clawkson_db::knowledge_entry::set_embedding(
@@ -934,6 +948,8 @@ async fn embed_entries(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    let embed_config = load_embedding_config(&state).await;
+
     let entries = clawkson_db::knowledge_entry::list_without_embedding(pool, kb_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -966,14 +982,14 @@ async fn embed_entries(
             .map(|e| format!("{}\n\n{}", e.title, e.content))
             .collect();
 
-        match crate::embeddings::generate(&kb.embedding_model, texts).await {
+        match crate::embeddings::generate(&embed_config, &kb.embedding_model, texts).await {
             Ok(vectors) => {
                 tracing::info!(
                     kb_id = %kb_id,
                     batch = batch_idx + 1,
                     vectors = vectors.len(),
                     dim = vectors.first().map(|v| v.len()).unwrap_or(0),
-                    "Ollama returned embeddings"
+                    "Embedding response received"
                 );
                 for (entry, vec) in chunk.iter().zip(vectors.iter()) {
                     if let Err(e) = clawkson_db::knowledge_entry::set_embedding(
@@ -1034,9 +1050,11 @@ async fn search_entries(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    let embed_config = load_embedding_config(&state).await;
+
     tracing::info!(kb_id = %kb_id, query = %req.query, model = %kb.embedding_model, "Starting knowledge search");
 
-    let query_vec = crate::embeddings::generate_one(&kb.embedding_model, &req.query)
+    let query_vec = crate::embeddings::generate_one(&embed_config, &kb.embedding_model, &req.query)
         .await
         .map_err(|e| {
             tracing::error!(kb_id = %kb_id, error = %e, "Query embedding generation failed");

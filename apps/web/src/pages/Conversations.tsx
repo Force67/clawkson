@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type MessageAttachment, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type MessageAttachment, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo, type ShareResponse, type SharePermission } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── New Conversation Dialog ───────────────────────────────────────
@@ -240,6 +240,153 @@ function SkillDropdown({ skills, filter, selectedIndex, onSelect, position }: Sk
   )
 }
 
+// ── Share Dialog ──────────────────────────────────────────────────
+
+interface ShareDialogProps {
+  conversationId: string
+  onClose: () => void
+}
+
+function ShareDialog({ conversationId, onClose }: ShareDialogProps) {
+  const [shares, setShares] = useState<ShareResponse[]>([])
+  const [loading, setLoading] = useState(true)
+  const [email, setEmail] = useState('')
+  const [permission, setPermission] = useState<SharePermission>('read')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [removingId, setRemovingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.shares.list(conversationId)
+      .then(setShares)
+      .catch(() => setShares([]))
+      .finally(() => setLoading(false))
+  }, [conversationId])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = email.trim()
+    if (!trimmed) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const share = await api.shares.create(conversationId, trimmed, permission)
+      setShares(prev => [...prev, share])
+      setEmail('')
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to share')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleRemove = async (userId: string) => {
+    setRemovingId(userId)
+    try {
+      await api.shares.remove(conversationId, userId)
+      setShares(prev => prev.filter(s => s.shared_with_user.id !== userId))
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to remove')
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  return (
+    <div className={styles.dialogOverlay} onClick={onClose}>
+      <div className={styles.dialog} onClick={e => e.stopPropagation()}>
+        <div className={styles.dialogHeader}>
+          <h3 className={styles.dialogTitle}>Share Conversation</h3>
+          <button className={styles.dialogClose} onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <form onSubmit={handleAdd} className={styles.shareForm}>
+          <div className={styles.shareInputRow}>
+            <input
+              className={styles.formInput}
+              value={email}
+              onChange={e => { setEmail(e.target.value); setError('') }}
+              placeholder="Email address"
+              type="email"
+              autoFocus
+            />
+            <div className={styles.sharePermToggle}>
+              <button
+                type="button"
+                className={`${styles.permBtn} ${permission === 'read' ? styles.permBtnActive : ''}`}
+                onClick={() => setPermission('read')}
+                title="Read only"
+              >
+                <Eye size={12} />
+              </button>
+              <button
+                type="button"
+                className={`${styles.permBtn} ${permission === 'write' ? styles.permBtnActive : ''}`}
+                onClick={() => setPermission('write')}
+                title="Can write"
+              >
+                <Pencil size={12} />
+              </button>
+            </div>
+            <Button variant="primary" size="sm" type="submit" disabled={submitting || !email.trim()}>
+              {submitting ? <Loader2 size={14} className={styles.spinning} /> : <UserPlus size={14} />}
+              Share
+            </Button>
+          </div>
+          {error && <p className={styles.shareError}>{error}</p>}
+        </form>
+
+        <div className={styles.shareList}>
+          {loading ? (
+            <div className={styles.shareEmpty}>
+              <Loader2 size={14} className={styles.spinning} />
+              <span>Loading...</span>
+            </div>
+          ) : shares.length === 0 ? (
+            <div className={styles.shareEmpty}>
+              <Shield size={14} />
+              <span>Not shared with anyone yet</span>
+            </div>
+          ) : (
+            shares.map(s => (
+              <div key={s.share.id} className={styles.shareRow}>
+                <div className={styles.shareUser}>
+                  <div className={styles.shareAvatar}>
+                    {s.shared_with_user.display_name?.charAt(0)?.toUpperCase() || s.shared_with_user.email.charAt(0).toUpperCase()}
+                  </div>
+                  <div className={styles.shareUserInfo}>
+                    <span className={styles.shareUserName}>
+                      {s.shared_with_user.display_name || s.shared_with_user.email}
+                    </span>
+                    <span className={styles.shareUserEmail}>{s.shared_with_user.email}</span>
+                  </div>
+                </div>
+                <div className={styles.shareRowActions}>
+                  <span className={`${styles.permBadge} ${s.share.permission === 'write' ? styles.permBadgeWrite : ''}`}>
+                    {s.share.permission === 'write' ? <><Pencil size={10} /> Write</> : <><Eye size={10} /> Read</>}
+                  </span>
+                  <button
+                    className={styles.shareRemoveBtn}
+                    onClick={() => handleRemove(s.shared_with_user.id)}
+                    disabled={removingId === s.shared_with_user.id}
+                    title="Remove access"
+                    type="button"
+                  >
+                    {removingId === s.shared_with_user.id
+                      ? <Loader2 size={12} className={styles.spinning} />
+                      : <X size={12} />
+                    }
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────
 
 export function ConversationsPage() {
@@ -267,6 +414,7 @@ export function ConversationsPage() {
   const [showSkillDropdown, setShowSkillDropdown] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [skillDropdownIndex, setSkillDropdownIndex] = useState(0)
+  const [showShareDialog, setShowShareDialog] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -682,6 +830,14 @@ export function ConversationsPage() {
                 </div>
                 <div className={styles.chatHeaderActions}>
                   <button
+                    className={styles.iconBtn}
+                    type="button"
+                    title="Share conversation"
+                    onClick={() => setShowShareDialog(true)}
+                  >
+                    <Share2 size={14} />
+                  </button>
+                  <button
                     className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
                     type="button"
                     title="Clear all messages"
@@ -923,6 +1079,13 @@ export function ConversationsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showShareDialog && selectedId && (
+        <ShareDialog
+          conversationId={selectedId}
+          onClose={() => setShowShareDialog(false)}
+        />
       )}
     </div>
   )

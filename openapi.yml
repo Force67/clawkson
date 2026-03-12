@@ -2573,6 +2573,19 @@ components:
             Clamped to the range 10–600. Default is 120.
           minimum: 10
           maximum: 600
+        embedding_api_base_url:
+          type: string
+          description: >
+            OpenAI-compatible base URL for the embedding provider (e.g. Ollama, vLLM, OpenAI).
+        embedding_api_key:
+          type: string
+          description: >
+            API key for the embedding provider. Masked on retrieval.
+        embedding_model:
+          type: string
+          description: >
+            Default model name for embedding generation. Individual knowledge bases
+            can override this with their own model.
 
     PatchSettingsRequest:
       type: object
@@ -2602,6 +2615,18 @@ components:
           description: >
             Override the LLM request timeout (seconds). Value is clamped to 10–600.
             Omit to leave unchanged.
+        embedding_api_base_url:
+          type: string
+          description: >
+            OpenAI-compatible base URL for the embedding provider.
+        embedding_api_key:
+          type: string
+          description: >
+            API key for the embedding provider. Only sent when changing it.
+        embedding_model:
+          type: string
+          description: >
+            Default model name for embedding generation.
 
     # ── Uploads / Attachments ──────────────────────────────────
 
