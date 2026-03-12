@@ -7,7 +7,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { api } from '../lib/api'
-import type { Connector, ConnectorType } from '../lib/api'
+import type { Agent, Connector, ConnectorType } from '../lib/api'
 import styles from './Connectors.module.css'
 
 const PLATFORM_META: Record<ConnectorType, { label: string; icon: typeof MessageSquare; description: string; color: string }> = {
@@ -28,12 +28,21 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
   const [name, setName] = useState('My Telegram Bot')
   // Telegram
   const [botToken, setBotToken] = useState('')
+  const [agentId, setAgentId] = useState('')
+  const [agents, setAgents] = useState<Agent[]>([])
   // Azure DevOps
   const [azureOrg, setAzureOrg] = useState('')
   const [azurePat, setAzurePat] = useState('')
 
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.agents.list().then(list => {
+      setAgents(list)
+      if (list.length > 0 && !agentId) setAgentId(list[0].id)
+    })
+  }, [])
 
   function handleTypeChange(t: ConnectorType) {
     setType(t)
@@ -52,6 +61,7 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
     setError(null)
     if (!name.trim()) { setError('Name is required.'); return }
     if (type === 'telegram' && !botToken.trim()) { setError('Bot token is required.'); return }
+    if (type === 'telegram' && !agentId) { setError('Please select an agent to handle messages.'); return }
     if (type === 'azure_devops') {
       if (!azureOrg.trim()) { setError('Organization is required.'); return }
       if (!azurePat.trim()) { setError('Personal Access Token is required.'); return }
@@ -59,7 +69,7 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
     setSaving(true)
     try {
       let config: Record<string, string> = {}
-      if (type === 'telegram') config = { bot_token: botToken.trim() }
+      if (type === 'telegram') config = { bot_token: botToken.trim(), agent_id: agentId }
       if (type === 'azure_devops') config = { organization: azureOrg.trim(), pat: azurePat.trim() }
       const connector = await api.connectors.create({
         name: name.trim(),
@@ -94,11 +104,21 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
             <input className={styles.input} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. My Bot" />
           </label>
           {type === 'telegram' && (
-            <label className={styles.fieldLabel}>
-              Bot Token
-              <input className={styles.input} value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="123456789:ABCdef..." autoComplete="off" />
-              <span className={styles.hint}>Get from <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> on Telegram.</span>
-            </label>
+            <>
+              <label className={styles.fieldLabel}>
+                Bot Token
+                <input className={styles.input} value={botToken} onChange={e => setBotToken(e.target.value)} placeholder="123456789:ABCdef..." autoComplete="off" />
+                <span className={styles.hint}>Get from <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> on Telegram.</span>
+              </label>
+              <label className={styles.fieldLabel}>
+                Agent
+                <select className={styles.select} value={agentId} onChange={e => setAgentId(e.target.value)}>
+                  {agents.length === 0 && <option value="">No agents available</option>}
+                  {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <span className={styles.hint}>The agent that will respond to incoming Telegram messages.</span>
+              </label>
+            </>
           )}
           {type === 'azure_devops' && (
             <>

@@ -16,6 +16,7 @@ pub mod knowledge_entry;
 pub mod llm_connector;
 pub mod settings;
 pub mod skill;
+pub mod telegram_chat;
 
 pub use bootstrap::{
     bootstrap_database,

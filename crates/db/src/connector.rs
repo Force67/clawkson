@@ -99,6 +99,32 @@ pub async fn set_enabled(
     Ok(row)
 }
 
+/// List all enabled connectors of a given type (across all users).
+pub async fn list_enabled_by_type(db: &Db, ct: ConnectorType) -> Result<Vec<ConnectorRow>, DbError> {
+    let rows = sqlx::query_as::<_, ConnectorRow>(
+        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+         FROM connectors
+         WHERE connector_type = $1 AND enabled = TRUE
+         ORDER BY created_at ASC",
+    )
+    .bind(ct)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows)
+}
+
+pub async fn get_by_id(db: &Db, id: Uuid) -> Result<Option<ConnectorRow>, DbError> {
+    let row = sqlx::query_as::<_, ConnectorRow>(
+        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+         FROM connectors
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row)
+}
+
 pub async fn delete(db: &Db, id: Uuid, user_id: Uuid) -> Result<bool, DbError> {
     let result = sqlx::query("DELETE FROM connectors WHERE id = $1 AND user_id = $2")
         .bind(id)

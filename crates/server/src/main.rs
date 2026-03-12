@@ -86,6 +86,9 @@ async fn main() -> Result<()> {
     // ── HTTP server ───────────────────────────────────────────────
     let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3);
 
+    // ── Telegram bot pollers ──────────────────────────────────────
+    clawkson_api::telegram::boot_pollers(&state, &state.telegram).await;
+
     let frontend_origin = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| "http://localhost:5173".to_string());
     let cors = CorsLayer::new()
@@ -93,6 +96,8 @@ async fn main() -> Result<()> {
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::COOKIE, header::AUTHORIZATION])
         .allow_credentials(true);
+
+    let tg_shutdown = state.telegram.clone();
 
     let app = Router::new()
         .nest("/api", clawkson_api::routes::api_router())
@@ -106,12 +111,13 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    // Graceful shutdown: stop containers on SIGTERM/SIGINT
+    // Graceful shutdown: stop containers and telegram pollers on SIGTERM/SIGINT
     let cm_shutdown = container_manager.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("shutdown signal received");
+            tg_shutdown.shutdown().await;
             if let Some(cm) = cm_shutdown {
                 cm.shutdown().await;
             }

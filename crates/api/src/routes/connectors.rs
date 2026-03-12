@@ -53,6 +53,25 @@ fn row_to_connector(row: db_connector::ConnectorRow) -> Connector {
     }
 }
 
+/// Try to start/stop Telegram polling based on connector state.
+async fn sync_telegram_poller(state: &AppState, row: &db_connector::ConnectorRow) {
+    if row.connector_type != db_connector::ConnectorType::Telegram {
+        return;
+    }
+
+    if row.enabled {
+        let bot_token = row.config.get("bot_token").and_then(|v| v.as_str());
+        let agent_id = row.config.get("agent_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::parse_str(s).ok());
+        if let (Some(token), Some(aid)) = (bot_token, agent_id) {
+            state.telegram.start(state.clone(), row.id, row.user_id, token.to_string(), aid).await;
+        }
+    } else {
+        state.telegram.stop(row.id).await;
+    }
+}
+
 // ── Handlers ───────────────────────────────────────────────────────
 
 async fn list_connectors(
@@ -100,6 +119,10 @@ async fn create_connector(
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Start Telegram polling if applicable
+    sync_telegram_poller(&state, &row).await;
+
     Ok(Json(row_to_connector(row)))
 }
 
@@ -119,6 +142,10 @@ async fn patch_connector(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Start or stop Telegram polling based on new state
+    sync_telegram_poller(&state, &row).await;
+
     Ok(Json(row_to_connector(row)))
 }
 
@@ -127,6 +154,9 @@ async fn delete_connector(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
+    // Stop Telegram polling before delete
+    state.telegram.stop(id).await;
+
     match db_connector::delete(&state.db, id, auth.id()).await {
         Ok(true) => StatusCode::NO_CONTENT,
         Ok(false) => StatusCode::NOT_FOUND,

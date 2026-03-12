@@ -156,7 +156,7 @@ async fn can_write(state: &AppState, conv_id: Uuid, user_id: Uuid, is_admin: boo
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Resolve the LLM connector for a conversation's agent.
-async fn resolve_connector_id(
+pub(crate) async fn resolve_connector_id(
     state: &AppState,
     agent_id: Uuid,
 ) -> Option<Uuid> {
@@ -593,16 +593,16 @@ async fn attach_workspace_outputs(
 }
 
 /// Load agent config for chat handlers.
-struct AgentConfig {
-    agent_id: Uuid,
-    system_prompt: Option<String>,
-    temperature: Option<f64>,
-    max_tokens: Option<u32>,
-    container_enabled: bool,
-    container_config: Option<clawkson_core::AgentContainerConfig>,
+pub(crate) struct AgentConfig {
+    pub(crate) agent_id: Uuid,
+    pub(crate) system_prompt: Option<String>,
+    pub(crate) temperature: Option<f64>,
+    pub(crate) max_tokens: Option<u32>,
+    pub(crate) container_enabled: bool,
+    pub(crate) container_config: Option<clawkson_core::AgentContainerConfig>,
 }
 
-async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
+pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
     let row = clawkson_db::agent::get_by_id(&state.db, agent_id).await.ok()??;
 
     // Load linked skills and build enriched system prompt
@@ -776,7 +776,7 @@ async fn expand_skill_references(
 }
 
 /// Load an LLM connector from DB by ID.
-async fn load_llm_connector(state: &AppState, id: Uuid) -> Option<LlmConnector> {
+pub(crate) async fn load_llm_connector(state: &AppState, id: Uuid) -> Option<LlmConnector> {
     let row = clawkson_db::llm_connector::get_by_id(&state.db, id).await.ok()??;
     Some(row_to_llm_connector(row))
 }
@@ -801,10 +801,10 @@ fn row_to_llm_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> Llm
 }
 
 /// A history entry: (role, text_content, attachment_rows_for_this_message).
-type HistoryEntry = (MessageRole, String, Vec<clawkson_db::chat_attachment::ChatAttachmentRow>);
+pub(crate) type HistoryEntry = (MessageRole, String, Vec<clawkson_db::chat_attachment::ChatAttachmentRow>);
 
 /// Load message history from DB for a conversation, including attachment metadata per message.
-async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntry>, StatusCode> {
+pub(crate) async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntry>, StatusCode> {
     let rows = clawkson_db::message::list_for_conversation(&state.db, conv_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -834,7 +834,7 @@ async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntr
 /// read each page. Non-PDF attachments (images) are passed through as data URLs.
 ///
 /// Returns a plain `Vec<(MessageRole, String, Vec<String>)>` ready for `llm.rs`.
-async fn enrich_history(
+pub(crate) async fn enrich_history(
     state: &AppState,
     history: Vec<HistoryEntry>,
     supports_vision: bool,
@@ -936,7 +936,7 @@ async fn enrich_history(
 /// Build the tool registry for an agent (code execution + knowledge search + http).
 /// When `search_enabled` is false the knowledge tools are omitted even if the
 /// agent has linked knowledge bases.
-async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
+pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
 
     // Code execution tool (requires container)
@@ -1021,7 +1021,7 @@ async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversa
 }
 
 /// Run LLM completion with optional tool-calling.
-async fn run_completion(
+pub(crate) async fn run_completion(
     state: &AppState,
     connector: &clawkson_core::LlmConnector,
     agent_cfg: &AgentConfig,

@@ -18,21 +18,32 @@ Connectors are **user-scoped**: each connector belongs to the user who created i
 
 ## Telegram Connector
 
-The Telegram connector uses the [Bot API](https://core.telegram.org/bots/api) and requires a **bot token** obtained from [@BotFather](https://t.me/BotFather).
+The Telegram connector uses the [Bot API](https://core.telegram.org/bots/api) and provides **bidirectional messaging**: incoming Telegram messages are automatically routed to a configured agent, and the agent's responses are sent back to the chat.
+
+When enabled, a background long-polling task receives messages in real time. Each Telegram chat (user or group) maps to a separate Clawkson conversation, created automatically on the first message.
 
 ### Configuration
 
 | Field | Required | Description |
 |---|---|---|
 | `bot_token` | ✅ | Bot API token, e.g. `123456789:ABCdef...` |
+| `agent_id` | ✅ | UUID of the agent that handles incoming messages |
+
+### How it works
+
+1. The server starts a background poller for each enabled Telegram connector.
+2. When a user sends a message to your bot, the poller receives it via `getUpdates`.
+3. If this is the first message from that chat, a new conversation is created and linked to the configured agent.
+4. The message is saved, the agent's LLM runs completion (with tools, knowledge search, etc.), and the response is sent back to Telegram.
+5. All conversations are visible in the Clawkson UI under **Conversations** (titled "Telegram: \<name\>").
 
 ### Adding via the UI
 
 1. Go to **Connectors** in the sidebar.
 2. Click **Add Connector**.
 3. Select **Telegram** as the type.
-4. Enter a name and your bot token.
-5. Click **Add Connector** — the connector will appear in the list as enabled.
+4. Enter a name, your bot token, and select the agent to handle messages.
+5. Click **Add Connector** — polling starts immediately.
 
 ## Azure DevOps Connector
 
