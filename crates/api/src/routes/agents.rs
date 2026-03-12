@@ -30,6 +30,8 @@ pub struct CreateAgentRequest {
     pub max_tokens: Option<u32>,
     pub container_enabled: Option<bool>,
     pub container_config: Option<AgentContainerConfig>,
+    #[serde(default)]
+    pub shared: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +45,7 @@ pub struct PatchAgentRequest {
     pub status: Option<AgentStatus>,
     pub container_enabled: Option<bool>,
     pub container_config: Option<AgentContainerConfig>,
+    pub shared: Option<bool>,
 }
 
 /// Map DB row to API type.
@@ -63,9 +66,21 @@ fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
         max_tokens: row.max_tokens.map(|v| v as u32),
         container_enabled: row.container_enabled,
         container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
+        owner_id: row.owner_id,
+        shared: row.shared,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
+}
+
+/// Can the user see this agent? (owner, admin, or shared)
+fn can_access_agent(agent: &clawkson_db::agent::AgentRow, user_id: Uuid, is_admin: bool) -> bool {
+    is_admin || agent.shared || agent.owner_id == Some(user_id)
+}
+
+/// Can the user modify/delete this agent? (owner or admin only)
+fn can_manage_agent(agent: &clawkson_db::agent::AgentRow, user_id: Uuid, is_admin: bool) -> bool {
+    is_admin || agent.owner_id == Some(user_id)
 }
 
 fn status_to_db(s: &AgentStatus) -> clawkson_db::agent::AgentStatus {
@@ -77,15 +92,15 @@ fn status_to_db(s: &AgentStatus) -> clawkson_db::agent::AgentStatus {
     }
 }
 
-async fn list_agents(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
-    let rows = clawkson_db::agent::list_all(&state.db)
+async fn list_agents(auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
+    let rows = clawkson_db::agent::list_for_user(&state.db, auth.id(), auth.is_admin())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(rows.into_iter().map(row_to_agent).collect()))
 }
 
 async fn get_agent(
-    _auth: AuthUser,
+    auth: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Agent>, StatusCode> {
@@ -93,6 +108,11 @@ async fn get_agent(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !can_access_agent(&row, auth.id(), auth.is_admin()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     Ok(Json(row_to_agent(row)))
 }
 
@@ -101,7 +121,8 @@ async fn create_agent(
     State(state): State<AppState>,
     Json(req): Json<CreateAgentRequest>,
 ) -> Result<Json<Agent>, StatusCode> {
-    if !auth.is_admin() {
+    // Only admins can create shared agents
+    if req.shared && !auth.is_admin() {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -120,6 +141,8 @@ async fn create_agent(
         req.max_tokens.map(|v| v as i32),
         req.container_enabled.unwrap_or(false),
         container_config_json,
+        auth.id(),
+        req.shared,
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -133,7 +156,17 @@ async fn patch_agent(
     Path(id): Path<Uuid>,
     Json(req): Json<PatchAgentRequest>,
 ) -> Result<Json<Agent>, StatusCode> {
-    if !auth.is_admin() {
+    let existing = clawkson_db::agent::get_by_id(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Only admins can toggle shared
+    if req.shared.is_some() && !auth.is_admin() {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -149,6 +182,7 @@ async fn patch_agent(
         req.max_tokens.map(|v| Some(v as i32)),
         req.container_enabled,
         req.container_config.as_ref().map(|c| Some(serde_json::to_value(c).unwrap_or_default())),
+        req.shared,
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -162,7 +196,13 @@ async fn delete_agent(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> StatusCode {
-    if !auth.is_admin() {
+    let existing = match clawkson_db::agent::get_by_id(&state.db, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
         return StatusCode::FORBIDDEN;
     }
 
@@ -220,7 +260,12 @@ async fn link_agent_skill(
     Path(id): Path<Uuid>,
     Json(req): Json<LinkSkillRequest>,
 ) -> StatusCode {
-    if !auth.is_admin() {
+    let existing = match clawkson_db::agent::get_by_id(&state.db, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
         return StatusCode::FORBIDDEN;
     }
 
@@ -235,7 +280,12 @@ async fn unlink_agent_skill(
     State(state): State<AppState>,
     Path((id, skill_id)): Path<(Uuid, Uuid)>,
 ) -> StatusCode {
-    if !auth.is_admin() {
+    let existing = match clawkson_db::agent::get_by_id(&state.db, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
         return StatusCode::FORBIDDEN;
     }
 

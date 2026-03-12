@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown, ChevronRight,
   Loader2, Cpu, Thermometer, Hash, Container,
-  BookOpen, Zap, Search, Filter,
+  BookOpen, Zap, Search, Filter, Share2,
   Shield, HardDrive, Terminal, Database,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
@@ -20,6 +20,7 @@ import {
   type AgentPermissions,
   type FilesystemMode,
 } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import styles from './Agents.module.css'
 
 const DEFAULT_PERMISSIONS: AgentPermissions = {
@@ -42,6 +43,10 @@ interface ConfigPanelProps {
 }
 
 function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClose }: ConfigPanelProps) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const isOwner = user?.id === agent.owner_id
+  const canManage = isAdmin || isOwner
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
@@ -215,6 +220,29 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                 placeholder="What does this agent do?"
               />
             </div>
+            {isAdmin && (
+              <div className={styles.formGroup}>
+                <label className={styles.toggleLabel}>
+                  <input
+                    type="checkbox"
+                    checked={agent.shared}
+                    onChange={async () => {
+                      try {
+                        const updated = await api.agents.patch(agent.id, { shared: !agent.shared })
+                        onSave(updated)
+                      } catch (err) {
+                        console.error('Failed to toggle shared:', err)
+                      }
+                    }}
+                    className={styles.checkbox}
+                  />
+                  <Share2 size={11} /> Shared with all users
+                </label>
+                <p className={styles.fieldHint}>
+                  Shared agents are visible and usable by everyone. Unshared agents are only visible to the owner.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className={styles.fieldSection}>
@@ -687,12 +715,13 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
 interface AgentCardProps {
   agent: Agent
   connector?: LlmConnector
+  canManage: boolean
   onConfigure: () => void
   onDelete: () => void
   onStatusChange: (status: AgentStatus) => void
 }
 
-function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
+function AgentCard({ agent, connector, canManage, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
@@ -718,6 +747,7 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
         {agent.temperature != null && <span className={styles.configTag}><Thermometer size={10} /> {agent.temperature}</span>}
         {agent.max_tokens != null && <span className={styles.configTag}><Hash size={10} /> {agent.max_tokens}</span>}
         {agent.container_enabled && <span className={styles.configTag}><Container size={10} /> Sandbox</span>}
+        {agent.shared && <span className={styles.configTag}><Share2 size={10} /> Shared</span>}
       </div>
 
       <div className={styles.agentCardActions}>
@@ -732,14 +762,16 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
             </button>
           ))}
         </div>
-        <div className={styles.agentCardBtns}>
-          <button className={styles.configureBtn} onClick={onConfigure} title="Configure agent">
-            <Settings2 size={13} /> Config
-          </button>
-          <button className={styles.deleteAgentBtn} onClick={onDelete} title="Delete agent">
-            <Trash2 size={13} />
-          </button>
-        </div>
+        {canManage && (
+          <div className={styles.agentCardBtns}>
+            <button className={styles.configureBtn} onClick={onConfigure} title="Configure agent">
+              <Settings2 size={13} /> Config
+            </button>
+            <button className={styles.deleteAgentBtn} onClick={onDelete} title="Delete agent">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -748,6 +780,8 @@ function AgentCard({ agent, connector, onConfigure, onDelete, onStatusChange }: 
 // ── Page ──────────────────────────────────────────────────────────
 
 export function AgentsPage() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [agents, setAgents] = useState<Agent[]>([])
   const [connectors, setConnectors] = useState<LlmConnector[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
@@ -875,6 +909,7 @@ export function AgentsPage() {
               key={agent.id}
               agent={agent}
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
+              canManage={isAdmin || agent.owner_id === user?.id}
               onConfigure={() => setConfiguring(agent)}
               onDelete={() => handleDelete(agent.id)}
               onStatusChange={status => handleStatusChange(agent.id, status)}

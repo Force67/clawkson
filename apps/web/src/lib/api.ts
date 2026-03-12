@@ -128,6 +128,8 @@ export interface Agent {
   max_tokens: number | null
   container_enabled: boolean
   container_config: AgentContainerConfig | null
+  owner_id?: string | null
+  shared: boolean
   created_at: string
   updated_at: string
 }
@@ -345,6 +347,7 @@ export interface CreateAgentRequest {
   max_tokens?: number
   container_enabled?: boolean
   container_config?: AgentContainerConfig
+  shared?: boolean
 }
 
 export interface PatchAgentRequest {
@@ -357,6 +360,7 @@ export interface PatchAgentRequest {
   status?: AgentStatus
   container_enabled?: boolean
   container_config?: AgentContainerConfig
+  shared?: boolean
 }
 
 export interface CreateConversationRequest {

@@ -24,6 +24,12 @@ pub struct Agent {
     /// Optional container resource configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_config: Option<AgentContainerConfig>,
+    /// The user who owns this agent. `None` for legacy agents with no owner.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Uuid>,
+    /// Whether this agent is visible to all users.
+    #[serde(default)]
+    pub shared: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
