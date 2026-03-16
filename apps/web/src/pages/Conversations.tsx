@@ -1,9 +1,30 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2 } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo } from '../lib/api'
 import styles from './Conversations.module.css'
+
+// ── Markdown renderer ───────────────────────────────────────────
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        a: ({ href, children, ...props }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+        ),
+      }}
+    >
+      {content}
+    </Markdown>
+  )
+}
 
 // ── New Conversation Dialog ───────────────────────────────────────
 
@@ -95,11 +116,50 @@ function AttachmentIcon({ contentType }: { contentType: string }) {
   return <FileIcon size={11} />
 }
 
+function ArtifactPreview({ id, filename }: { id: string; filename: string }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className={styles.artifactFrame}>
+      <div className={styles.artifactHeader}>
+        <FileText size={12} />
+        <span className={styles.artifactHeaderName}>{filename}</span>
+        <a
+          href={api.uploads.downloadUrl(id)}
+          download={filename}
+          className={styles.artifactDownload}
+          title="Download"
+          onClick={e => e.stopPropagation()}
+        >
+          <Download size={12} />
+        </a>
+      </div>
+      <iframe
+        src={api.uploads.downloadUrl(id)}
+        sandbox="allow-scripts"
+        className={`${styles.artifactIframe} ${expanded ? styles.artifactIframeExpanded : ''}`}
+        title={filename}
+      />
+      <button
+        className={styles.artifactToggle}
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        {expanded ? <><Minimize2 size={10} /> Collapse</> : <><Maximize2 size={10} /> Expand</>}
+      </button>
+    </div>
+  )
+}
+
 function MsgBubble({ msg, agentName }: MsgBubbleProps) {
   const isUser = msg.role === 'user'
   const attachments = msg.attachments ?? []
   const imageAttachments = attachments.filter(a => a.content_type.startsWith('image/'))
-  const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/'))
+  const htmlAttachments = isUser ? [] : attachments.filter(a =>
+    a.content_type === 'text/html' || a.filename.endsWith('.html') || a.filename.endsWith('.htm')
+  )
+  const htmlIds = new Set(htmlAttachments.map(a => a.id))
+  const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/') && !htmlIds.has(a.id))
+
   return (
     <div className={`${styles.messageRow} ${isUser ? styles.messageRowUser : styles.messageRowAssistant}`}>
       <div className={`${styles.bubble} ${isUser ? styles.bubbleUser : styles.bubbleAssistant}`}>
@@ -110,7 +170,11 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
           </div>
         )}
         <div className={`${styles.bubbleContent} ${isUser ? styles.bubbleContentUser : styles.bubbleContentAssistant}`}>
-          {msg.content}
+          {isUser ? msg.content : (
+            <div className={styles.markdown}>
+              <MarkdownContent content={msg.content} />
+            </div>
+          )}
         </div>
         {imageAttachments.length > 0 && (
           <div className={styles.msgImages}>
@@ -127,6 +191,13 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
                   {att.filename}
                 </span>
               </a>
+            ))}
+          </div>
+        )}
+        {htmlAttachments.length > 0 && (
+          <div className={styles.artifactPreview}>
+            {htmlAttachments.map(att => (
+              <ArtifactPreview key={att.id} id={att.id} filename={att.filename} />
             ))}
           </div>
         )}
@@ -279,6 +350,43 @@ function ActivityFeed({ steps }: { steps: ActivityStep[] }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── Live Preview (container web server) ──────────────────────────
+
+function LivePreview({ preview }: { preview: PreviewInfo }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className={styles.artifactFrame}>
+      <div className={styles.artifactHeader}>
+        <Globe size={12} />
+        <span className={styles.artifactHeaderName}>{preview.title}</span>
+        <span className={styles.previewPort}>:{preview.port}</span>
+        <a
+          href={preview.preview_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.artifactDownload}
+          title="Open in new tab"
+        >
+          <Maximize2 size={12} />
+        </a>
+      </div>
+      <iframe
+        src={preview.preview_url}
+        sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+        className={`${styles.artifactIframe} ${expanded ? styles.artifactIframeExpanded : ''}`}
+        title={preview.title}
+      />
+      <button
+        className={styles.artifactToggle}
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        {expanded ? <><Minimize2 size={10} /> Collapse</> : <><Maximize2 size={10} /> Expand</>}
+      </button>
     </div>
   )
 }
@@ -507,6 +615,7 @@ export function ConversationsPage() {
   const [skillDropdownIndex, setSkillDropdownIndex] = useState(0)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
+  const [livePreview, setLivePreview] = useState<PreviewInfo | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -574,6 +683,7 @@ export function ConversationsPage() {
     setStreamBuffer('')
     setReasoningBuffer('')
     setActivitySteps([])
+    setLivePreview(null)
 
     // Upload pending files first
     let attachmentIds: string[] = []
@@ -676,6 +786,19 @@ export function ConversationsPage() {
               durationMs: event.duration_ms,
             } : s)
           })
+          // Detect start_preview tool and extract preview info
+          if (event.name === 'start_preview' && event.ok && event.result) {
+            try {
+              const data = JSON.parse(event.result)
+              if (data.preview_url) {
+                setLivePreview({
+                  preview_url: data.preview_url,
+                  port: data.port,
+                  title: data.title || 'Live Preview',
+                })
+              }
+            } catch { /* not JSON */ }
+          }
         }
       },
     )
@@ -1036,9 +1159,11 @@ export function ConversationsPage() {
                         <ReasoningBlock content={reasoningBuffer} isStreaming={!streamBuffer} />
                       )}
                       {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
+                      {livePreview && <LivePreview preview={livePreview} />}
                       <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant}`}>
-                        {streamBuffer}
-                        <span className={styles.cursor} />
+                        <div className={`${styles.markdown} ${styles.markdownStreaming}`}>
+                          <MarkdownContent content={streamBuffer} />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1055,6 +1180,7 @@ export function ConversationsPage() {
                         <ReasoningBlock content={reasoningBuffer} isStreaming />
                       )}
                       {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
+                      {livePreview && <LivePreview preview={livePreview} />}
                       {!reasoningBuffer && activitySteps.length === 0 && (
                         <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant} ${styles.thinking}`}>
                           <span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} />

@@ -1066,6 +1066,11 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
             let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
+
+            // Live preview tool — lets the agent register a web server for inline display
+            let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, conversation_id);
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(preview_tool.into_dyn(), "start_preview".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
         }
     }
 

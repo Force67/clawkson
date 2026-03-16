@@ -447,6 +447,78 @@ impl KernelFunction for WorkspaceListTool {
     }
 }
 
+// ── Start Preview Tool ────────────────────────────────────────────
+
+/// A tool that registers a live preview of a web server running in the sandbox.
+/// When the agent starts a server, it calls this tool to make it accessible
+/// through the reverse proxy and visible to the user in the chat.
+pub struct StartPreviewTool {
+    agent_id: Uuid,
+    conversation_id: Uuid,
+}
+
+impl StartPreviewTool {
+    pub fn new(agent_id: Uuid, conversation_id: Uuid) -> Self {
+        Self { agent_id, conversation_id }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StartPreviewArgs {
+    port: u16,
+    title: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for StartPreviewTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("start_preview")
+            .with_description(
+                "Register a live preview of a web server running in the sandbox container. \
+                 Call this AFTER you have started a web server (e.g. python -m http.server, \
+                 flask run, node http-server) to display it inline in the chat. \
+                 The preview appears as an interactive iframe the user can see and interact with.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("port", serde_json::json!({ "type": "integer" }))
+                .with_description("The port number the web server is listening on"),
+        );
+        def.add_parameter(
+            FunctionParameter::new("title", serde_json::json!({ "type": "string" }))
+                .with_description("A display title for the preview (e.g. 'Dashboard', 'Chart')")
+                .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: StartPreviewArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for start_preview: {e}"
+            ))
+        })?;
+
+        let title = args.title.unwrap_or_else(|| "Live Preview".to_string());
+        let preview_url = format!(
+            "/api/agents/{}/container/preview/{}/?conversation_id={}",
+            self.agent_id, args.port, self.conversation_id,
+        );
+
+        Ok(serde_json::json!({
+            "preview_url": preview_url,
+            "port": args.port,
+            "title": title,
+            "status": "ready",
+        }))
+    }
+}
+
 // ── Knowledge List Tool ───────────────────────────────────────────
 
 /// A tool that lets agents list their linked knowledge bases.

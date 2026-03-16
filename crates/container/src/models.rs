@@ -48,6 +48,9 @@ pub struct ContainerInfo {
     pub state: ContainerState,
     pub image: String,
     pub workspace_path: String,
+    /// Container IP on the internal proxy network (if connected).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
 }
 
 /// Container lifecycle states.

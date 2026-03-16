@@ -23,6 +23,8 @@ const MAX_TIMEOUT: u64 = 300;
 const LABEL_PREFIX: &str = "clawkson";
 /// Default output directory scanned after exec (relative to workspace root).
 const DEFAULT_OUTPUT_DIR: &str = "outputs";
+/// Internal Docker network for proxy access (no internet, host-reachable).
+const INTERNAL_NETWORK: &str = "clawkson-internal";
 
 /// Composite key for per-conversation container isolation.
 type ContainerKey = (Uuid, Uuid); // (agent_id, conversation_id)
@@ -41,6 +43,27 @@ impl ContainerManager {
         // Verify Docker connection
         docker.ping().await?;
         tracing::info!("connected to Docker daemon");
+
+        // Ensure the internal proxy network exists.
+        // This network has no internet access but is reachable from the host,
+        // enabling the reverse proxy to route requests to container web servers.
+        if docker
+            .inspect_network::<&str>(INTERNAL_NETWORK, None)
+            .await
+            .is_err()
+        {
+            use bollard::network::CreateNetworkOptions;
+            let net_config = CreateNetworkOptions {
+                name: INTERNAL_NETWORK,
+                internal: true,
+                driver: "bridge",
+                ..Default::default()
+            };
+            match docker.create_network(net_config).await {
+                Ok(_) => tracing::info!("created internal Docker network '{INTERNAL_NETWORK}'"),
+                Err(e) => tracing::warn!("failed to create internal network: {e} (proxy preview will be unavailable)"),
+            }
+        }
 
         std::fs::create_dir_all(&workspace_root)?;
 
@@ -140,13 +163,11 @@ impl ContainerManager {
 
         let perms = &config.permissions;
 
-        // Network: use permissions.network.enabled, falling back to legacy field
+        // Network: always attach to the internal proxy network so the host can
+        // reach container web servers.  If internet access is also requested,
+        // we connect to the default bridge after creation.
         let net_enabled = perms.network.enabled || config.network_enabled;
-        let network_mode = if net_enabled {
-            None // use default bridge
-        } else {
-            Some("none".to_string())
-        };
+        let network_mode = Some(INTERNAL_NETWORK.to_string());
 
         // Filesystem: bind mount mode from permissions
         let binds = match perms.filesystem.mode {
@@ -219,6 +240,35 @@ impl ContainerManager {
             .start_container::<String>(&response.id, None)
             .await?;
 
+        // If internet access is requested, also connect to the default bridge.
+        if net_enabled {
+            use bollard::network::ConnectNetworkOptions;
+            use bollard::models::EndpointSettings;
+            let connect = ConnectNetworkOptions {
+                container: response.id.as_str(),
+                endpoint_config: EndpointSettings::default(),
+            };
+            if let Err(e) = self.docker.connect_network("bridge", connect).await {
+                tracing::warn!("failed to connect container to bridge network: {e}");
+            }
+        }
+
+        // Retrieve the container IP on the internal proxy network.
+        let ip_address = self
+            .docker
+            .inspect_container(&response.id, None)
+            .await
+            .ok()
+            .and_then(|inspect| inspect.network_settings)
+            .and_then(|ns| ns.networks)
+            .and_then(|nets| nets.get(INTERNAL_NETWORK).cloned())
+            .and_then(|ep| ep.ip_address)
+            .filter(|ip| !ip.is_empty());
+
+        if let Some(ref ip) = ip_address {
+            tracing::info!(%agent_id, %conversation_id, ip, "container reachable on internal network");
+        }
+
         let info = ContainerInfo {
             agent_id,
             conversation_id,
@@ -226,6 +276,7 @@ impl ContainerManager {
             state: ContainerState::Running,
             image: config.image.clone(),
             workspace_path: workspace_str,
+            ip_address,
         };
 
         self.containers.write().await.insert(key, info.clone());

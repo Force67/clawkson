@@ -820,6 +820,12 @@ export interface ToolEvent {
   duration_ms?: number
 }
 
+export interface PreviewInfo {
+  preview_url: string
+  port: number
+  title: string
+}
+
 export interface StreamChunk {
   delta?: string
   reasoning_delta?: string

@@ -392,6 +392,8 @@ fn tool_result_summary(name: &str, result_str: &str, ok: bool) -> String {
                 .as_array()
                 .map(|a| format!("{} results", a.len()))
                 .unwrap_or_else(|| "done".into()),
+            // Pass through full result for start_preview so the frontend gets the URL
+            "start_preview" => result_str.to_string(),
             _ => "done".into(),
         }
     } else {
@@ -456,7 +458,11 @@ pub async fn complete_with_tools_streaming(
 
         if response.message.tool_calls.is_empty() {
             let text = sanitize_tool_artifacts(&response.message.content.unwrap_or_default());
-            let _ = tx.try_send(text.clone());
+            // Stream line-by-line for a flowing appearance
+            for line in text.split_inclusive('\n') {
+                let _ = tx.try_send(line.to_string());
+            }
+            // If text doesn't end with newline, the last chunk was already sent
             return Ok(text);
         }
 
@@ -532,7 +538,9 @@ pub async fn complete_with_tools_streaming(
     let request = CompletionRequest::new(connector.model.clone(), messages);
     let response = provider.complete(request).await?;
     let text = sanitize_tool_artifacts(&response.message.content.unwrap_or_default());
-    let _ = tx.try_send(text.clone());
+    for line in text.split_inclusive('\n') {
+        let _ = tx.try_send(line.to_string());
+    }
     Ok(text)
 }
 

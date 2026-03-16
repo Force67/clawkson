@@ -1,6 +1,8 @@
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -18,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/", delete(remove_container).get(get_container))
         .route("/logs", get(get_logs))
         .route("/exec", post(exec_command))
+        .route("/preview/{*rest}", get(container_preview))
 }
 
 /// Standalone router for the /api/containers prefix (list all).
@@ -241,6 +244,112 @@ async fn exec_command(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
     Ok(Json(result))
+}
+
+// ── Container preview reverse proxy ──────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct PreviewQuery {
+    conversation_id: Uuid,
+}
+
+/// GET /api/agents/{id}/container/preview/{*rest}
+///
+/// Reverse-proxy HTTP requests to a web server running inside the container.
+/// `{*rest}` captures `{port}/optional/path...` — we split it ourselves.
+/// The container must be on the `clawkson-internal` Docker network.
+async fn container_preview(
+    auth: AuthUser,
+    state: State<AppState>,
+    Path((agent_id, rest)): Path<(Uuid, String)>,
+    query: Query<PreviewQuery>,
+    req: axum::http::Request<Body>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    // rest = "8000/" or "8000/some/path"
+    let (port_str, path) = rest.split_once('/').unwrap_or((&rest, ""));
+    let port: u16 = port_str.parse().map_err(|_| {
+        (StatusCode::BAD_REQUEST, err_json("invalid port number"))
+    })?;
+    do_container_preview(auth, state, agent_id, port, path.to_string(), query, req).await
+}
+
+async fn do_container_preview(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    agent_id: Uuid,
+    port: u16,
+    path: String,
+    Query(query): Query<PreviewQuery>,
+    req: axum::http::Request<Body>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+
+    let cm = state
+        .container_manager
+        .as_ref()
+        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
+
+    let info = cm
+        .get_container(agent_id, query.conversation_id)
+        .await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("no container for this conversation")))?;
+
+    let ip = info
+        .ip_address
+        .as_deref()
+        .ok_or_else(|| (StatusCode::BAD_GATEWAY, err_json("container has no proxy IP")))?;
+
+    let target_url = format!("http://{}:{}/{}", ip, port, path);
+
+    // Build the proxied request, forwarding the original method and relevant headers.
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
+
+    let mut proxy_req = client.request(req.method().clone(), &target_url);
+
+    // Forward a few useful headers from the original request.
+    for key in ["accept", "accept-language", "content-type", "range"] {
+        if let Some(val) = req.headers().get(key) {
+            proxy_req = proxy_req.header(key, val);
+        }
+    }
+
+    let proxy_resp = proxy_req
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, err_json(format!("proxy error: {e}"))))?;
+
+    // Forward the response status, headers, and body.
+    let status = StatusCode::from_u16(proxy_resp.status().as_u16())
+        .unwrap_or(StatusCode::BAD_GATEWAY);
+
+    let mut builder = axum::http::Response::builder().status(status);
+
+    // Forward content-related headers.
+    for key in [
+        "content-type",
+        "content-length",
+        "content-disposition",
+        "cache-control",
+        "etag",
+        "last-modified",
+        "location",
+    ] {
+        if let Some(val) = proxy_resp.headers().get(key) {
+            builder = builder.header(key, val);
+        }
+    }
+
+    let body = proxy_resp
+        .bytes()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, err_json(format!("body read error: {e}"))))?;
+
+    builder
+        .body(Body::from(body))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))
 }
 
 /// GET /api/containers — list all active containers across all agents.
