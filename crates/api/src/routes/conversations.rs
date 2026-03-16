@@ -894,6 +894,7 @@ pub(crate) async fn enrich_history(
     state: &AppState,
     history: Vec<HistoryEntry>,
     supports_vision: bool,
+    container_enabled: bool,
 ) -> Vec<(MessageRole, String, Vec<String>)> {
     let mut enriched = Vec::with_capacity(history.len());
     for (role, mut content, attachments) in history {
@@ -950,10 +951,18 @@ pub(crate) async fn enrich_history(
                                 } else {
                                     // Non-image, non-PDF attachment — describe inline.
                                     let kb = att.size_bytes / 1024;
-                                    content.push_str(&format!(
-                                        "\n\n[Attached file: {} ({}, {} KB)]",
-                                        att.filename, att.content_type, kb
-                                    ));
+                                    if container_enabled {
+                                        let safe_name = att.filename.replace(['/', '\\', '\0'], "_");
+                                        content.push_str(&format!(
+                                            "\n\n[Attached file: {} ({}, {} KB) — available at /workspace/inputs/{}]",
+                                            att.filename, att.content_type, kb, safe_name
+                                        ));
+                                    } else {
+                                        content.push_str(&format!(
+                                            "\n\n[Attached file: {} ({}, {} KB)]",
+                                            att.filename, att.content_type, kb
+                                        ));
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -983,10 +992,18 @@ pub(crate) async fn enrich_history(
                         }
                     }
                     let kb = att.size_bytes / 1024;
-                    content.push_str(&format!(
-                        "\n\n[Attached file: {} ({}, {} KB) — image content not available for this model]",
-                        att.filename, att.content_type, kb
-                    ));
+                    if container_enabled {
+                        let safe_name = att.filename.replace(['/', '\\', '\0'], "_");
+                        content.push_str(&format!(
+                            "\n\n[Attached file: {} ({}, {} KB) — available at /workspace/inputs/{}]",
+                            att.filename, att.content_type, kb, safe_name
+                        ));
+                    } else {
+                        content.push_str(&format!(
+                            "\n\n[Attached file: {} ({}, {} KB) — image content not available for this model]",
+                            att.filename, att.content_type, kb
+                        ));
+                    }
                 }
             }
         }
@@ -1298,7 +1315,8 @@ async fn chat(
         use crate::llm::provider_supports_vision;
         provider_supports_vision(&connector)
     };
-    let history = enrich_history(&state, raw_history, supports_vision).await;
+    let agent_has_container = agent_cfg.as_ref().map(|c| c.container_enabled).unwrap_or(false);
+    let history = enrich_history(&state, raw_history, supports_vision, agent_has_container).await;
 
     // 6. Call LLM
     let default_cfg = AgentConfig {
@@ -1510,7 +1528,8 @@ async fn chat_stream(
         use crate::llm::provider_supports_vision;
         provider_supports_vision(&connector)
     };
-    let history = enrich_history(&state, raw_history, supports_vision).await;
+    let agent_has_container = agent_cfg.as_ref().map(|c| c.container_enabled).unwrap_or(false);
+    let history = enrich_history(&state, raw_history, supports_vision, agent_has_container).await;
 
     let default_cfg = AgentConfig {
         agent_id,

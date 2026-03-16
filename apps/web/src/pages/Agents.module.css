@@ -481,6 +481,28 @@
   margin-top: 4px;
 }
 
+/* ── Restart-needed banner ─────────────────────────────────── */
+
+.restartBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--warning);
+  background: rgba(192, 139, 26, 0.07);
+  border: 1px solid rgba(192, 139, 26, 0.18);
+  border-radius: 10px;
+  animation: fadeUp 0.2s ease-out;
+}
+
+.restartBanner svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
 .selectWrap {
   position: relative;
   display: flex;
@@ -704,6 +726,113 @@
 
 .permRow:hover {
   background: var(--bg-hover);
+}
+
+/* ── Storage Gauge (range slider) ────────────────────────────── */
+
+.storageGauge {
+  padding: 2px 0 8px;
+  margin-bottom: 4px;
+}
+
+.storageGauge[data-disabled] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.storageHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.storageHeader .label {
+  margin-bottom: 0;
+}
+
+.storageValue {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: -0.3px;
+}
+
+.storageTrack {
+  position: relative;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  overflow: visible;
+}
+
+:root[data-theme="dark"] .storageTrack {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.storageFill {
+  position: absolute;
+  inset: 0;
+  right: auto;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.35;
+  transition: width 0.1s ease-out;
+  pointer-events: none;
+}
+
+.storageRange {
+  position: absolute;
+  inset: -6px 0;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.storageRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15), 0 0 0 1px var(--accent-muted);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.storageRange::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.25), 0 0 0 3px var(--accent-muted);
+}
+
+.storageRange::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.storageRange::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+
+.storageStops {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+  user-select: none;
 }
 
 /* ── Connector Policies Modal ────────────────────────────────── */

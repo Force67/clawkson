@@ -183,7 +183,37 @@ impl ContainerManager {
         // Resource limits
         let pids_limit = perms.resources.max_processes;
         let readonly_rootfs = Some(perms.resources.readonly_rootfs);
-        let tmp_size = perms.resources.max_tmp_size_mb.unwrap_or(64);
+        let tmp_size = perms.resources.max_tmp_size_mb.unwrap_or(256);
+        let storage_size = perms.resources.max_storage_size_mb.unwrap_or(512);
+
+        // Build tmpfs mounts for writable areas the runtime needs.
+        // We mount a dedicated /opt/sandbox-packages tmpfs (not /usr/local, which
+        // would shadow Python/Node binaries on images like python:3.12-slim).
+        // Environment variables direct pip/npm to write into this tmpfs.
+        let mut tmpfs_mounts = HashMap::from([
+            ("/tmp".to_string(), format!("size={tmp_size}m")),
+            ("/var/tmp".to_string(), "size=32m".to_string()),
+            ("/root".to_string(), "size=64m".to_string()),
+        ]);
+        if perms.resources.readonly_rootfs && storage_size > 0 {
+            tmpfs_mounts.insert(
+                "/opt/sandbox-packages".to_string(),
+                format!("size={storage_size}m"),
+            );
+        }
+
+        // Environment: redirect pip/npm installs to the writable tmpfs and
+        // make installed binaries available on PATH.
+        let pkg_env = if perms.resources.readonly_rootfs && storage_size > 0 {
+            vec![
+                "PIP_TARGET=/opt/sandbox-packages/pip".to_string(),
+                "PYTHONPATH=/opt/sandbox-packages/pip".to_string(),
+                "NPM_CONFIG_PREFIX=/opt/sandbox-packages/npm".to_string(),
+                "PATH=/opt/sandbox-packages/pip/bin:/opt/sandbox-packages/npm/bin:/usr/local/bin:/usr/bin:/bin".to_string(),
+            ]
+        } else {
+            vec![]
+        };
 
         let host_config = HostConfig {
             binds,
@@ -200,14 +230,11 @@ impl ContainerManager {
                 "SETGID".to_string(),
             ]),
             readonly_rootfs,
-            // tmpfs for writable areas the runtime needs
-            tmpfs: Some(HashMap::from([
-                ("/tmp".to_string(), format!("size={tmp_size}m")),
-                ("/var/tmp".to_string(), "size=16m".to_string()),
-                ("/root".to_string(), "size=16m".to_string()),
-            ])),
+            tmpfs: Some(tmpfs_mounts),
             ..Default::default()
         };
+
+        let env = if pkg_env.is_empty() { None } else { Some(pkg_env) };
 
         let container_config = Config {
             image: Some(config.image.clone()),
@@ -215,6 +242,7 @@ impl ContainerManager {
             host_config: Some(host_config),
             working_dir: Some("/workspace".to_string()),
             cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+            env,
             ..Default::default()
         };
 

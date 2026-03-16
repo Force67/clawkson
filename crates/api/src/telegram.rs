@@ -316,7 +316,8 @@ async fn handle_message(
     let raw_history = load_history(state, conv_id).await
         .map_err(|_| anyhow::anyhow!("failed to load history"))?;
     let supports_vision = crate::llm::provider_supports_vision(&connector);
-    let history = enrich_history(state, raw_history, supports_vision).await;
+    let agent_has_container = agent_cfg.as_ref().map(|c| c.container_enabled).unwrap_or(false);
+    let history = enrich_history(state, raw_history, supports_vision, agent_has_container).await;
 
     // 6. Run completion
     let timeout_secs = clawkson_db::settings::get(&state.db)

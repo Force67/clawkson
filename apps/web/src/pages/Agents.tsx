@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown, ChevronRight,
-  Loader2, Cpu, Thermometer, Hash, Container,
+  Loader2, Cpu, Thermometer, Hash, Container, RotateCw,
   BookOpen, Zap, Search, Filter, Share2,
   Shield, HardDrive, Terminal, Database, Globe, X,
 } from 'lucide-react'
@@ -32,7 +32,7 @@ const DEFAULT_PERMISSIONS: AgentPermissions = {
   network: { enabled: false, internet: false, local_network: false, allowed_domains: [] },
   filesystem: { mode: 'read_write', max_workspace_size_mb: null },
   execution: { shell: true, python: true, allowed_runtimes: [], max_execution_time_secs: 300 },
-  resources: { max_processes: 256, max_tmp_size_mb: 64, readonly_rootfs: true },
+  resources: { max_processes: 256, max_tmp_size_mb: 256, max_storage_size_mb: 512, readonly_rootfs: true },
   data_access: { knowledge_bases: true, conversation_history: true },
 }
 
@@ -429,6 +429,33 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // Track running containers for this agent + whether container config changed
+  const [runningContainerCount, setRunningContainerCount] = useState(0)
+  const [containerConfigDirty, setContainerConfigDirty] = useState(false)
+  const savedConfig = useRef(agent.container_config)
+
+  useEffect(() => {
+    if (!agent.container_enabled) return
+    api.containers.list().then(containers => {
+      const running = containers.filter(c => c.agent_id === agent.id && c.state === 'running')
+      setRunningContainerCount(running.length)
+    }).catch(() => {})
+  }, [agent.id, agent.container_enabled])
+
+  // Mark dirty when any container resource field diverges from saved value
+  useEffect(() => {
+    if (runningContainerCount === 0) { setContainerConfigDirty(false); return }
+    const saved = savedConfig.current
+    const dirty =
+      (cpuLimit || null) !== (saved?.cpu_limit != null ? String(saved.cpu_limit) : null) ||
+      (memoryLimit || null) !== (saved?.memory_limit_mb != null ? String(saved.memory_limit_mb) : null) ||
+      permissions.resources.max_storage_size_mb !== (saved?.permissions?.resources.max_storage_size_mb ?? 512) ||
+      permissions.resources.max_tmp_size_mb !== (saved?.permissions?.resources.max_tmp_size_mb ?? 256) ||
+      permissions.resources.max_processes !== (saved?.permissions?.resources.max_processes ?? 256) ||
+      permissions.resources.readonly_rootfs !== (saved?.permissions?.resources.readonly_rootfs ?? true)
+    setContainerConfigDirty(dirty)
+  }, [cpuLimit, memoryLimit, permissions.resources, runningContainerCount])
+
   useEffect(() => {
     let cancelled = false
     const fetchLinked = async () => {
@@ -514,6 +541,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
           permissions,
         } : undefined,
       })
+      savedConfig.current = updated.container_config
       onSave(updated)
     } catch (err) {
       setError(String(err))
@@ -698,6 +726,15 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                 </div>
               </div>
             )}
+            {containerConfigDirty && runningContainerCount > 0 && (
+              <div className={styles.restartBanner}>
+                <RotateCw size={13} />
+                <span>
+                  {runningContainerCount} running container{runningContainerCount > 1 ? 's' : ''} will
+                  use the old config until restarted.
+                </span>
+              </div>
+            )}
           </div>
 
           {containerEnabled && (
@@ -872,6 +909,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                     <span className={styles.permGroupName}>Resources</span>
                     <span className={styles.permGroupSummary}>
                       {permissions.resources.readonly_rootfs ? 'Read-only rootfs' : 'Writable rootfs'}
+                      {permissions.resources.max_storage_size_mb ? ` · ${permissions.resources.max_storage_size_mb} MB storage` : ''}
                     </span>
                   </div>
                 </div>
@@ -888,6 +926,37 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                       onChange={e => updatePerm('resources', { readonly_rootfs: e.target.checked })}
                     />
                   </label>
+                  <div className={styles.storageGauge} data-disabled={!permissions.resources.readonly_rootfs || undefined}>
+                    <div className={styles.storageHeader}>
+                      <label className={styles.label}>Package storage</label>
+                      <span className={styles.storageValue}>
+                        {(permissions.resources.max_storage_size_mb ?? 512) >= 1024
+                          ? `${((permissions.resources.max_storage_size_mb ?? 512) / 1024).toFixed(1).replace(/\.0$/, '')} GB`
+                          : `${permissions.resources.max_storage_size_mb ?? 512} MB`}
+                      </span>
+                    </div>
+                    <div className={styles.storageTrack}>
+                      <div
+                        className={styles.storageFill}
+                        style={{ width: `${(((permissions.resources.max_storage_size_mb ?? 512) - 256) / (2048 - 256)) * 100}%` }}
+                      />
+                      <input
+                        type="range" min="256" max="2048" step="128"
+                        className={styles.storageRange}
+                        value={permissions.resources.max_storage_size_mb ?? 512}
+                        onChange={e => updatePerm('resources', { max_storage_size_mb: parseInt(e.target.value) })}
+                        disabled={!permissions.resources.readonly_rootfs}
+                      />
+                    </div>
+                    <div className={styles.storageStops}>
+                      <span>256 MB</span>
+                      <span>1 GB</span>
+                      <span>2 GB</span>
+                    </div>
+                    <p className={styles.fieldHint}>
+                      Writable /usr/local for pip, npm, and other package managers.
+                    </p>
+                  </div>
                   <div className={styles.formRow}>
                     <div className={styles.formGroup}>
                       <label className={styles.label}>Max processes (PID limit)</label>
@@ -906,7 +975,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                         onChange={e => updatePerm('resources', {
                           max_tmp_size_mb: e.target.value ? parseInt(e.target.value) : null
                         })}
-                        placeholder="64" type="number" min="1"
+                        placeholder="256" type="number" min="16"
                       />
                     </div>
                   </div>

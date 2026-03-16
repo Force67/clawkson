@@ -181,6 +181,9 @@ pub struct ResourcePermission {
     pub max_processes: Option<i64>,
     /// Max tmp space in MB.
     pub max_tmp_size_mb: Option<u64>,
+    /// Writable storage for package installs (/usr/local) in MB.
+    /// This tmpfs allows `pip install`, `npm install`, etc. on read-only rootfs.
+    pub max_storage_size_mb: Option<u64>,
     /// Read-only root filesystem.
     #[serde(default = "default_true")]
     pub readonly_rootfs: bool,
@@ -190,7 +193,8 @@ impl Default for ResourcePermission {
     fn default() -> Self {
         Self {
             max_processes: Some(256),
-            max_tmp_size_mb: Some(64),
+            max_tmp_size_mb: Some(256),
+            max_storage_size_mb: Some(512),
             readonly_rootfs: true,
         }
     }

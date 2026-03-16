@@ -62,6 +62,7 @@ export interface ExecutionPermission {
 export interface ResourcePermission {
   max_processes: number | null
   max_tmp_size_mb: number | null
+  max_storage_size_mb: number | null
   readonly_rootfs: boolean
 }
 
