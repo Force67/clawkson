@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, Mail, MessageSquare, ToggleLeft, ToggleRight, Trash2, Send,
-  Loader2, Plug, GitBranch, AlignLeft, Check, X,
+  Loader2, Plug, GitBranch, AlignLeft, Check, X, Settings2,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -33,6 +33,7 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
   // Azure DevOps
   const [azureOrg, setAzureOrg] = useState('')
   const [azurePat, setAzurePat] = useState('')
+  const [azureProject, setAzureProject] = useState('')
 
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -70,7 +71,10 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
     try {
       let config: Record<string, string> = {}
       if (type === 'telegram') config = { bot_token: botToken.trim(), agent_id: agentId }
-      if (type === 'azure_devops') config = { organization: azureOrg.trim(), pat: azurePat.trim() }
+      if (type === 'azure_devops') {
+        config = { organization: azureOrg.trim(), pat: azurePat.trim() }
+        if (azureProject.trim()) config.project = azureProject.trim()
+      }
       const connector = await api.connectors.create({
         name: name.trim(),
         connector_type: type,
@@ -145,7 +149,20 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
                 />
                 <span className={styles.hint}>
                   Generate a PAT in Azure DevOps under <strong>User Settings → Personal access tokens</strong>.
-                  Required scopes depend on the tools you intend to use (e.g. Work Items Read &amp; Write, Code Read).
+                  Required scopes: <strong>Work Items (Read &amp; Write)</strong>, <strong>Code (Read)</strong>.
+                </span>
+              </label>
+              <label className={styles.fieldLabel}>
+                Default Project <span className={styles.hintInline}>(optional)</span>
+                <input
+                  className={styles.input}
+                  value={azureProject}
+                  onChange={e => setAzureProject(e.target.value)}
+                  placeholder="MyProject"
+                  autoComplete="off"
+                />
+                <span className={styles.hint}>
+                  Scopes queries to this project by default. You can override per-request via the context field.
                 </span>
               </label>
             </>
@@ -243,15 +260,213 @@ function ContextEditor({ connector, onSaved }: ContextEditorProps) {
   )
 }
 
+// ── Config editor (inline, per card) ──────────────────────────────
+
+interface ConfigEditorProps {
+  connector: Connector
+  agents: Agent[]
+  onSaved: (updated: Connector) => void
+}
+
+function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
+  const [open, setOpen] = useState(false)
+  const cfg = connector.config as Record<string, string>
+
+  // Telegram fields
+  const [botToken, setBotToken] = useState(cfg.bot_token ?? '')
+  const [agentId, setAgentId] = useState(cfg.agent_id ?? '')
+  // Azure DevOps fields
+  const [azureOrg, setAzureOrg] = useState(cfg.organization ?? '')
+  const [azurePat, setAzurePat] = useState(cfg.pat ?? '')
+  const [azureProject, setAzureProject] = useState(cfg.project ?? '')
+  // Name
+  const [name, setName] = useState(connector.name)
+
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Only show the edit button for connector types that have configurable fields
+  const hasConfig = connector.connector_type === 'telegram' || connector.connector_type === 'azure_devops'
+  if (!hasConfig) return null
+
+  async function handleSave() {
+    setError(null)
+    if (connector.connector_type === 'azure_devops') {
+      if (!azureOrg.trim()) { setError('Organization is required.'); return }
+      if (!azurePat.trim()) { setError('PAT is required.'); return }
+    }
+    if (connector.connector_type === 'telegram') {
+      if (!botToken.trim()) { setError('Bot token is required.'); return }
+    }
+
+    setSaving(true)
+    try {
+      let newConfig: Record<string, string> = {}
+      if (connector.connector_type === 'telegram') {
+        newConfig = { bot_token: botToken.trim(), agent_id: agentId }
+      } else if (connector.connector_type === 'azure_devops') {
+        newConfig = { organization: azureOrg.trim(), pat: azurePat.trim() }
+        if (azureProject.trim()) newConfig.project = azureProject.trim()
+      }
+      const updated = await api.connectors.patch(connector.id, {
+        name: name.trim() || connector.name,
+        config: newConfig,
+      })
+      onSaved(updated)
+      setSaved(true)
+      setTimeout(() => { setSaved(false); setOpen(false) }, 1200)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleCancel() {
+    // Reset to current connector values
+    setBotToken(cfg.bot_token ?? '')
+    setAgentId(cfg.agent_id ?? '')
+    setAzureOrg(cfg.organization ?? '')
+    setAzurePat(cfg.pat ?? '')
+    setAzureProject(cfg.project ?? '')
+    setName(connector.name)
+    setError(null)
+    setOpen(false)
+  }
+
+  if (!open) {
+    return (
+      <button
+        className={styles.configToggle}
+        onClick={() => setOpen(true)}
+        title="Edit configuration"
+      >
+        <Settings2 size={13} />
+        <span className={styles.configToggleLabel}>Edit configuration</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className={styles.configEditor}>
+      <div className={styles.configEditorHeader}>
+        <Settings2 size={11} />
+        <span>Configuration</span>
+      </div>
+
+      <label className={styles.configFieldLabel}>
+        Name
+        <input
+          className={styles.configInput}
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Connector name"
+        />
+      </label>
+
+      {connector.connector_type === 'telegram' && (
+        <>
+          <label className={styles.configFieldLabel}>
+            Bot Token
+            <input
+              className={styles.configInput}
+              type="password"
+              value={botToken}
+              onChange={e => setBotToken(e.target.value)}
+              placeholder="123456789:ABCdef..."
+              autoComplete="new-password"
+            />
+          </label>
+          <label className={styles.configFieldLabel}>
+            Agent
+            <select
+              className={styles.configSelect}
+              value={agentId}
+              onChange={e => setAgentId(e.target.value)}
+            >
+              {agents.length === 0 && <option value="">No agents available</option>}
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+
+      {connector.connector_type === 'azure_devops' && (
+        <>
+          <label className={styles.configFieldLabel}>
+            Organization
+            <input
+              className={styles.configInput}
+              value={azureOrg}
+              onChange={e => setAzureOrg(e.target.value)}
+              placeholder="myorg"
+              autoComplete="off"
+            />
+            <span className={styles.configHint}>dev.azure.com/<strong>{azureOrg || 'myorg'}</strong></span>
+          </label>
+          <label className={styles.configFieldLabel}>
+            Personal Access Token
+            <input
+              className={styles.configInput}
+              type="password"
+              value={azurePat}
+              onChange={e => setAzurePat(e.target.value)}
+              placeholder="Paste new PAT to replace"
+              autoComplete="new-password"
+            />
+            <span className={styles.configHint}>
+              Required scopes: <strong>Work Items (Read &amp; Write)</strong>, <strong>Code (Read)</strong>.
+              Generate at <strong>User Settings → Personal access tokens</strong>.
+            </span>
+          </label>
+          <label className={styles.configFieldLabel}>
+            Default Project <span className={styles.hintInline}>(optional)</span>
+            <input
+              className={styles.configInput}
+              value={azureProject}
+              onChange={e => setAzureProject(e.target.value)}
+              placeholder="MyProject"
+              autoComplete="off"
+            />
+            <span className={styles.configHint}>Scopes WIQL queries to this project by default.</span>
+          </label>
+        </>
+      )}
+
+      {error && <p className={styles.configError}>{error}</p>}
+
+      <div className={styles.contextActions}>
+        <button className={styles.contextCancelBtn} onClick={handleCancel} disabled={saving}>
+          <X size={13} /> Cancel
+        </button>
+        <button
+          className={`${styles.contextSaveBtn} ${saved ? styles.contextSavedBtn : ''}`}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving
+            ? <Loader2 size={13} className="spinning" />
+            : saved
+              ? <><Check size={13} /> Saved</>
+              : <><Check size={13} /> Save</>}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────
 
 export function ConnectorsPage() {
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [agents, setAgents] = useState<Agent[]>([])
 
   useEffect(() => {
     api.connectors.list().then(setConnectors).finally(() => setLoading(false))
+    api.agents.list().then(setAgents)
   }, [])
 
   async function handleToggle(id: string, enabled: boolean) {
@@ -268,7 +483,7 @@ export function ConnectorsPage() {
     } catch { /* swallow */ }
   }
 
-  function handleContextSaved(updated: Connector) {
+  function handleUpdated(updated: Connector) {
     setConnectors(cs => cs.map(c => c.id === updated.id ? updated : c))
   }
 
@@ -324,7 +539,8 @@ export function ConnectorsPage() {
                   {conn.enabled ? 'Enabled' : 'Disabled'}
                 </div>
                 <div className={styles.contextSection}>
-                  <ContextEditor connector={conn} onSaved={handleContextSaved} />
+                  <ConfigEditor connector={conn} agents={agents} onSaved={handleUpdated} />
+                  <ContextEditor connector={conn} onSaved={handleUpdated} />
                 </div>
               </Card>
             )

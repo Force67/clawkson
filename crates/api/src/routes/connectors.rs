@@ -131,6 +131,8 @@ async fn create_connector(
 pub struct PatchConnectorRequest {
     pub enabled: Option<bool>,
     pub context: Option<String>,
+    pub name: Option<String>,
+    pub config: Option<serde_json::Value>,
 }
 
 async fn patch_connector(
@@ -139,38 +141,51 @@ async fn patch_connector(
     Path(id): Path<Uuid>,
     Json(req): Json<PatchConnectorRequest>,
 ) -> Result<Json<Connector>, StatusCode> {
-    // Apply enabled toggle if provided.
+    // Require at least one field.
+    if req.enabled.is_none() && req.context.is_none() && req.name.is_none() && req.config.is_none() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Apply name update first if provided.
+    if let Some(ref name) = req.name {
+        db_connector::set_name(&state.db, id, auth.id(), name)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    }
+
+    // Apply config update if provided.
+    if let Some(ref config) = req.config {
+        db_connector::set_config(&state.db, id, auth.id(), config)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    }
+
+    // Apply context update if provided.
+    if let Some(ref ctx) = req.context {
+        db_connector::set_context(&state.db, id, auth.id(), ctx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    }
+
+    // Apply enabled toggle last (so Telegram poller sync sees final state).
     if let Some(enabled) = req.enabled {
         let row = db_connector::set_enabled(&state.db, id, auth.id(), enabled)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::NOT_FOUND)?;
-
-        // Start or stop Telegram polling based on new state
         sync_telegram_poller(&state, &row).await;
-
-        // If context was also provided, apply it now.
-        if let Some(ref ctx) = req.context {
-            let row2 = db_connector::set_context(&state.db, id, auth.id(), ctx)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-                .ok_or(StatusCode::NOT_FOUND)?;
-            return Ok(Json(row_to_connector(row2)));
-        }
-
         return Ok(Json(row_to_connector(row)));
     }
 
-    // Context-only update.
-    if let Some(ref ctx) = req.context {
-        let row = db_connector::set_context(&state.db, id, auth.id(), ctx)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
-        return Ok(Json(row_to_connector(row)));
-    }
-
-    Err(StatusCode::BAD_REQUEST)
+    // Re-fetch the final state to return it.
+    let row = db_connector::get(&state.db, id, auth.id())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(row_to_connector(row)))
 }
 
 async fn delete_connector(

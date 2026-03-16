@@ -2220,6 +2220,13 @@ components:
         context:
           type: string
           description: Free-text operational context for this connector
+        name:
+          type: string
+          description: New display name for the connector
+        config:
+          type: object
+          additionalProperties: true
+          description: Replacement config blob (connector-type-specific fields)
 
     TelegramConnectorConfig:
       type: object
@@ -2241,6 +2248,9 @@ components:
         pat:
           type: string
           description: Personal Access Token (PAT) with the required scopes
+        project:
+          type: string
+          description: Default project name or ID (optional — scopes queries to this project)
 
     # ── Knowledge Base ────────────────────────────────────────
 

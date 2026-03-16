@@ -444,6 +444,8 @@ export interface CreateConnectorRequest {
 export interface PatchConnectorRequest {
   enabled?: boolean
   context?: string
+  name?: string
+  config?: Record<string, unknown>
 }
 
 export interface PatchProfileRequest {

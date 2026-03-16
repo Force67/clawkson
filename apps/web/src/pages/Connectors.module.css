@@ -397,3 +397,119 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* ── Config editor ───────────────────────────────────────────── */
+
+.configToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  transition: color 0.15s;
+  margin-bottom: 8px;
+}
+
+.configToggle:hover { color: var(--accent); }
+
+.configToggleLabel {
+  font-style: italic;
+}
+
+.configEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme="dark"] .configEditor {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.configEditorHeader {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.configFieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.configInput,
+.configSelect {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+:root[data-theme="dark"] .configInput,
+:root[data-theme="dark"] .configSelect {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.configInput:focus,
+.configSelect:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow, rgba(74,108,247,0.12));
+}
+
+.configHint {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+.configError {
+  font-size: 11px;
+  color: var(--error);
+  padding: 6px 10px;
+  background: rgba(220, 38, 38, 0.06);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+.hintInline {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
+  font-style: italic;
+}

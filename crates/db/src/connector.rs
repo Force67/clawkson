@@ -122,6 +122,48 @@ pub async fn set_context(
     Ok(row)
 }
 
+/// Update the name of a connector.
+pub async fn set_name(
+    db: &Db,
+    id: Uuid,
+    user_id: Uuid,
+    name: &str,
+) -> Result<Option<ConnectorRow>, DbError> {
+    let row = sqlx::query_as::<_, ConnectorRow>(
+        "UPDATE connectors
+         SET name = $3, updated_at = now()
+         WHERE id = $1 AND user_id = $2
+         RETURNING id, user_id, name, connector_type, enabled, config, context, created_at, updated_at",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(name)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row)
+}
+
+/// Replace the entire config JSON blob for a connector.
+pub async fn set_config(
+    db: &Db,
+    id: Uuid,
+    user_id: Uuid,
+    config: &serde_json::Value,
+) -> Result<Option<ConnectorRow>, DbError> {
+    let row = sqlx::query_as::<_, ConnectorRow>(
+        "UPDATE connectors
+         SET config = $3, updated_at = now()
+         WHERE id = $1 AND user_id = $2
+         RETURNING id, user_id, name, connector_type, enabled, config, context, created_at, updated_at",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(config)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row)
+}
+
 /// List all enabled connectors of a given type (across all users).
 pub async fn list_enabled_by_type(db: &Db, ct: ConnectorType) -> Result<Vec<ConnectorRow>, DbError> {
     let rows = sqlx::query_as::<_, ConnectorRow>(
