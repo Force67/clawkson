@@ -1,0 +1,253 @@
+/* ── Layout ──────────────────────────────────────────────────── */
+
+.layout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  align-items: start;
+  max-width: 760px;
+}
+
+@media (max-width: 640px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Avatar card ─────────────────────────────────────────────── */
+
+.avatarCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  padding: 28px 20px;
+}
+
+.avatarWrap {
+  position: relative;
+  width: 88px;
+  height: 88px;
+}
+
+.avatarImg {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  display: block;
+  border: 2px solid var(--glass-border);
+}
+
+.avatarInitials {
+  width: 88px;
+  height: 88px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  border: 2px solid transparent;
+}
+
+.avatarOverlay {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  color: transparent;
+  transition: background 0.18s, color 0.18s;
+}
+
+.avatarOverlay:hover {
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+}
+
+.avatarClear {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--error);
+  border: 2px solid var(--bg-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.avatarClear:hover {
+  opacity: 0.85;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.avatarHint {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.roleBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--accent-muted);
+  color: var(--accent-text);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Form card ───────────────────────────────────────────────── */
+
+.formCard {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Fields ──────────────────────────────────────────────────── */
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabelText {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.input,
+.textarea {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 9px 12px;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+:root[data-theme="dark"] .input,
+:root[data-theme="dark"] .textarea {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.inputReadonly {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.6;
+}
+
+.hint {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+/* ── Error banner ────────────────────────────────────────────── */
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--error);
+  padding: 9px 12px;
+  background: rgba(193, 39, 45, 0.07);
+  border: 1px solid rgba(193, 39, 45, 0.18);
+  border-radius: var(--radius-md);
+}
+
+/* ── Form actions ────────────────────────────────────────────── */
+
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.savedBadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--success);
+  font-weight: 600;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}

@@ -327,7 +327,7 @@ function EmbeddingConfigForm({ settings, onUpdate }: EmbeddingConfigFormProps) {
   const [model, setModel] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const pendingRef = useRef<Record<string, string>>({})
 
   // Sync local state from loaded settings (once, or when settings load)

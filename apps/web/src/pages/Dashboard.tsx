@@ -5,10 +5,6 @@ import {
   Plus,
   ChevronRight,
   Loader2,
-  Cpu,
-  Thermometer,
-  Hash,
-  Container,
   Search,
   Star,
 } from 'lucide-react'

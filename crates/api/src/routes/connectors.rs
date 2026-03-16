@@ -48,6 +48,7 @@ fn row_to_connector(row: db_connector::ConnectorRow) -> Connector {
         connector_type: db_type_to_core(&row.connector_type),
         enabled: row.enabled,
         config: row.config,
+        context: row.context,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -129,6 +130,7 @@ async fn create_connector(
 #[derive(Debug, Deserialize)]
 pub struct PatchConnectorRequest {
     pub enabled: Option<bool>,
+    pub context: Option<String>,
 }
 
 async fn patch_connector(
@@ -137,16 +139,38 @@ async fn patch_connector(
     Path(id): Path<Uuid>,
     Json(req): Json<PatchConnectorRequest>,
 ) -> Result<Json<Connector>, StatusCode> {
-    let enabled = req.enabled.ok_or(StatusCode::BAD_REQUEST)?;
-    let row = db_connector::set_enabled(&state.db, id, auth.id(), enabled)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    // Apply enabled toggle if provided.
+    if let Some(enabled) = req.enabled {
+        let row = db_connector::set_enabled(&state.db, id, auth.id(), enabled)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Start or stop Telegram polling based on new state
-    sync_telegram_poller(&state, &row).await;
+        // Start or stop Telegram polling based on new state
+        sync_telegram_poller(&state, &row).await;
 
-    Ok(Json(row_to_connector(row)))
+        // If context was also provided, apply it now.
+        if let Some(ref ctx) = req.context {
+            let row2 = db_connector::set_context(&state.db, id, auth.id(), ctx)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .ok_or(StatusCode::NOT_FOUND)?;
+            return Ok(Json(row_to_connector(row2)));
+        }
+
+        return Ok(Json(row_to_connector(row)));
+    }
+
+    // Context-only update.
+    if let Some(ref ctx) = req.context {
+        let row = db_connector::set_context(&state.db, id, auth.id(), ctx)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        return Ok(Json(row_to_connector(row)));
+    }
+
+    Err(StatusCode::BAD_REQUEST)
 }
 
 async fn delete_connector(

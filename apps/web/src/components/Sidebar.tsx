@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Gauge,
   MessagesSquare,
@@ -70,6 +70,7 @@ const NAV_BOTTOM_ITEMS = [
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const { user, logout } = useAuth()
 
   return (
@@ -137,9 +138,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* User section */}
       {user && (
         <div className={styles.userSection}>
-          <div className={styles.userInfo} title={collapsed ? `${user.display_name} (${user.email})` : undefined}>
+          <button
+            className={`${styles.userInfo} ${styles.userInfoBtn}`}
+            onClick={() => navigate('/profile')}
+            title={collapsed ? `${user.display_name} — Edit profile` : 'Edit profile'}
+          >
             <div className={styles.avatar}>
-              {user.display_name.charAt(0).toUpperCase()}
+              {user.avatar_url
+                ? <img src={user.avatar_url} alt={user.display_name} className={styles.avatarImg} />
+                : user.display_name.charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
               <div className={styles.userDetails}>
@@ -150,7 +157,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <span className={styles.userEmail}>{user.email}</span>
               </div>
             )}
-          </div>
+          </button>
           <button
             className={styles.logoutBtn}
             onClick={logout}

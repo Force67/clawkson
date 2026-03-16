@@ -7,6 +7,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, displayName?: string) => Promise<void>
   logout: () => Promise<void>
+  /** Replace the cached user (e.g. after a profile update). */
+  setUser: (user: User) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -37,8 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const handleSetUser = useCallback((u: User) => {
+    setUser(u)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, setUser: handleSetUser }}>
       {children}
     </AuthContext.Provider>
   )

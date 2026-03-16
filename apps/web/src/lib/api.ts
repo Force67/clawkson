@@ -177,6 +177,8 @@ export interface Connector {
   connector_type: ConnectorType
   enabled: boolean
   config: Record<string, unknown>
+  /** Free-text operational context injected when this connector is invoked. */
+  context: string
   created_at: string
   updated_at: string
 }
@@ -214,6 +216,8 @@ export interface KnowledgeSearchResult {
 export interface UploadResult {
   files_processed: number
   entries_created: number
+  embedded: number
+  embed_failed: number
   errors: string[]
 }
 
@@ -309,6 +313,10 @@ export interface User {
   email: string
   display_name: string
   role: UserRole
+  /** Free-text context about the user that agents can read. */
+  bio: string
+  /** URL of the user's avatar image (data URL or remote URL). */
+  avatar_url: string
   created_at: string
   updated_at: string
 }
@@ -433,6 +441,17 @@ export interface CreateConnectorRequest {
   config: Record<string, unknown>
 }
 
+export interface PatchConnectorRequest {
+  enabled?: boolean
+  context?: string
+}
+
+export interface PatchProfileRequest {
+  display_name?: string
+  bio?: string
+  avatar_url?: string
+}
+
 export interface PatchSettingsRequest {
   default_llm_connector_id?: string
   /** Set to a connector id to enable LLM semantic chunking, or omit to keep existing. */
@@ -461,6 +480,8 @@ export const api = {
       request<void>('/api/auth/logout', { method: 'POST' }),
     me: () =>
       request<AuthResponse>('/api/auth/me'),
+    patchProfile: (body: PatchProfileRequest) =>
+      request<AuthResponse>('/api/auth/profile', { method: 'PATCH', body: JSON.stringify(body) }),
   },
 
   admin: {
@@ -618,7 +639,7 @@ export const api = {
     list: () => request<Connector[]>('/api/connectors'),
     create: (body: CreateConnectorRequest) =>
       request<Connector>('/api/connectors', { method: 'POST', body: JSON.stringify(body) }),
-    patch: (id: string, body: { enabled?: boolean }) =>
+    patch: (id: string, body: PatchConnectorRequest) =>
       request<Connector>(`/api/connectors/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) =>
       request<void>(`/api/connectors/${id}`, { method: 'DELETE' }),

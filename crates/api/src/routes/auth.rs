@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -18,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
+        .route("/profile", patch(patch_profile))
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +153,44 @@ async fn me(auth: AuthUser) -> Json<AuthResponse> {
     Json(AuthResponse { user: auth.0 })
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PatchProfileRequest {
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    /// Base64 data URL or remote URL for the avatar image.
+    pub avatar_url: Option<String>,
+}
+
+/// PATCH /api/auth/profile — update the current user's profile.
+async fn patch_profile(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Json(req): Json<PatchProfileRequest>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+
+    if let Some(ref name) = req.display_name {
+        if name.trim().is_empty() {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "display_name cannot be empty"}))).into_response();
+        }
+    }
+
+    let updated = clawkson_db::user::update_profile(pool, auth.id(), clawkson_db::user::UpdateProfile {
+        display_name: req.display_name.as_deref(),
+        bio: req.bio.as_deref(),
+        avatar_url: req.avatar_url.as_deref(),
+    }).await;
+
+    match updated {
+        Ok(Some(row)) => Json(AuthResponse { user: row_to_user(&row) }).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("Failed to update profile: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Failed to update profile"}))).into_response()
+        }
+    }
+}
+
 fn extract_token(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers
         .get(header::COOKIE)
@@ -176,6 +215,8 @@ fn row_to_user(row: &clawkson_db::user::UserRow) -> User {
             clawkson_db::user::UserRole::Admin => UserRole::Admin,
             clawkson_db::user::UserRole::User => UserRole::User,
         },
+        bio: row.bio.clone(),
+        avatar_url: row.avatar_url.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
     }

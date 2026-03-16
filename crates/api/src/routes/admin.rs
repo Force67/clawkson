@@ -104,6 +104,8 @@ fn row_to_user(row: &clawkson_db::user::UserRow) -> User {
             clawkson_db::user::UserRole::Admin => UserRole::Admin,
             clawkson_db::user::UserRole::User => UserRole::User,
         },
+        bio: row.bio.clone(),
+        avatar_url: row.avatar_url.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
     }

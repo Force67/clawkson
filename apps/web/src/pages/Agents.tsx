@@ -45,8 +45,6 @@ interface ConfigPanelProps {
 function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClose }: ConfigPanelProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
-  const isOwner = user?.id === agent.owner_id
-  const canManage = isAdmin || isOwner
   const [name, setName] = useState(agent.name)
   const [description, setDescription] = useState(agent.description)
   const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
@@ -64,7 +62,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
   const [memoryLimit, setMemoryLimit] = useState(
     agent.container_config?.memory_limit_mb != null ? String(agent.container_config.memory_limit_mb) : ''
   )
-  const [networkEnabled, setNetworkEnabled] = useState(agent.container_config?.network_enabled ?? false)
+  const [networkEnabled] = useState(agent.container_config?.network_enabled ?? false)
   const [permissions, setPermissions] = useState<AgentPermissions>(
     agent.container_config?.permissions ?? DEFAULT_PERMISSIONS
   )

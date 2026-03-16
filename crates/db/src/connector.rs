@@ -25,6 +25,8 @@ pub struct ConnectorRow {
     pub connector_type: ConnectorType,
     pub enabled: bool,
     pub config: serde_json::Value,
+    /// Free-text operational context injected when this connector is invoked.
+    pub context: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -33,7 +35,7 @@ pub struct ConnectorRow {
 
 pub async fn list_for_user(db: &Db, user_id: Uuid) -> Result<Vec<ConnectorRow>, DbError> {
     let rows = sqlx::query_as::<_, ConnectorRow>(
-        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+        "SELECT id, user_id, name, connector_type, enabled, config, context, created_at, updated_at
          FROM connectors
          WHERE user_id = $1
          ORDER BY created_at ASC",
@@ -46,7 +48,7 @@ pub async fn list_for_user(db: &Db, user_id: Uuid) -> Result<Vec<ConnectorRow>, 
 
 pub async fn get(db: &Db, id: Uuid, user_id: Uuid) -> Result<Option<ConnectorRow>, DbError> {
     let row = sqlx::query_as::<_, ConnectorRow>(
-        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+        "SELECT id, user_id, name, connector_type, enabled, config, context, created_at, updated_at
          FROM connectors
          WHERE id = $1 AND user_id = $2",
     )
@@ -68,7 +70,7 @@ pub async fn create(db: &Db, req: CreateConnector) -> Result<ConnectorRow, DbErr
     let row = sqlx::query_as::<_, ConnectorRow>(
         "INSERT INTO connectors (user_id, name, connector_type, config)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, user_id, name, connector_type, enabled, config, created_at, updated_at",
+         RETURNING id, user_id, name, connector_type, enabled, config, context, created_at, updated_at",
     )
     .bind(req.user_id)
     .bind(req.name)
@@ -89,7 +91,7 @@ pub async fn set_enabled(
         "UPDATE connectors
          SET enabled = $3, updated_at = now()
          WHERE id = $1 AND user_id = $2
-         RETURNING id, user_id, name, connector_type, enabled, config, created_at, updated_at",
+         RETURNING id, user_id, name, connector_type, enabled, config, context, created_at, updated_at",
     )
     .bind(id)
     .bind(user_id)
@@ -99,10 +101,31 @@ pub async fn set_enabled(
     Ok(row)
 }
 
+/// Update the free-text context for a connector.
+pub async fn set_context(
+    db: &Db,
+    id: Uuid,
+    user_id: Uuid,
+    context: &str,
+) -> Result<Option<ConnectorRow>, DbError> {
+    let row = sqlx::query_as::<_, ConnectorRow>(
+        "UPDATE connectors
+         SET context = $3, updated_at = now()
+         WHERE id = $1 AND user_id = $2
+         RETURNING id, user_id, name, connector_type, enabled, config, context, created_at, updated_at",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(context)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row)
+}
+
 /// List all enabled connectors of a given type (across all users).
 pub async fn list_enabled_by_type(db: &Db, ct: ConnectorType) -> Result<Vec<ConnectorRow>, DbError> {
     let rows = sqlx::query_as::<_, ConnectorRow>(
-        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+        "SELECT id, user_id, name, connector_type, enabled, config, context, created_at, updated_at
          FROM connectors
          WHERE connector_type = $1 AND enabled = TRUE
          ORDER BY created_at ASC",
@@ -115,7 +138,7 @@ pub async fn list_enabled_by_type(db: &Db, ct: ConnectorType) -> Result<Vec<Conn
 
 pub async fn get_by_id(db: &Db, id: Uuid) -> Result<Option<ConnectorRow>, DbError> {
     let row = sqlx::query_as::<_, ConnectorRow>(
-        "SELECT id, user_id, name, connector_type, enabled, config, created_at, updated_at
+        "SELECT id, user_id, name, connector_type, enabled, config, context, created_at, updated_at
          FROM connectors
          WHERE id = $1",
     )

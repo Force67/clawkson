@@ -23,7 +23,6 @@ import {
   UserPlus,
   Loader2,
 } from 'lucide-react'
-import { useAuth } from '../lib/auth'
 import {
   api,
   type CalendarEvent,
@@ -109,7 +108,6 @@ function getTimeOfDay(h: number): { icon: typeof Sun; label: string } {
 // ── Component ─────────────────────────────────────────────────────
 
 export function CalendarPage() {
-  const { user } = useAuth()
   const today = useMemo(() => toDateStr(new Date()), [])
   const [selectedDate, setSelectedDate] = useState(today)
   const [viewMode, setViewMode] = useState<ViewMode>('month')

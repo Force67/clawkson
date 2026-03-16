@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Folder, FolderOpen, File, Upload, Download, Trash2,
+  FolderOpen, File, Upload, Download, Trash2,
   RefreshCw, Loader2, ChevronRight, ArrowLeft, AlertCircle,
   Wifi,
 } from 'lucide-react'

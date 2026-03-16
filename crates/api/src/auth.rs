@@ -73,6 +73,8 @@ where
                 clawkson_db::user::UserRole::Admin => UserRole::Admin,
                 clawkson_db::user::UserRole::User => UserRole::User,
             },
+            bio: user_row.bio,
+            avatar_url: user_row.avatar_url,
             created_at: user_row.created_at,
             updated_at: user_row.updated_at,
         };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, Mail, MessageSquare, ToggleLeft, ToggleRight, Trash2, Send,
-  Loader2, Plug, GitBranch,
+  Loader2, Plug, GitBranch, AlignLeft, Check, X,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -161,6 +161,90 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
   )
 }
 
+// ── Context editor (inline, per card) ─────────────────────────────
+
+interface ContextEditorProps {
+  connector: Connector
+  onSaved: (updated: Connector) => void
+}
+
+function ContextEditor({ connector, onSaved }: ContextEditorProps) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(connector.context)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const updated = await api.connectors.patch(connector.id, { context: draft })
+      onSaved(updated)
+      setSaved(true)
+      setTimeout(() => { setSaved(false); setOpen(false) }, 1200)
+    } catch {
+      // swallow
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleCancel() {
+    setDraft(connector.context)
+    setOpen(false)
+  }
+
+  if (!open) {
+    return (
+      <button
+        className={styles.contextToggle}
+        onClick={() => setOpen(true)}
+        title="Edit context"
+      >
+        <AlignLeft size={13} />
+        <span>
+          {connector.context
+            ? <span className={styles.contextPreview}>{connector.context}</span>
+            : <span className={styles.contextEmpty}>Add context…</span>}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <div className={styles.contextEditor}>
+      <label className={styles.contextLabel}>
+        <AlignLeft size={11} /> Context
+      </label>
+      <textarea
+        className={styles.contextTextarea}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        placeholder={`Operational context for this connector.\nExamples:\n• "Use email: alice@example.com"\n• "Default project: PROJ-123"\n• "Reply in German"`}
+        rows={4}
+        autoFocus
+      />
+      <div className={styles.contextActions}>
+        <button className={styles.contextCancelBtn} onClick={handleCancel} disabled={saving}>
+          <X size={13} /> Cancel
+        </button>
+        <button
+          className={`${styles.contextSaveBtn} ${saved ? styles.contextSavedBtn : ''}`}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving
+            ? <Loader2 size={13} className="spinning" />
+            : saved
+              ? <><Check size={13} /> Saved</>
+              : <><Check size={13} /> Save</>}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ──────────────────────────────────────────────────────
+
 export function ConnectorsPage() {
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [loading, setLoading] = useState(true)
@@ -182,6 +266,10 @@ export function ConnectorsPage() {
       await api.connectors.delete(id)
       setConnectors(cs => cs.filter(c => c.id !== id))
     } catch { /* swallow */ }
+  }
+
+  function handleContextSaved(updated: Connector) {
+    setConnectors(cs => cs.map(c => c.id === updated.id ? updated : c))
   }
 
   return (
@@ -234,6 +322,9 @@ export function ConnectorsPage() {
                 <div className={styles.connStatus} data-connected={conn.enabled}>
                   <span className={styles.connDot} />
                   {conn.enabled ? 'Enabled' : 'Disabled'}
+                </div>
+                <div className={styles.contextSection}>
+                  <ContextEditor connector={conn} onSaved={handleContextSaved} />
                 </div>
               </Card>
             )

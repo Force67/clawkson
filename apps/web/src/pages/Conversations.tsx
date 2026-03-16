@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type MessageAttachment, type ReasoningEffort, type AttachmentInfo, type AgentSkillInfo, type ShareResponse, type SharePermission } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── New Conversation Dialog ───────────────────────────────────────

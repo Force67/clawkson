@@ -16,6 +16,10 @@ pub struct UserRow {
     pub display_name: String,
     pub password_hash: String,
     pub role: UserRole,
+    /// Free-text context about the user that agents can read.
+    pub bio: String,
+    /// URL of the user's avatar image (data URL or remote URL).
+    pub avatar_url: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -116,6 +120,43 @@ pub async fn update_display_name(pool: &PgPool, id: Uuid, name: &str) -> Result<
     .bind(name)
     .fetch_optional(pool)
     .await
+}
+
+pub struct UpdateProfile<'a> {
+    pub display_name: Option<&'a str>,
+    pub bio: Option<&'a str>,
+    pub avatar_url: Option<&'a str>,
+}
+
+/// Patch any combination of profile fields for the given user.
+pub async fn update_profile(pool: &PgPool, id: Uuid, req: UpdateProfile<'_>) -> Result<Option<UserRow>, sqlx::Error> {
+    // Build dynamic SET clause only for provided fields.
+    let mut parts: Vec<String> = vec![];
+    let mut idx = 2u32;
+
+    if req.display_name.is_some() { parts.push(format!("display_name = ${idx}")); idx += 1; }
+    if req.bio.is_some()          { parts.push(format!("bio = ${idx}"));           idx += 1; }
+    if req.avatar_url.is_some()   { parts.push(format!("avatar_url = ${idx}"));    idx += 1; }
+
+    if parts.is_empty() {
+        // Nothing to update — just return current row.
+        return sqlx::query_as::<_, UserRow>("SELECT * FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await;
+    }
+
+    let sql = format!(
+        "UPDATE users SET {}, updated_at = now() WHERE id = $1 RETURNING *",
+        parts.join(", ")
+    );
+
+    let mut q = sqlx::query_as::<_, UserRow>(&sql).bind(id);
+    if let Some(v) = req.display_name { q = q.bind(v); }
+    if let Some(v) = req.bio          { q = q.bind(v); }
+    if let Some(v) = req.avatar_url   { q = q.bind(v); }
+
+    q.fetch_optional(pool).await
 }
 
 pub async fn update_password(pool: &PgPool, id: Uuid, password_hash: &str) -> Result<bool, sqlx::Error> {

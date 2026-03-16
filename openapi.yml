@@ -90,6 +90,29 @@ paths:
         "401":
           description: Not authenticated
 
+  /api/auth/profile:
+    patch:
+      summary: Update the current user's profile (display name, bio, avatar)
+      operationId: patchProfile
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchProfileRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+        "401":
+          description: Not authenticated
+
   # ── Admin ────────────────────────────────────────────────────
 
   /api/admin/users:
@@ -2147,7 +2170,7 @@ components:
 
     Connector:
       type: object
-      required: [id, user_id, name, connector_type, enabled, config, created_at, updated_at]
+      required: [id, user_id, name, connector_type, enabled, config, context, created_at, updated_at]
       properties:
         id:
           type: string
@@ -2164,6 +2187,9 @@ components:
           type: boolean
         config:
           type: object
+        context:
+          type: string
+          description: Free-text operational context injected when this connector is invoked (e.g. email address, account info)
         created_at:
           type: string
           format: date-time
@@ -2191,6 +2217,9 @@ components:
       properties:
         enabled:
           type: boolean
+        context:
+          type: string
+          description: Free-text operational context for this connector
 
     TelegramConnectorConfig:
       type: object
@@ -2608,7 +2637,7 @@ components:
 
     User:
       type: object
-      required: [id, email, display_name, role, created_at, updated_at]
+      required: [id, email, display_name, role, bio, avatar_url, created_at, updated_at]
       properties:
         id:
           type: string
@@ -2619,6 +2648,12 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/UserRole"
+        bio:
+          type: string
+          description: Free-text context about the user that agents can read
+        avatar_url:
+          type: string
+          description: URL of the user's avatar image (data URL or remote URL)
         created_at:
           type: string
           format: date-time
@@ -2636,6 +2671,20 @@ components:
       properties:
         role:
           $ref: "#/components/schemas/UserRole"
+
+    PatchProfileRequest:
+      type: object
+      description: All fields are optional; only provided fields are updated.
+      properties:
+        display_name:
+          type: string
+          description: New display name (must be non-empty if provided)
+        bio:
+          type: string
+          description: Free-text context about the user for agent consumption
+        avatar_url:
+          type: string
+          description: Base64 data URL or remote URL for the avatar image
 
     SharePermission:
       type: string

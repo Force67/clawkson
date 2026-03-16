@@ -493,6 +493,8 @@ pub struct Connector {
     pub connector_type: ConnectorType,
     pub enabled: bool,
     pub config: serde_json::Value,
+    /// Free-text operational context injected when this connector is invoked.
+    pub context: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -575,6 +577,10 @@ pub struct User {
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub role: UserRole,
+    /// Free-text context about the user that agents can read.
+    pub bio: String,
+    /// URL of the user's avatar image (data URL or remote URL).
+    pub avatar_url: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
