@@ -437,6 +437,12 @@ function EmbeddingConfigForm({ settings, onUpdate }: EmbeddingConfigFormProps) {
   )
 }
 
+// ── Theme helper ────────────────────────────────────────────────
+
+function applyTheme(theme: string) {
+  document.documentElement.setAttribute('data-theme', theme)
+}
+
 // ── Settings Page ───────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -447,7 +453,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     Promise.all([api.settings.get(), api.llmConnectors.list()])
-      .then(([s, conns]) => { setSettings(s); setLlmConnectors(conns) })
+      .then(([s, conns]) => {
+        setSettings(s)
+        setLlmConnectors(conns)
+        applyTheme(s.theme)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -633,7 +643,9 @@ export function SettingsPage() {
                 className={styles.select}
                 value={settings?.theme ?? 'dark'}
                 onChange={async e => {
-                  const s = await api.settings.patch({ theme: e.target.value })
+                  const theme = e.target.value
+                  applyTheme(theme)
+                  const s = await api.settings.patch({ theme })
                   setSettings(s)
                 }}
               >

@@ -1,7 +1,7 @@
 .sidebar {
   width: var(--sidebar-width);
   height: 100%;
-  background: #fafaf9;
+  background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   z-index: 100;
@@ -9,7 +9,7 @@
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  border-right: 1px solid var(--sidebar-border);
 }
 
 .collapsed {
@@ -34,7 +34,7 @@
   height: 32px;
   flex-shrink: 0;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
   border-radius: var(--radius-sm);
 }
 
@@ -63,7 +63,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--sidebar-divider);
 }
 
 .navItem {
@@ -84,7 +84,7 @@
 }
 
 .navItem:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--sidebar-hover-bg);
   color: var(--text-primary);
 }
 
@@ -94,7 +94,7 @@
 
 /* Active state */
 .navItemActive {
-  background: rgba(74, 108, 247, 0.07);
+  background: var(--sidebar-active-bg);
   color: var(--accent);
 }
 
@@ -103,7 +103,7 @@
 }
 
 .navItemActive:hover {
-  background: rgba(74, 108, 247, 0.09);
+  background: var(--sidebar-active-hover-bg);
   color: var(--accent);
 }
 
@@ -140,7 +140,7 @@
 
 .navGroupDivider {
   height: 1px;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--sidebar-divider);
   margin: 4px 8px;
 }
 
@@ -160,7 +160,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--sidebar-divider);
 }
 
 .userInfo {
@@ -175,7 +175,7 @@
   width: 30px;
   height: 30px;
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -234,7 +234,7 @@
 
 .logoutBtn:hover {
   color: var(--accent);
-  background: rgba(74, 108, 247, 0.06);
+  background: var(--sidebar-logout-hover);
 }
 
 /* ── Toggle ──────────────────────────────────────────────────── */
@@ -245,7 +245,7 @@
   justify-content: center;
   margin: 0 10px 14px;
   padding: 7px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--sidebar-toggle-border);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-tertiary);
@@ -254,9 +254,9 @@
 }
 
 .toggle:hover {
-  border-color: rgba(0, 0, 0, 0.15);
+  border-color: var(--sidebar-toggle-hover-border);
   color: var(--text-secondary);
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--sidebar-toggle-hover-bg);
 }
 
 /* ── Collapsed states ────────────────────────────────────────── */

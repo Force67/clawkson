@@ -28,9 +28,10 @@
       rgba(255, 107, 180, 0.06) 300deg,
       rgba(255, 107, 107, 0.06) 360deg
     );
+  opacity: var(--prism-opacity, 1);
   pointer-events: none;
   z-index: 0;
-  transition: background 0.3s ease;
+  transition: background 0.3s ease, opacity 0.4s ease;
 }
 
 /* ── Concentric data rings — faint CD track pattern ──────────── */
@@ -51,8 +52,8 @@
       circle,
       transparent 0px,
       transparent 40px,
-      rgba(0, 0, 0, 0.015) 40px,
-      rgba(0, 0, 0, 0.015) 41px
+      rgba(128, 128, 128, var(--track-ring-opacity, 0.015)) 40px,
+      rgba(128, 128, 128, var(--track-ring-opacity, 0.015)) 41px
     );
   pointer-events: none;
   z-index: 0;
@@ -62,7 +63,7 @@
   flex: 1;
   height: 100%;
   overflow: hidden;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -70,7 +71,7 @@
   position: relative;
   z-index: 1;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 1px 0 var(--glass-inset-highlight) inset,
     var(--shadow-md);
 }
 

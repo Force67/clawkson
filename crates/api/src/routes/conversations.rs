@@ -884,13 +884,20 @@ pub(crate) async fn enrich_history(
                                             ));
                                         }
                                     }
-                                } else {
-                                    // Non-PDF attachment (image, etc.) — pass through as data URL.
+                                } else if att.content_type.starts_with("image/") {
+                                    // Image attachment — pass through as data URL.
                                     let b64 = base64::Engine::encode(
                                         &base64::engine::general_purpose::STANDARD,
                                         &bytes,
                                     );
                                     image_urls.push(format!("data:{};base64,{b64}", att.content_type));
+                                } else {
+                                    // Non-image, non-PDF attachment — describe inline.
+                                    let kb = att.size_bytes / 1024;
+                                    content.push_str(&format!(
+                                        "\n\n[Attached file: {} ({}, {} KB)]",
+                                        att.filename, att.content_type, kb
+                                    ));
                                 }
                             }
                             Err(e) => {

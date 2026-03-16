@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
+import { api } from './lib/api'
 import { Layout } from './components/Layout'
 import { LoginPage } from './pages/Login'
 import { DashboardPage } from './pages/Dashboard'
@@ -13,6 +15,18 @@ import { AgentsPage } from './pages/Agents'
 import { ContainersPage } from './pages/Containers'
 import { DocsPage } from './pages/Docs'
 import { CalendarPage } from './pages/Calendar'
+
+function ThemeLoader() {
+  useEffect(() => {
+    api.settings.get().then(s => {
+      document.documentElement.setAttribute('data-theme', s.theme)
+    }).catch(() => {
+      // fallback: honour system preference if settings can't be loaded
+      document.documentElement.setAttribute('data-theme', 'system')
+    })
+  }, [])
+  return null
+}
 
 function AppRoutes() {
   const { user, loading } = useAuth()
@@ -65,6 +79,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
+      <ThemeLoader />
       <AppRoutes />
     </AuthProvider>
   )
