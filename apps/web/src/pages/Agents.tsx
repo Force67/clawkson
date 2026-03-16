@@ -3,7 +3,7 @@ import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown, ChevronRight,
   Loader2, Cpu, Thermometer, Hash, Container,
   BookOpen, Zap, Search, Filter, Share2,
-  Shield, HardDrive, Terminal, Database,
+  Shield, HardDrive, Terminal, Database, Globe, X,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -16,9 +16,14 @@ import {
   type LlmConnector,
   type KnowledgeBase,
   type Skill,
+  type Connector,
   type AgentStatus,
   type AgentPermissions,
   type FilesystemMode,
+  type ConnectorPolicy,
+  type PolicyPreset,
+  type ProxyRule,
+  type HttpMethod,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import styles from './Agents.module.css'
@@ -29,6 +34,356 @@ const DEFAULT_PERMISSIONS: AgentPermissions = {
   execution: { shell: true, python: true, allowed_runtimes: [], max_execution_time_secs: 300 },
   resources: { max_processes: 256, max_tmp_size_mb: 64, readonly_rootfs: true },
   data_access: { knowledge_bases: true, conversation_history: true },
+}
+
+// ── Rule Editor (inline) ──────────────────────────────────────────
+
+const ALL_METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
+
+function RuleEditor({ rule, onChange, onRemove }: {
+  rule: ProxyRule
+  onChange: (updates: Partial<ProxyRule>) => void
+  onRemove: () => void
+}) {
+  const toggleMethod = (m: HttpMethod) => {
+    const has = rule.methods.includes(m)
+    const next = has ? rule.methods.filter(x => x !== m) : [...rule.methods, m]
+    onChange({ methods: next })
+  }
+
+  return (
+    <div className={styles.ruleRow}>
+      <div className={styles.ruleMethodRow}>
+        {ALL_METHODS.map(m => (
+          <button
+            key={m}
+            type="button"
+            className={`${styles.methodChip} ${rule.methods.includes(m) ? styles.methodChipActive : ''}`}
+            onClick={() => toggleMethod(m)}
+          >
+            {m}
+          </button>
+        ))}
+        <button type="button" className={styles.ruleRemoveBtn} onClick={onRemove} title="Remove rule">
+          <X size={11} />
+        </button>
+      </div>
+      <input
+        className={styles.input}
+        value={rule.path_pattern}
+        onChange={e => onChange({ path_pattern: e.target.value })}
+        placeholder="Path pattern (e.g. /api/v1/**)"
+        style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}
+      />
+      <input
+        className={styles.input}
+        value={rule.description}
+        onChange={e => onChange({ description: e.target.value })}
+        placeholder="Description (optional)"
+        style={{ fontSize: 12 }}
+      />
+    </div>
+  )
+}
+
+// ── Connector Policies Modal ──────────────────────────────────────
+
+const CONN_TYPE_LABEL: Record<string, string> = {
+  azure_devops: 'Azure DevOps',
+  telegram: 'Telegram',
+  gmail: 'Gmail',
+  slack: 'Slack',
+  custom: 'Custom',
+}
+
+const CONN_TYPE_COLOR: Record<string, string> = {
+  azure_devops: '#0078d4',
+  telegram: '#229ed9',
+  gmail: '#ea4335',
+  slack: '#4a154b',
+  custom: '#6b7280',
+}
+
+interface ConnectorPoliciesModalProps {
+  agent: Agent
+  platformConnectors: Connector[]
+  policyPresets: PolicyPreset[]
+  onSave: (updated: Agent) => void
+  onClose: () => void
+}
+
+function ConnectorPoliciesModal({ agent, platformConnectors, policyPresets, onSave, onClose }: ConnectorPoliciesModalProps) {
+  const enabledConnectors = platformConnectors.filter(c => c.enabled)
+  const [policies, setPolicies] = useState<ConnectorPolicy[]>(agent.connector_policies ?? [])
+  const [activeConnId, setActiveConnId] = useState<string | null>(
+    enabledConnectors.length > 0 ? enabledConnectors[0].id : null
+  )
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const activeConn = enabledConnectors.find(c => c.id === activeConnId) ?? null
+  const activePolicy = activeConn ? policies.find(p => p.connector_id === activeConn.id) ?? null : null
+  const activePresets = activeConn ? policyPresets.filter(p => p.connector_type === activeConn.connector_type) : []
+
+  const applyPreset = (preset: PolicyPreset) => {
+    if (!activeConn) return
+    const newPolicy: ConnectorPolicy = {
+      connector_id: activeConn.id,
+      allow: preset.policy.allow,
+      deny: preset.policy.deny,
+      rate_limit_rpm: preset.policy.rate_limit_rpm,
+    }
+    setPolicies(prev => [...prev.filter(p => p.connector_id !== activeConn.id), newPolicy])
+  }
+
+  const removePolicy = () => {
+    if (!activeConn) return
+    setPolicies(prev => prev.filter(p => p.connector_id !== activeConn.id))
+  }
+
+  const addRule = (type: 'allow' | 'deny') => {
+    if (!activeConn || !activePolicy) return
+    const newRule: ProxyRule = { methods: ['GET'], path_pattern: '/**', description: '' }
+    setPolicies(prev => prev.map(p =>
+      p.connector_id === activeConn.id ? { ...p, [type]: [...p[type], newRule] } : p
+    ))
+  }
+
+  const updateRule = (type: 'allow' | 'deny', idx: number, updates: Partial<ProxyRule>) => {
+    if (!activeConn) return
+    setPolicies(prev => prev.map(p => {
+      if (p.connector_id !== activeConn.id) return p
+      const rules = [...p[type]]
+      rules[idx] = { ...rules[idx], ...updates }
+      return { ...p, [type]: rules }
+    }))
+  }
+
+  const removeRule = (type: 'allow' | 'deny', idx: number) => {
+    if (!activeConn) return
+    setPolicies(prev => prev.map(p => {
+      if (p.connector_id !== activeConn.id) return p
+      return { ...p, [type]: p[type].filter((_, i) => i !== idx) }
+    }))
+  }
+
+  const updateRateLimit = (val: string) => {
+    if (!activeConn) return
+    setPolicies(prev => prev.map(p =>
+      p.connector_id === activeConn.id ? { ...p, rate_limit_rpm: val ? parseInt(val) : null } : p
+    ))
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const updated = await api.agents.patch(agent.id, { connector_policies: policies })
+      setSaved(true)
+      setTimeout(() => { onSave(updated) }, 400)
+    } catch (err) {
+      console.error('Failed to save policies:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className={styles.policyOverlay} onClick={onClose}>
+      <div className={styles.policyModal} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className={styles.policyHeader}>
+          <div className={styles.policyHeaderLeft}>
+            <div className={styles.policyHeaderIcon}><Shield size={16} /></div>
+            <div>
+              <h2 className={styles.policyTitle}>Connector Policies</h2>
+              <p className={styles.policySub}>{agent.name}</p>
+            </div>
+          </div>
+          <button className={styles.panelClose} onClick={onClose}>&#x2715;</button>
+        </div>
+
+        <div className={styles.policyLayout}>
+          {/* Left sidebar — connector list */}
+          <div className={styles.policySidebar}>
+            <div className={styles.policySidebarLabel}>Connectors</div>
+            {enabledConnectors.length === 0 ? (
+              <p className={styles.fieldHint} style={{ padding: '0 12px' }}>No enabled connectors.</p>
+            ) : (
+              <div className={styles.policySidebarList}>
+                {enabledConnectors.map(conn => {
+                  const hasPolicy = policies.some(p => p.connector_id === conn.id)
+                  const isActive = conn.id === activeConnId
+                  return (
+                    <button
+                      key={conn.id}
+                      className={`${styles.policySidebarItem} ${isActive ? styles.policySidebarItemActive : ''}`}
+                      onClick={() => setActiveConnId(conn.id)}
+                    >
+                      <span
+                        className={styles.connDot}
+                        style={{ background: CONN_TYPE_COLOR[conn.connector_type] ?? '#6b7280' }}
+                      />
+                      <div className={styles.policySidebarItemInfo}>
+                        <span className={styles.policySidebarItemName}>{conn.name}</span>
+                        <span className={styles.policySidebarItemType}>
+                          {CONN_TYPE_LABEL[conn.connector_type] ?? conn.connector_type}
+                        </span>
+                      </div>
+                      {hasPolicy ? (
+                        <span className={styles.policyBadgeSm}>Restricted</span>
+                      ) : (
+                        <span className={styles.policyBadgeOpen}>Open</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right panel — policy editor */}
+          <div className={styles.policyEditor}>
+            {!activeConn ? (
+              <div className={styles.policyEmptyState}>
+                <Globe size={32} strokeWidth={1} />
+                <p>Select a connector to manage its access policy.</p>
+              </div>
+            ) : !activePolicy ? (
+              <div className={styles.policyEditorInner}>
+                <div className={styles.policyStatusBar}>
+                  <div className={styles.policyStatusDot} />
+                  <span>Unrestricted access — no policy active</span>
+                </div>
+                <p className={styles.policyDesc}>
+                  This agent can make any HTTP request through <strong>{activeConn.name}</strong>.
+                  Apply a preset or create a custom policy to restrict access.
+                </p>
+                {activePresets.length > 0 && (
+                  <div className={styles.presetGrid}>
+                    {activePresets.map(preset => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        className={styles.presetCard}
+                        onClick={() => applyPreset(preset)}
+                      >
+                        <Shield size={14} className={styles.presetCardIcon} />
+                        <span className={styles.presetCardLabel}>{preset.label}</span>
+                        <span className={styles.presetCardMeta}>
+                          {preset.policy.allow.length} allow
+                          {preset.policy.deny.length > 0 ? `, ${preset.policy.deny.length} deny` : ''}
+                          {preset.policy.rate_limit_rpm ? ` · ${preset.policy.rate_limit_rpm} rpm` : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={styles.policyEditorInner}>
+                {/* Active policy status + presets */}
+                <div className={styles.policyStatusBarActive}>
+                  <div className={styles.policyStatusDotActive} />
+                  <span>Policy active</span>
+                </div>
+
+                {activePresets.length > 0 && (
+                  <div className={styles.presetSwitcher}>
+                    <span className={styles.presetSwitcherLabel}>Presets</span>
+                    <div className={styles.presetChips}>
+                      {activePresets.map(preset => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          className={styles.presetChip}
+                          onClick={() => applyPreset(preset)}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Allow rules */}
+                <div className={styles.ruleSection}>
+                  <div className={styles.ruleSectionHeader}>
+                    <span className={styles.ruleLabel}>
+                      <Check size={10} className={styles.ruleIconAllow} /> Allow rules
+                    </span>
+                    <button type="button" className={styles.addRuleBtn} onClick={() => addRule('allow')}>
+                      <Plus size={10} /> Add
+                    </button>
+                  </div>
+                  {activePolicy.allow.map((rule, idx) => (
+                    <RuleEditor
+                      key={idx}
+                      rule={rule}
+                      onChange={updates => updateRule('allow', idx, updates)}
+                      onRemove={() => removeRule('allow', idx)}
+                    />
+                  ))}
+                  {activePolicy.allow.length === 0 && (
+                    <p className={styles.fieldHint}>No allow rules — all requests blocked.</p>
+                  )}
+                </div>
+
+                {/* Deny rules */}
+                <div className={styles.ruleSection}>
+                  <div className={styles.ruleSectionHeader}>
+                    <span className={styles.ruleLabel}>
+                      <X size={10} className={styles.ruleIconDeny} /> Deny rules
+                    </span>
+                    <button type="button" className={styles.addRuleBtn} onClick={() => addRule('deny')}>
+                      <Plus size={10} /> Add
+                    </button>
+                  </div>
+                  {activePolicy.deny.map((rule, idx) => (
+                    <RuleEditor
+                      key={idx}
+                      rule={rule}
+                      onChange={updates => updateRule('deny', idx, updates)}
+                      onRemove={() => removeRule('deny', idx)}
+                    />
+                  ))}
+                  {activePolicy.deny.length === 0 && (
+                    <p className={styles.fieldHint}>No deny overrides.</p>
+                  )}
+                </div>
+
+                {/* Rate limit */}
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Rate limit (requests/min)</label>
+                  <input
+                    className={styles.input}
+                    value={activePolicy.rate_limit_rpm ?? ''}
+                    onChange={e => updateRateLimit(e.target.value)}
+                    placeholder="Unlimited"
+                    type="number" min="1"
+                  />
+                </div>
+
+                <button type="button" className={styles.removePolicyBtn} onClick={removePolicy}>
+                  <Trash2 size={11} /> Remove policy (unrestrict)
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className={styles.policyFooter}>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={saving || saved}>
+            {saving ? <Loader2 size={13} className={styles.spinning} />
+              : saved ? <Check size={13} />
+              : <Check size={13} />}
+            {saved ? 'Saved' : 'Save Policies'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Agent Config Panel ────────────────────────────────────────────
@@ -715,11 +1070,12 @@ interface AgentCardProps {
   connector?: LlmConnector
   canManage: boolean
   onConfigure: () => void
+  onPolicies: () => void
   onDelete: () => void
   onStatusChange: (status: AgentStatus) => void
 }
 
-function AgentCard({ agent, connector, canManage, onConfigure, onDelete, onStatusChange }: AgentCardProps) {
+function AgentCard({ agent, connector, canManage, onConfigure, onPolicies, onDelete, onStatusChange }: AgentCardProps) {
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
@@ -762,6 +1118,9 @@ function AgentCard({ agent, connector, canManage, onConfigure, onDelete, onStatu
         </div>
         {canManage && (
           <div className={styles.agentCardBtns}>
+            <button className={styles.configureBtn} onClick={onPolicies} title="Connector policies">
+              <Shield size={13} /> Policies
+            </button>
             <button className={styles.configureBtn} onClick={onConfigure} title="Configure agent">
               <Settings2 size={13} /> Config
             </button>
@@ -782,11 +1141,14 @@ export function AgentsPage() {
   const isAdmin = user?.role === 'admin'
   const [agents, setAgents] = useState<Agent[]>([])
   const [connectors, setConnectors] = useState<LlmConnector[]>([])
+  const [platformConnectors, setPlatformConnectors] = useState<Connector[]>([])
+  const [policyPresets, setPolicyPresets] = useState<PolicyPreset[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
+  const [policyAgent, setPolicyAgent] = useState<Agent | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<AgentStatus | 'all'>('all')
 
@@ -796,12 +1158,16 @@ export function AgentsPage() {
       api.llmConnectors.list(),
       api.knowledge.listBases(),
       api.skills.list(),
+      api.connectors.list(),
+      api.policyPresets.list(),
     ])
-      .then(([agts, conns, kbs, sks]) => {
+      .then(([agts, conns, kbs, sks, platConns, presets]) => {
         setAgents(agts)
         setConnectors(conns)
         setKnowledgeBases(kbs)
         setSkills(sks)
+        setPlatformConnectors(platConns)
+        setPolicyPresets(presets)
       })
       .finally(() => setLoading(false))
   }, [])
@@ -814,6 +1180,11 @@ export function AgentsPage() {
   const handleUpdate = (updated: Agent) => {
     setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
     setConfiguring(null)
+  }
+
+  const handlePolicySave = (updated: Agent) => {
+    setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
+    setPolicyAgent(null)
   }
 
   const handleDelete = async (id: string) => {
@@ -909,6 +1280,7 @@ export function AgentsPage() {
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
               canManage={isAdmin || agent.owner_id === user?.id}
               onConfigure={() => setConfiguring(agent)}
+              onPolicies={() => setPolicyAgent(agent)}
               onDelete={() => handleDelete(agent.id)}
               onStatusChange={status => handleStatusChange(agent.id, status)}
             />
@@ -924,6 +1296,16 @@ export function AgentsPage() {
           skills={skills}
           onSave={handleUpdate}
           onClose={() => setConfiguring(null)}
+        />
+      )}
+
+      {policyAgent && (
+        <ConnectorPoliciesModal
+          agent={policyAgent}
+          platformConnectors={platformConnectors}
+          policyPresets={policyPresets}
+          onSave={handlePolicySave}
+          onClose={() => setPolicyAgent(null)}
         />
       )}
     </div>

@@ -100,7 +100,10 @@ pub fn extract_url_path(url: &str) -> Option<String> {
 
 /// Evaluate a request against a list of connector policies for a specific connector.
 /// Returns the verdict from the first matching policy (by connector_id).
-/// If no policy exists for the connector, returns Denied (deny-by-default).
+///
+/// If no policy exists for the connector, the request is **allowed** — policies are
+/// opt-in restrictions, not opt-in allowances. Adding a policy opts the connector
+/// into access control; without one the connector is unrestricted.
 pub fn evaluate_request(
     policies: &[ConnectorPolicy],
     connector_id: &uuid::Uuid,
@@ -109,10 +112,7 @@ pub fn evaluate_request(
 ) -> PolicyVerdict {
     match policies.iter().find(|p| &p.connector_id == connector_id) {
         Some(policy) => evaluate_policy(policy, method, url_path),
-        None => PolicyVerdict::Denied(format!(
-            "No connector policy defined for connector {}",
-            connector_id,
-        )),
+        None => PolicyVerdict::Allowed,
     }
 }
 
@@ -201,13 +201,14 @@ mod tests {
     }
 
     #[test]
-    fn test_no_policy_for_connector() {
+    fn test_no_policy_for_connector_allows() {
         let policies = vec![make_policy(vec![HttpMethod::Get], "/**", vec![], "")];
         let unknown_id = Uuid::new_v4();
-        assert!(matches!(
+        // No policy = unrestricted; policies are opt-in restrictions.
+        assert_eq!(
             evaluate_request(&policies, &unknown_id, &HttpMethod::Get, "/anything"),
-            PolicyVerdict::Denied(_),
-        ));
+            PolicyVerdict::Allowed,
+        );
     }
 
     #[test]

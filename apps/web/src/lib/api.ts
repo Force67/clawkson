@@ -128,6 +128,7 @@ export interface Agent {
   max_tokens: number | null
   container_enabled: boolean
   container_config: AgentContainerConfig | null
+  connector_policies: ConnectorPolicy[]
   owner_id?: string | null
   shared: boolean
   created_at: string
@@ -181,6 +182,34 @@ export interface Connector {
   context: string
   created_at: string
   updated_at: string
+}
+
+// ── Connector Policies ──────────────────────────────────────────
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS'
+
+export interface ProxyRule {
+  methods: HttpMethod[]
+  path_pattern: string
+  description: string
+}
+
+export interface ConnectorPolicy {
+  connector_id: string
+  allow: ProxyRule[]
+  deny: ProxyRule[]
+  rate_limit_rpm: number | null
+}
+
+export interface PolicyPreset {
+  name: string
+  label: string
+  connector_type: string
+  policy: {
+    allow: ProxyRule[]
+    deny: ProxyRule[]
+    rate_limit_rpm: number | null
+  }
 }
 
 export interface KnowledgeBase {
@@ -394,6 +423,7 @@ export interface CreateAgentRequest {
   max_tokens?: number
   container_enabled?: boolean
   container_config?: AgentContainerConfig
+  connector_policies?: ConnectorPolicy[]
   shared?: boolean
 }
 
@@ -407,6 +437,7 @@ export interface PatchAgentRequest {
   status?: AgentStatus
   container_enabled?: boolean
   container_config?: AgentContainerConfig
+  connector_policies?: ConnectorPolicy[]
   shared?: boolean
 }
 
@@ -637,6 +668,10 @@ export const api = {
     list: () => request<Tool[]>('/api/tools'),
   },
 
+  policyPresets: {
+    list: () => request<PolicyPreset[]>('/api/policy-presets'),
+  },
+
   connectors: {
     list: () => request<Connector[]>('/api/connectors'),
     create: (body: CreateConnectorRequest) =>
@@ -775,9 +810,20 @@ export const api = {
 
 // ── SSE streaming helper ───────────────────────────────────────────
 
+export interface ToolEvent {
+  type: 'tool_start' | 'tool_end'
+  name: string
+  round: number
+  description?: string
+  ok?: boolean
+  result?: string
+  duration_ms?: number
+}
+
 export interface StreamChunk {
   delta?: string
   reasoning_delta?: string
+  tool_event?: ToolEvent
   done?: boolean
   id?: string
   error?: string
@@ -821,6 +867,7 @@ export function streamChat(
   onError: (err: string) => void,
   onReasoning?: (text: string) => void,
   options?: ChatStreamOptions,
+  onToolEvent?: (event: ToolEvent) => void,
 ): () => void {
   const controller = new AbortController()
 
@@ -858,6 +905,7 @@ export function streamChat(
             const chunk: StreamChunk = JSON.parse(data)
             if (chunk.error) { onError(chunk.error); return }
             if (chunk.done) { onDone(chunk.id ?? ''); return }
+            if (chunk.tool_event && onToolEvent) onToolEvent(chunk.tool_event)
             if (chunk.reasoning_delta && onReasoning) onReasoning(chunk.reasoning_delta)
             if (chunk.delta) onChunk(chunk.delta)
           } catch {

@@ -34,6 +34,31 @@ pub async fn create(
     Ok(row)
 }
 
+/// Insert a built-in skill or update its description/instructions if it already exists.
+pub async fn upsert_builtin(
+    db: &Db,
+    name: &str,
+    description: &str,
+    instructions: &str,
+) -> Result<SkillRow, DbError> {
+    let row = sqlx::query_as::<_, SkillRow>(
+        "INSERT INTO skills (name, description, instructions)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (name) DO UPDATE
+           SET description  = EXCLUDED.description,
+               instructions = EXCLUDED.instructions,
+               updated_at   = now()
+         RETURNING *",
+    )
+    .bind(name)
+    .bind(description)
+    .bind(instructions)
+    .fetch_one(db.pool())
+    .await?;
+
+    Ok(row)
+}
+
 pub async fn get_by_id(db: &Db, id: Uuid) -> Result<Option<SkillRow>, DbError> {
     let row = sqlx::query_as::<_, SkillRow>("SELECT * FROM skills WHERE id = $1")
         .bind(id)

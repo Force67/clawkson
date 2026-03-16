@@ -721,6 +721,37 @@
   to   { opacity: 1; transform: scale(1); }
 }
 
+.sandboxWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #e8a23e 12%, transparent);
+  border: 1px solid color-mix(in srgb, #e8a23e 25%, transparent);
+  color: #e8a23e;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.sandboxWarning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sandboxWarning strong {
+  color: #eab050;
+}
+
+.sandboxWarning code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #e8a23e 10%, transparent);
+}
+
 .inputNotice {
   margin-bottom: 8px;
   padding: 0 2px;
@@ -1204,6 +1235,160 @@
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* ── Activity Feed (live tool execution) ────────────────────── */
+
+.activityFeed {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  overflow: hidden;
+  animation: bubbleIn 0.2s ease-out;
+}
+
+.activityHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.activityPulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.activitySteps {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.activityStep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  animation: activityStepIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.15s ease;
+}
+
+.activityStep:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+
+@keyframes activityStepIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.activityIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.activityIcon svg {
+  animation: iconPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes iconPop {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.activityIconRunning {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+}
+
+.activityIconDone {
+  background: rgba(42, 157, 96, 0.08);
+  color: #2a9d60;
+}
+
+.activityIconError {
+  background: rgba(193, 39, 45, 0.08);
+  color: var(--error);
+}
+
+.activitySpinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(74, 108, 247, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.activityInfo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.activityName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.activityName svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.activityDesc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activityDuration {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* ── Utility ─────────────────────────────────────────────────── */

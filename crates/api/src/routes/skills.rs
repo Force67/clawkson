@@ -177,6 +177,10 @@ fn builtin_templates() -> Vec<SkillTemplate> {
         include_str!("../../../../skills/technical-writer.json"),
         include_str!("../../../../skills/pdf-analyze.json"),
         include_str!("../../../../skills/compare-documents.json"),
+        include_str!("../../../../skills/make-pdf.json"),
+        include_str!("../../../../skills/make-presentation.json"),
+        include_str!("../../../../skills/make-document.json"),
+        include_str!("../../../../skills/make-spreadsheet.json"),
     ];
 
     template_sources
@@ -189,4 +193,17 @@ async fn list_templates(
     _auth: AuthUser,
 ) -> Json<Vec<SkillTemplate>> {
     Json(builtin_templates())
+}
+
+/// Upsert all built-in skill templates into the database so that existing
+/// skills stay in sync with the latest embedded definitions.
+pub async fn sync_builtin_skills(db: &clawkson_db::Db) {
+    let templates = builtin_templates();
+    for t in &templates {
+        match clawkson_db::skill::upsert_builtin(db, &t.name, &t.description, &t.instructions).await {
+            Ok(_) => {}
+            Err(e) => tracing::warn!(skill = %t.name, "failed to sync built-in skill: {e}"),
+        }
+    }
+    tracing::info!(count = templates.len(), "built-in skills synced");
 }

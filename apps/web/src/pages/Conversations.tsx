@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench } from 'lucide-react'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── New Conversation Dialog ───────────────────────────────────────
@@ -188,6 +188,97 @@ function ReasoningBlock({ content, isStreaming }: ReasoningBlockProps) {
           {content}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Activity Feed (live tool execution preview) ──────────────────
+
+interface ActivityStep {
+  id: string
+  name: string
+  round: number
+  status: 'running' | 'done' | 'error'
+  description: string
+  result?: string
+  durationMs?: number
+}
+
+const TOOL_NAME_MAP: Record<string, string> = {
+  code_execution: 'Code Execution',
+  workspace_read: 'Read File',
+  workspace_write: 'Write File',
+  workspace_list: 'List Files',
+  knowledge_search: 'Knowledge Search',
+}
+
+function formatToolName(name: string): string {
+  return TOOL_NAME_MAP[name] || name.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+}
+
+function ToolTypeIcon({ name }: { name: string }) {
+  const s = 11
+  switch (name) {
+    case 'code_execution': return <Terminal size={s} />
+    case 'workspace_read': return <FileText size={s} />
+    case 'workspace_write': return <Pencil size={s} />
+    case 'workspace_list': return <FolderOpen size={s} />
+    case 'knowledge_search': return <Search size={s} />
+    default: return <Wrench size={s} />
+  }
+}
+
+function ActivityFeed({ steps }: { steps: ActivityStep[] }) {
+  if (steps.length === 0) return null
+
+  const runningCount = steps.filter(s => s.status === 'running').length
+  const completedCount = steps.filter(s => s.status !== 'running').length
+
+  return (
+    <div className={styles.activityFeed}>
+      <div className={styles.activityHeader}>
+        {runningCount > 0 && <span className={styles.activityPulse} />}
+        <span>
+          {runningCount > 0
+            ? `Working\u2002·\u2002${completedCount}/${steps.length} tools`
+            : `${completedCount} tool${completedCount !== 1 ? 's' : ''} executed`}
+        </span>
+      </div>
+      <div className={styles.activitySteps}>
+        {steps.map(step => (
+          <div key={step.id} className={styles.activityStep}>
+            <div className={`${styles.activityIcon} ${
+              step.status === 'running' ? styles.activityIconRunning
+              : step.status === 'done' ? styles.activityIconDone
+              : styles.activityIconError
+            }`}>
+              {step.status === 'running'
+                ? <div className={styles.activitySpinner} />
+                : step.status === 'done'
+                ? <Check size={11} />
+                : <X size={11} />}
+            </div>
+            <div className={styles.activityInfo}>
+              <div className={styles.activityName}>
+                <ToolTypeIcon name={step.name} />
+                {formatToolName(step.name)}
+              </div>
+              <div className={styles.activityDesc}>
+                {step.status === 'running'
+                  ? step.description
+                  : step.result || step.description}
+              </div>
+            </div>
+            {step.durationMs != null && (
+              <span className={styles.activityDuration}>
+                {step.durationMs < 1000
+                  ? `${step.durationMs}ms`
+                  : `${(step.durationMs / 1000).toFixed(1)}s`}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -415,6 +506,7 @@ export function ConversationsPage() {
   const [slashFilter, setSlashFilter] = useState('')
   const [skillDropdownIndex, setSkillDropdownIndex] = useState(0)
   const [showShareDialog, setShowShareDialog] = useState(false)
+  const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -464,7 +556,7 @@ export function ConversationsPage() {
   // Scroll to bottom on new messages or stream buffer changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamBuffer, reasoningBuffer])
+  }, [messages, streamBuffer, reasoningBuffer, activitySteps])
 
   useEffect(() => {
     const el = inputRef.current
@@ -481,6 +573,7 @@ export function ConversationsPage() {
     setStreaming(true)
     setStreamBuffer('')
     setReasoningBuffer('')
+    setActivitySteps([])
 
     // Upload pending files first
     let attachmentIds: string[] = []
@@ -529,6 +622,7 @@ export function ConversationsPage() {
           setMessages(msgs)
           setStreamBuffer('')
           setReasoningBuffer('')
+          setActivitySteps([])
           setStreaming(false)
           // Refresh conversation list (updated_at changed)
           api.conversations.list().then(convos =>
@@ -544,6 +638,7 @@ export function ConversationsPage() {
         // Fall back to non-streaming chat
         setStreamBuffer('')
         setReasoningBuffer('')
+        setActivitySteps([])
         api.conversations.chat(selectedId, content)
           .then(({ user_message, assistant_message }) => {
             setMessages(prev => {
@@ -558,6 +653,31 @@ export function ConversationsPage() {
         setReasoningBuffer(prev => prev + reasoning)
       },
       options,
+      (event: ToolEvent) => {
+        if (event.type === 'tool_start') {
+          setActivitySteps(prev => [...prev, {
+            id: `step-${prev.length}`,
+            name: event.name,
+            round: event.round,
+            status: 'running',
+            description: event.description || event.name,
+          }])
+        } else if (event.type === 'tool_end') {
+          setActivitySteps(prev => {
+            // Find the last running step with this name
+            const reversed = [...prev].reverse()
+            const idx = reversed.findIndex(s => s.name === event.name && s.status === 'running')
+            if (idx === -1) return prev
+            const realIdx = prev.length - 1 - idx
+            return prev.map((s, i) => i === realIdx ? {
+              ...s,
+              status: (event.ok ? 'done' : 'error') as ActivityStep['status'],
+              result: event.result,
+              durationMs: event.duration_ms,
+            } : s)
+          })
+        }
+      },
     )
     stopStreamRef.current = stop
   }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles])
@@ -915,6 +1035,7 @@ export function ConversationsPage() {
                       {reasoningBuffer && (
                         <ReasoningBlock content={reasoningBuffer} isStreaming={!streamBuffer} />
                       )}
+                      {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
                       <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant}`}>
                         {streamBuffer}
                         <span className={styles.cursor} />
@@ -933,7 +1054,8 @@ export function ConversationsPage() {
                       {reasoningBuffer && (
                         <ReasoningBlock content={reasoningBuffer} isStreaming />
                       )}
-                      {!reasoningBuffer && (
+                      {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
+                      {!reasoningBuffer && activitySteps.length === 0 && (
                         <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant} ${styles.thinking}`}>
                           <span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} />
                         </div>
@@ -966,6 +1088,15 @@ export function ConversationsPage() {
                   className={styles.hiddenFileInput}
                   onChange={handleFileChange}
                 />
+                {selectedAgent?.container_enabled && !selectedAgent.container_config?.permissions?.network?.enabled && !selectedAgent.container_config?.network_enabled && (
+                  <div className={styles.sandboxWarning}>
+                    <WifiOff size={13} />
+                    <span>
+                      <strong>Sandbox has no internet access.</strong> Package installation (<code>pip install</code>) and downloads will fail.
+                      Enable network permissions in agent settings to allow it.
+                    </span>
+                  </div>
+                )}
                 <div className={styles.inputNotice}>
                   Use <span>@toolname</span> for tools{agentSkills.length > 0 ? <> or <span>/skill</span> to invoke skills</> : null}.
                 </div>

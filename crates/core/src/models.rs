@@ -268,7 +268,10 @@ pub struct ProxyRule {
 /// The full proxy policy for a specific connector assigned to an agent.
 /// Controls which HTTP requests the agent can make through this connector.
 ///
-/// Evaluation order:
+/// Policies are **opt-in restrictions**: if no policy exists for a connector,
+/// all requests are allowed. Adding a policy opts the connector into access control.
+///
+/// When a policy IS defined, evaluation order is:
 ///   1. Deny rules are checked first — if any deny rule matches, the request is blocked.
 ///   2. Allow rules are checked next — the request must match at least one allow rule.
 ///   3. If no allow rule matches, the request is blocked (deny-by-default).

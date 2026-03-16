@@ -47,6 +47,9 @@ async fn main() -> Result<()> {
     // separator is used as the prompt, so the markdown preamble is excluded.
     seed_soul_prompt(&db).await;
 
+    // ── Sync built-in skills ─────────────────────────────────────
+    clawkson_api::routes::skills::sync_builtin_skills(&db).await;
+
     // ── Container manager ────────────────────────────────────────
     let workspace_root = std::env::var("CLAWKSON_WORKSPACE_ROOT")
         .unwrap_or_else(|_| "/tmp/clawkson-workspaces".to_string());

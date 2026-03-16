@@ -131,7 +131,7 @@ Original uploaded files (PDF, TXT, MD, CSV, JSON) are stored in **MinIO** (S3-co
    - **Heuristic (default):** paragraph → sentence → word boundary splitting
    - **Semantic (optional):** when an ETL LLM connector is configured in Settings, the LLM is called for each oversized chunk to identify the optimal sentence-boundary split position; only small context windows are sent to the LLM, never the full document
 4. Each chunk stored as a `KnowledgeEntry` row
-5. Embeddings generated in batches of 8 via Ollama (`http://localhost:11434/v1`); default model `qwen3-embedding:8b`; 4096-dimensional vectors indexed with `vchordrq` using cosine distance
+5. Embeddings generated in batches of 8 via Ollama (`http://localhost:11434/v1`); default model `qwen3-embedding:4b`; 2560-dimensional vectors indexed with `vchordrq` using cosine distance
 
 #### ETL LLM Configuration
 

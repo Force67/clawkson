@@ -748,6 +748,56 @@ fn build_system_prompt_with_skills(
     Some(prompt)
 }
 
+/// Build a `<user-context>` block containing the current user's identity and their
+/// connector metadata (names, types, context/config hints). This gives the LLM enough
+/// information to act without asking the user for details it already knows.
+async fn build_user_context(state: &AppState, user: &clawkson_core::User) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // User identity
+    parts.push(format!("User: {} ({})", user.display_name, user.email));
+    if !user.bio.trim().is_empty() {
+        parts.push(format!("Bio: {}", user.bio.trim()));
+    }
+
+    // Connector metadata — expose non-secret config fields + context
+    if let Ok(connectors) = clawkson_db::connector::list_for_user(&state.db, user.id).await {
+        let enabled: Vec<_> = connectors.into_iter().filter(|c| c.enabled).collect();
+        if !enabled.is_empty() {
+            parts.push(String::new()); // blank line
+            parts.push("Connected services:".to_string());
+            for c in &enabled {
+                let mut line = format!("- {} ({:?})", c.name, c.connector_type);
+
+                // Extract safe metadata from config (org, project, etc.) — never expose secrets
+                let safe_keys = ["organization", "project", "base_url", "instance", "team", "workspace", "channel"];
+                let mut meta: Vec<String> = Vec::new();
+                if let Some(obj) = c.config.as_object() {
+                    for key in &safe_keys {
+                        if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                meta.push(format!("{key}: {val}"));
+                            }
+                        }
+                    }
+                }
+                if !meta.is_empty() {
+                    line.push_str(&format!(" [{}]", meta.join(", ")));
+                }
+
+                // Append connector context if set
+                if !c.context.trim().is_empty() {
+                    line.push_str(&format!(" — {}", c.context.trim()));
+                }
+
+                parts.push(line);
+            }
+        }
+    }
+
+    format!("<user-context>\n{}\n</user-context>", parts.join("\n"))
+}
+
 /// Scan user message for `/skill-name` references and add explicit invocation markers.
 /// The full instructions are already in the system prompt, so this just signals
 /// that the user explicitly wants to use a particular skill.
@@ -1215,7 +1265,17 @@ async fn chat(
     };
 
     // 4. Load agent config and connector
-    let agent_cfg = load_agent_config(&state, agent_id).await;
+    let mut agent_cfg = load_agent_config(&state, agent_id).await;
+    // Inject user + connector context into system prompt
+    {
+        let user_ctx = build_user_context(&state, &auth.0).await;
+        if let Some(ref mut cfg) = agent_cfg {
+            match &mut cfg.system_prompt {
+                Some(ref mut prompt) => { prompt.push_str("\n\n"); prompt.push_str(&user_ctx); }
+                None => cfg.system_prompt = Some(user_ctx),
+            }
+        }
+    }
     let connector = load_llm_connector(&state, connector_id).await;
     let Some(connector) = connector else {
         let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
@@ -1414,7 +1474,17 @@ async fn chat_stream(
     };
 
     // Load agent config + connector + history
-    let agent_cfg = load_agent_config(&state, agent_id).await;
+    let mut agent_cfg = load_agent_config(&state, agent_id).await;
+    // Inject user + connector context into system prompt
+    {
+        let user_ctx = build_user_context(&state, &auth.0).await;
+        if let Some(ref mut cfg) = agent_cfg {
+            match &mut cfg.system_prompt {
+                Some(ref mut prompt) => { prompt.push_str("\n\n"); prompt.push_str(&user_ctx); }
+                None => cfg.system_prompt = Some(user_ctx),
+            }
+        }
+    }
     let connector = load_llm_connector(&state, connector_id).await;
     let Some(connector) = connector else {
         let s = stream::once(async {
@@ -1470,7 +1540,7 @@ async fn chat_stream(
     tokio::spawn(async move {
         let has_tools = !registry.definitions().is_empty();
         let result = if has_tools {
-            let tool_result = crate::llm::complete_with_tools(
+            crate::llm::complete_with_tools_streaming(
                 &connector,
                 system_prompt.as_deref(),
                 &history,
@@ -1480,13 +1550,9 @@ async fn chat_stream(
                 10,
                 reasoning_effort.as_ref(),
                 timeout_secs,
+                &tx,
             )
-            .await;
-
-            if let Ok(ref text) = tool_result {
-                let _ = tx.try_send(text.clone());
-            }
-            tool_result
+            .await
         } else {
             crate::llm::stream_complete(
                 &connector,
@@ -1553,6 +1619,10 @@ async fn chat_stream(
             } else if let Some(reasoning) = msg.strip_prefix("\x01") {
                 let escaped = reasoning.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
                 let data = format!(r#"{{"reasoning_delta":"{escaped}"}}"#);
+                yield Ok::<Event, Infallible>(Event::default().data(data));
+            } else if let Some(tool_json) = msg.strip_prefix("\x02") {
+                // Tool-call event — already valid JSON from serde_json::json!()
+                let data = format!(r#"{{"tool_event":{tool_json}}}"#);
                 yield Ok::<Event, Infallible>(Event::default().data(data));
             } else {
                 let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
