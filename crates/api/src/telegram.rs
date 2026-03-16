@@ -308,6 +308,7 @@ async fn handle_message(
         max_tokens: None,
         container_enabled: false,
         container_config: None,
+        connector_policies: vec![],
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 

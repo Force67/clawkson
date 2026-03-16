@@ -4,7 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use clawkson_core::{Agent, AgentContainerConfig, AgentStatus};
+use clawkson_core::{Agent, AgentContainerConfig, AgentStatus, ConnectorPolicy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,6 +31,8 @@ pub struct CreateAgentRequest {
     pub container_enabled: Option<bool>,
     pub container_config: Option<AgentContainerConfig>,
     #[serde(default)]
+    pub connector_policies: Vec<ConnectorPolicy>,
+    #[serde(default)]
     pub shared: bool,
 }
 
@@ -45,11 +47,14 @@ pub struct PatchAgentRequest {
     pub status: Option<AgentStatus>,
     pub container_enabled: Option<bool>,
     pub container_config: Option<AgentContainerConfig>,
+    pub connector_policies: Option<Vec<ConnectorPolicy>>,
     pub shared: Option<bool>,
 }
 
 /// Map DB row to API type.
 fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
+    let connector_policies: Vec<ConnectorPolicy> =
+        serde_json::from_value(row.connector_policies.clone()).unwrap_or_default();
     Agent {
         id: row.id,
         name: row.name,
@@ -66,6 +71,7 @@ fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
         max_tokens: row.max_tokens.map(|v| v as u32),
         container_enabled: row.container_enabled,
         container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
+        connector_policies,
         owner_id: row.owner_id,
         shared: row.shared,
         created_at: row.created_at,
@@ -131,6 +137,12 @@ async fn create_agent(
         .as_ref()
         .and_then(|c| serde_json::to_value(c).ok());
 
+    let connector_policies_json = if req.connector_policies.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_value(&req.connector_policies).unwrap_or_default())
+    };
+
     let row = clawkson_db::agent::create(
         &state.db,
         &req.name,
@@ -141,6 +153,7 @@ async fn create_agent(
         req.max_tokens.map(|v| v as i32),
         req.container_enabled.unwrap_or(false),
         container_config_json,
+        connector_policies_json,
         auth.id(),
         req.shared,
     )
@@ -170,6 +183,11 @@ async fn patch_agent(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    let connector_policies_json = req
+        .connector_policies
+        .as_ref()
+        .map(|p| serde_json::to_value(p).unwrap_or_default());
+
     let row = clawkson_db::agent::update(
         &state.db,
         id,
@@ -182,6 +200,7 @@ async fn patch_agent(
         req.max_tokens.map(|v| Some(v as i32)),
         req.container_enabled,
         req.container_config.as_ref().map(|c| Some(serde_json::to_value(c).unwrap_or_default())),
+        connector_policies_json,
         req.shared,
     )
     .await

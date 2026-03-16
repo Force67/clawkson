@@ -1609,6 +1609,143 @@ paths:
               schema:
                 $ref: "#/components/schemas/Settings"
 
+  # ── Audit Log ──────────────────────────────────────────────────
+
+  /api/audit-log/conversations/{conv_id}:
+    get:
+      summary: List tool audit entries for a conversation
+      operationId: listAuditByConversation
+      tags: [AuditLog]
+      parameters:
+        - name: conv_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolAuditEntry"
+        "403":
+          description: Forbidden
+        "404":
+          description: Conversation not found
+
+  /api/audit-log/conversations/{conv_id}/stats:
+    get:
+      summary: Get allowed/denied counts for a conversation
+      operationId: getAuditStats
+      tags: [AuditLog]
+      parameters:
+        - name: conv_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Audit stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditStats"
+
+  /api/audit-log/agents/{agent_id}:
+    get:
+      summary: List tool audit entries for an agent
+      operationId: listAuditByAgent
+      tags: [AuditLog]
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolAuditEntry"
+        "403":
+          description: Forbidden
+        "404":
+          description: Agent not found
+
+  /api/audit-log/denied:
+    get:
+      summary: List denied audit entries for the current user
+      operationId: listDeniedAudit
+      tags: [AuditLog]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: Denied audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolAuditEntry"
+
+  # ── Policy Presets ─────────────────────────────────────────────
+
+  /api/policy-presets:
+    get:
+      summary: List built-in connector policy presets
+      operationId: listPolicyPresets
+      tags: [PolicyPresets]
+      responses:
+        "200":
+          description: Available policy presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyPreset"
+
 components:
   schemas:
     # ── Skill ──────────────────────────────────────────────────
@@ -1700,6 +1837,21 @@ components:
         container_config:
           $ref: "#/components/schemas/AgentContainerConfig"
           nullable: true
+        connector_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorPolicy"
+          default: []
+          description: >
+            Proxy policies controlling which HTTP requests the agent can
+            make through each connector. Deny-first, allow-second, deny-by-default.
+        owner_id:
+          type: string
+          format: uuid
+          nullable: true
+        shared:
+          type: boolean
+          default: false
         created_at:
           type: string
           format: date-time
@@ -1884,6 +2036,14 @@ components:
         container_config:
           $ref: "#/components/schemas/AgentContainerConfig"
           nullable: true
+        connector_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorPolicy"
+          default: []
+        shared:
+          type: boolean
+          default: false
 
     PatchAgentRequest:
       type: object
@@ -1913,6 +2073,13 @@ components:
         container_config:
           $ref: "#/components/schemas/AgentContainerConfig"
           nullable: true
+        connector_policies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorPolicy"
+          description: Replace the agent's connector policies (optional).
+        shared:
+          type: boolean
 
     # ── Conversation ───────────────────────────────────────────
 
@@ -2656,3 +2823,141 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AttachmentInfo"
+
+    # ── Permissions & Audit ────────────────────────────────────────
+
+    HttpMethod:
+      type: string
+      enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+      description: HTTP methods that can be allowed or denied in proxy rules.
+
+    ProxyRule:
+      type: object
+      required: [methods, path_pattern]
+      properties:
+        methods:
+          type: array
+          items:
+            $ref: "#/components/schemas/HttpMethod"
+          description: HTTP methods this rule applies to. Empty array matches no methods.
+        path_pattern:
+          type: string
+          description: >
+            URL path pattern (glob-style). Matched against the path portion of
+            the upstream URL. Example: "/gmail/v1/users/me/messages/*"
+        description:
+          type: string
+          default: ""
+          description: Human-readable description for display in the UI.
+
+    ConnectorPolicy:
+      type: object
+      required: [connector_id]
+      properties:
+        connector_id:
+          type: string
+          format: uuid
+          description: The connector this policy applies to.
+        allow:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProxyRule"
+          default: []
+          description: >
+            Allow rules. A request must match at least one to be forwarded.
+            Empty array means deny all requests through this connector.
+        deny:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProxyRule"
+          default: []
+          description: >
+            Explicit deny rules, checked before allow rules. If a request
+            matches any deny rule, it is blocked even if an allow rule would match.
+        rate_limit_rpm:
+          type: integer
+          nullable: true
+          description: >
+            Maximum requests per minute through this connector. Null means unlimited.
+
+    PolicyPreset:
+      type: object
+      required: [name, label, connector_type, policy]
+      properties:
+        name:
+          type: string
+          description: Machine-readable name, e.g. "gmail_read_only".
+        label:
+          type: string
+          description: Human-readable label, e.g. "Gmail — Read Only".
+        connector_type:
+          $ref: "#/components/schemas/ConnectorType"
+        policy:
+          $ref: "#/components/schemas/ConnectorPolicy"
+
+    AuditDecision:
+      type: string
+      enum: [allowed, denied]
+      description: Whether a tool invocation was allowed or denied by the permission guard.
+
+    ToolAuditEntry:
+      type: object
+      required: [id, conversation_id, agent_id, user_id, tool_name, decision, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        tool_name:
+          type: string
+          description: The tool or proxy endpoint that was invoked.
+        http_method:
+          type: string
+          nullable: true
+          description: For proxy requests, the HTTP method used.
+        target_path:
+          type: string
+          nullable: true
+          description: >
+            For proxy requests, the target URL path (no query string, no credentials).
+        connector_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The connector used, if applicable.
+        decision:
+          $ref: "#/components/schemas/AuditDecision"
+        denial_reason:
+          type: string
+          nullable: true
+          description: Human-readable reason when denied.
+        duration_ms:
+          type: integer
+          format: int64
+          nullable: true
+          description: >
+            How long the tool invocation took in milliseconds. Null if denied
+            before execution.
+        created_at:
+          type: string
+          format: date-time
+
+    AuditStats:
+      type: object
+      required: [decision, count]
+      properties:
+        decision:
+          type: string
+          description: The audit decision value ("allowed" or "denied").
+        count:
+          type: integer
+          format: int64
+          description: Number of entries with this decision.

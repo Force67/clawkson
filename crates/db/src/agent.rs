@@ -27,6 +27,7 @@ pub struct AgentRow {
     pub max_tokens: Option<i32>,
     pub container_enabled: bool,
     pub container_config: Option<JsonValue>,
+    pub connector_policies: JsonValue,
     pub owner_id: Option<Uuid>,
     pub shared: bool,
     pub created_at: DateTime<Utc>,
@@ -43,12 +44,14 @@ pub async fn create(
     max_tokens: Option<i32>,
     container_enabled: bool,
     container_config: Option<JsonValue>,
+    connector_policies: Option<JsonValue>,
     owner_id: Uuid,
     shared: bool,
 ) -> Result<AgentRow, DbError> {
+    let policies = connector_policies.unwrap_or_else(|| serde_json::json!([]));
     let row = sqlx::query_as::<_, AgentRow>(
-        "INSERT INTO agents (name, description, llm_connector_id, system_prompt, temperature, max_tokens, container_enabled, container_config, owner_id, shared)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "INSERT INTO agents (name, description, llm_connector_id, system_prompt, temperature, max_tokens, container_enabled, container_config, connector_policies, owner_id, shared)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *",
     )
     .bind(name)
@@ -59,6 +62,7 @@ pub async fn create(
     .bind(max_tokens)
     .bind(container_enabled)
     .bind(container_config)
+    .bind(policies)
     .bind(owner_id)
     .bind(shared)
     .fetch_one(db.pool())
@@ -114,6 +118,7 @@ pub async fn update(
     max_tokens: Option<Option<i32>>,
     container_enabled: Option<bool>,
     container_config: Option<Option<JsonValue>>,
+    connector_policies: Option<JsonValue>,
     shared: Option<bool>,
 ) -> Result<Option<AgentRow>, DbError> {
     // Fetch current then apply patches — simpler than dynamic SQL for this many optional fields
@@ -130,13 +135,15 @@ pub async fn update(
     if let Some(v) = max_tokens { agent.max_tokens = v; }
     if let Some(v) = container_enabled { agent.container_enabled = v; }
     if let Some(v) = container_config { agent.container_config = v; }
+    if let Some(v) = connector_policies { agent.connector_policies = v; }
     if let Some(v) = shared { agent.shared = v; }
 
     let row = sqlx::query_as::<_, AgentRow>(
         "UPDATE agents
          SET name = $2, description = $3, status = $4, llm_connector_id = $5,
              system_prompt = $6, temperature = $7, max_tokens = $8,
-             container_enabled = $9, container_config = $10, shared = $11, updated_at = now()
+             container_enabled = $9, container_config = $10, connector_policies = $11,
+             shared = $12, updated_at = now()
          WHERE id = $1
          RETURNING *",
     )
@@ -150,6 +157,7 @@ pub async fn update(
     .bind(agent.max_tokens)
     .bind(agent.container_enabled)
     .bind(&agent.container_config)
+    .bind(&agent.connector_policies)
     .bind(agent.shared)
     .fetch_optional(db.pool())
     .await?;

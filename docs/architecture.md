@@ -105,10 +105,15 @@ All routes are prefixed with `/api/`:
 | GET/PATCH/DELETE | `/connectors/{id}` | Get/update/delete platform connector |
 | GET/POST | `/tools` | List/create tools |
 | GET | `/tools/{id}` | Get tool by ID |
+| GET | `/audit-log/conversations/{conv_id}` | List audit entries for a conversation |
+| GET | `/audit-log/conversations/{conv_id}/stats` | Allowed/denied counts for a conversation |
+| GET | `/audit-log/agents/{agent_id}` | List audit entries for an agent |
+| GET | `/audit-log/denied` | List denied entries for the current user |
+| GET | `/policy-presets` | List built-in connector policy presets |
 
 ## Data Layer
 
-Clawkson persists all data to **PostgreSQL with the VectorChord extension** (`vchordrq` index type for cosine-distance vector search). The schema is managed by 8 SQLx migrations in `crates/db/migrations/`.
+Clawkson persists all data to **PostgreSQL with the VectorChord extension** (`vchordrq` index type for cosine-distance vector search). The schema is managed by 19 SQLx migrations in `crates/db/migrations/`.
 
 - **Image:** `ghcr.io/tensorchord/vchord-postgres:pg18-v1.1.1`
 - **Default host binding:** `127.0.0.1:55435`
@@ -171,6 +176,37 @@ Files are uploaded via `POST /api/agents/{id}/container/workspace/upload` as `mu
 ### Live workspace watch (SSE)
 
 `GET /api/agents/{id}/container/workspace/watch` opens a Server-Sent Events connection. The server polls the workspace every 2 seconds and emits `created`, `modified`, and `deleted` events for any changed files. The frontend uses this to update the file browser without page refreshes during long-running tasks.
+
+## Connector Permission System
+
+Clawkson enforces **deny-by-default** permissions on every tool invocation and every HTTP request an agent makes through a connector proxy. The system is implemented in three layers:
+
+1. **Agent-level ConnectorPolicy** — configured per agent, controls which HTTP methods and URL paths are allowed/denied for each connector.
+2. **Task/Conversation override** — optional per-conversation restriction that can further narrow (never widen) the agent's base permissions.
+3. **GuardedTool enforcement** — Rust-level wrappers (`GuardedHttpTool`, `GuardedBuiltinTool`) that intercept every tool call at runtime.
+
+### Policy evaluation
+
+For HTTP proxy requests through connectors, `ConnectorPolicy` rules are evaluated in order:
+1. **Deny rules** checked first — if any deny rule matches (HTTP method + glob pattern on URL path), the request is blocked.
+2. **Allow rules** checked next — the request must match at least one allow rule.
+3. **Default deny** — if no allow rule matches, the request is blocked.
+
+Path patterns use glob-style matching (via `glob-match`) against the URL path portion. For example, `/gmail/v1/users/me/messages/*` matches any single-segment path under messages.
+
+### Built-in tool guards
+
+Non-HTTP tools (`code_execution`, `workspace_*`, `knowledge_*`) are wrapped with `GuardedBuiltinTool`, which checks `TaskPermissionOverride` flags such as `disable_code_execution` and `disable_workspace_write`.
+
+### Audit log
+
+Every tool invocation — allowed or denied — is recorded in the `tool_audit_log` database table. Each entry captures the tool name, HTTP method/path (for proxy requests), connector ID, the permission decision, denial reason (if any), and execution duration. The audit log is queryable per conversation, per agent, or filtered to denied-only entries for the current user.
+
+### Policy presets
+
+Eight built-in presets are provided for common connector use-cases (e.g. `gmail_read_only`, `telegram_read_send`, `azure_devops_work_items`). Users can select a preset in the UI and customise it further.
+
+See [Permissions](permissions.md) for full details.
 
 ## API Specification
 

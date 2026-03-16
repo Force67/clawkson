@@ -600,6 +600,7 @@ pub(crate) struct AgentConfig {
     pub(crate) max_tokens: Option<u32>,
     pub(crate) container_enabled: bool,
     pub(crate) container_config: Option<clawkson_core::AgentContainerConfig>,
+    pub(crate) connector_policies: Vec<clawkson_core::ConnectorPolicy>,
 }
 
 pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
@@ -684,6 +685,10 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         }
     }
 
+    // Deserialize connector policies from the agent's JSONB column
+    let connector_policies: Vec<clawkson_core::ConnectorPolicy> =
+        serde_json::from_value(row.connector_policies.clone()).unwrap_or_default();
+
     Some(AgentConfig {
         agent_id: row.id,
         system_prompt,
@@ -691,6 +696,7 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         max_tokens: row.max_tokens.map(|v| v as u32),
         container_enabled: row.container_enabled,
         container_config: container_config,
+        connector_policies,
     })
 }
 
@@ -943,8 +949,35 @@ pub(crate) async fn enrich_history(
 /// Build the tool registry for an agent (code execution + knowledge search + http).
 /// When `search_enabled` is false the knowledge tools are omitted even if the
 /// agent has linked knowledge bases.
+///
+/// All tools are wrapped with permission guards that:
+///   - Check `TaskPermissionOverride` for built-in tools
+///   - Check `ConnectorPolicy` for the authenticated HTTP tool
+///   - Record audit log entries for every invocation (allowed or denied)
 pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
+
+    // Build the guard context (shared across all guarded tools)
+    // We need the connector name→ID mapping for the HTTP tool guard
+    let connector_name_to_id: std::collections::HashMap<String, Uuid> =
+        match clawkson_db::connector::list_for_user(&state.db, user_id).await {
+            Ok(connectors) => connectors
+                .into_iter()
+                .filter(|c| c.enabled)
+                .map(|c| (c.name.to_lowercase(), c.id))
+                .collect(),
+            Err(_) => std::collections::HashMap::new(),
+        };
+
+    let guard_ctx = crate::permission_guard::GuardContext {
+        db: state.db.clone(),
+        conversation_id,
+        agent_id: agent_cfg.agent_id,
+        user_id,
+        connector_policies: agent_cfg.connector_policies.clone(),
+        task_override: None, // TODO: populate from conversation metadata when task overrides are implemented
+        connector_name_to_id: connector_name_to_id.clone(),
+    };
 
     // Code execution tool (requires container)
     if agent_cfg.container_enabled {
@@ -966,16 +999,23 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
                 }
             }
             let workspace_root = cm.workspace_root().to_path_buf();
-            let tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone());
-            registry.register(tool.into_dyn());
+
+            let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
 
             // Workspace tools — let the LLM read, write, and list files in its workspace
             let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
-            registry.register(read_tool.into_dyn());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(read_tool.into_dyn(), "workspace_read".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
+
             let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
-            registry.register(write_tool.into_dyn());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
+
             let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root);
-            registry.register(list_tool.into_dyn());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
         }
     }
 
@@ -1000,10 +1040,13 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
 
         if has_kbs || has_memory {
             let list_tool = crate::tools::KnowledgeListTool::new(agent_cfg.agent_id, state.db.clone());
-            registry.register(list_tool.into_dyn());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "knowledge_list".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
+
             let search_tool = crate::tools::KnowledgeSearchTool::new(agent_cfg.agent_id, state.db.clone())
                 .with_extra_kbs(memory_kb_ids);
-            registry.register(search_tool.into_dyn());
+            let guarded = crate::permission_guard::GuardedBuiltinTool::new(search_tool.into_dyn(), "knowledge_search".to_string(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
         }
     }
 
@@ -1020,7 +1063,9 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
 
         if !enabled.is_empty() {
             let tool = crate::tools::AuthenticatedHttpTool::new(enabled);
-            registry.register(tool.into_dyn());
+            // Wrap with the HTTP-specific permission guard that checks ConnectorPolicy
+            let guarded = crate::permission_guard::GuardedHttpTool::new(tool.into_dyn(), guard_ctx.clone());
+            registry.register(guarded.into_dyn());
         }
     }
 
@@ -1198,6 +1243,7 @@ async fn chat(
         max_tokens: None,
         container_enabled: false,
         container_config: None,
+        connector_policies: vec![],
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
@@ -1398,6 +1444,7 @@ async fn chat_stream(
         max_tokens: None,
         container_enabled: false,
         container_config: None,
+        connector_policies: vec![],
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
     let registry = build_tool_registry(&state, &cfg, conv_id, auth.id(), req.search_enabled).await;

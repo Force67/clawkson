@@ -3,6 +3,8 @@ pub mod embeddings;
 pub mod llm;
 pub mod memory;
 pub mod pdf;
+pub mod permission_guard;
+pub mod proxy;
 pub mod routes;
 pub mod s3;
 pub mod state;

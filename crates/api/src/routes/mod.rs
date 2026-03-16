@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod agents;
+pub mod audit;
 pub mod auth;
 pub mod calendar;
 pub mod containers;
@@ -34,5 +35,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/skills", skills::router())
         .nest("/calendar", calendar::router())
         .nest("/uploads", uploads::router())
+        .nest("/audit-log", audit::router())
+        .nest("/policy-presets", audit::presets_router())
         .merge(shares::router())
 }

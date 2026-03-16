@@ -31,3 +31,5 @@ aws-config.workspace = true
 aws-types.workspace = true
 base64 = "0.22"
 tempfile = "3"
+glob-match = "0.2"
+url = "2"
