@@ -656,6 +656,55 @@ pub struct CalendarShare {
     pub created_at: DateTime<Utc>,
 }
 
+// ── Scheduled Tasks ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledTask {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub agent_id: Uuid,
+    pub name: String,
+    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron_expression: Option<String>,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskExecution {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<Uuid>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub started_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
+    /// Output files produced by the agent during this execution.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_files: Vec<TaskOutputFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskOutputFile {
+    pub id: Uuid,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+}
+
 // ── Settings ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

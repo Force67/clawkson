@@ -7,6 +7,7 @@ pub mod containers;
 pub mod conversations;
 pub mod connectors;
 pub mod knowledge;
+pub mod scheduled_tasks;
 pub mod shares;
 pub mod skills;
 pub mod tools;
@@ -34,6 +35,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/agents/{id}/container", workspace::router())
         .nest("/skills", skills::router())
         .nest("/calendar", calendar::router())
+        .nest("/scheduled-tasks", scheduled_tasks::router())
         .nest("/uploads", uploads::router())
         .nest("/audit-log", audit::router())
         .nest("/policy-presets", audit::presets_router())

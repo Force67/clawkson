@@ -5,6 +5,7 @@ use clawkson_db::Db;
 
 use crate::memory::MemoryEmbedder;
 use crate::s3::S3Storage;
+use crate::scheduler::SchedulerManager;
 use crate::telegram::TelegramManager;
 
 /// Shared application state.
@@ -19,6 +20,8 @@ pub struct AppState {
     pub memory: MemoryEmbedder,
     /// Manages background Telegram bot pollers.
     pub telegram: TelegramManager,
+    /// Manages the background scheduled-task runner.
+    pub scheduler: SchedulerManager,
 }
 
 impl AppState {
@@ -34,6 +37,7 @@ impl AppState {
             s3,
             memory,
             telegram: TelegramManager::new(),
+            scheduler: SchedulerManager::new(),
         }
     }
 }

@@ -19,6 +19,7 @@ pub mod llm_connector;
 pub mod settings;
 pub mod skill;
 pub mod telegram_chat;
+pub mod scheduled_task;
 pub mod tool_audit;
 
 pub use bootstrap::{

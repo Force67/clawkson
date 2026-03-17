@@ -1,0 +1,643 @@
+/* ── Grid ────────────────────────────────────────────────────── */
+
+.taskGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+/* ── Task card ──────────────────────────────────────────────── */
+
+.taskHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.taskName {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.taskActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.actionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.actionBtn:hover {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+}
+
+.actionBtn:hover.deleteBtn {
+  color: var(--error);
+}
+
+.taskAgent {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-bottom: 8px;
+}
+
+.taskPrompt {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.taskMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-tertiary);
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Toggle ─────────────────────────────────────────────────── */
+
+.toggle {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toggleOn  { color: var(--success); }
+.toggleOff { color: var(--text-tertiary); }
+
+/* ── Status badges ──────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.badgeSuccess {
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.badgeError {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.badgeRunning {
+  color: var(--accent);
+  background: rgba(74, 108, 247, 0.1);
+}
+
+/* ── History panel ──────────────────────────────────────────── */
+
+.historySection {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle, rgba(0,0,0,0.06));
+}
+
+.historyToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  transition: color 0.15s;
+}
+
+.historyToggle:hover {
+  color: var(--accent);
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.02);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.historyLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.historyRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.historyLink {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.historyLink:hover {
+  text-decoration: underline;
+}
+
+.historyEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.historyEntry .historyItem {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.historySummary {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding-top: 2px;
+}
+
+.historyError {
+  font-size: 11px;
+  color: var(--error);
+  line-height: 1.4;
+  padding-top: 2px;
+}
+
+/* ── Output files ───────────────────────────────────────────── */
+
+.outputFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.outputFile {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(74, 108, 247, 0.06);
+  border: 1px solid rgba(74, 108, 247, 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-decoration: none;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.outputFile:hover {
+  background: rgba(74, 108, 247, 0.12);
+  border-color: rgba(74, 108, 247, 0.25);
+}
+
+.outputFileName {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outputFileSize {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+/* ── Empty state ─────────────────────────────────────────────── */
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px;
+  text-align: center;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+}
+
+.emptyIcon {
+  color: var(--text-tertiary);
+  opacity: 0.3;
+  margin-bottom: 14px;
+}
+
+.emptyTitle {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  margin-bottom: 6px;
+}
+
+.emptyDesc {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 18px;
+  max-width: 320px;
+}
+
+/* ── Loading ─────────────────────────────────────────────────── */
+
+.loadingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding: 24px 0;
+}
+
+/* ── Modal ───────────────────────────────────────────────────── */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 24px 64px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
+  padding: 28px;
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  animation: fadeUp 0.2s ease-out;
+}
+
+.modalTitle {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  margin-bottom: 20px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.input,
+.select,
+.textarea {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  font-family: var(--font-sans);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: #4a6cf7;
+  box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.1);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.errorMsg {
+  font-size: 12px;
+  color: var(--error);
+  padding: 8px 12px;
+  background: rgba(74, 108, 247, 0.06);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(74, 108, 247, 0.15);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Schedule presets ────────────────────────────────────────── */
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.presetBtn {
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.02);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.presetBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.presetBtnActive {
+  border-color: var(--accent);
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+}
+
+/* ── Prompt wrapper with skill dropdown ──────────────────────── */
+
+.promptWrap {
+  position: relative;
+}
+
+.promptHints {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 4px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+.promptHintTag {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ── Skill dropdown ─────────────────────────────────────────── */
+
+.skillDropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 100;
+  max-height: 220px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  animation: skillDropdownIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes skillDropdownIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.skillDropdownHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.skillDropdownHeader svg {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.skillDropdownList {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.skillDropdownItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.skillDropdownItem:hover,
+.skillDropdownItemActive {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.skillDropdownItemActive {
+  background: rgba(74, 108, 247, 0.06);
+}
+
+.skillDropdownIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.skillDropdownContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.skillDropdownName {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.3;
+}
+
+.skillDropdownDesc {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────── */
+
+:root[data-theme="dark"] .input,
+:root[data-theme="dark"] .select,
+:root[data-theme="dark"] .textarea {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .historyItem {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:root[data-theme="dark"] .historyEntry {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:root[data-theme="dark"] .presetBtn {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .emptyState {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] .skillDropdown {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .skillDropdownItem:hover,
+:root[data-theme="dark"] .skillDropdownItemActive {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root[data-theme="dark"] .skillDropdownHeader {
+  border-color: rgba(255, 255, 255, 0.07);
+}

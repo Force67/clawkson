@@ -9,6 +9,7 @@ import {
   Bot,
   Container,
   CalendarDays,
+  Timer,
   SlidersHorizontal,
   ScrollText,
   ChevronsLeft,
@@ -44,6 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/agents', label: 'Agents', icon: Bot },
       { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
       { path: '/calendar', label: 'Calendar', icon: CalendarDays },
+      { path: '/scheduled-tasks', label: 'Scheduled Tasks', icon: Timer },
     ],
   },
   {

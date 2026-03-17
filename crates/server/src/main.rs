@@ -92,6 +92,10 @@ async fn main() -> Result<()> {
     // ── Telegram bot pollers ──────────────────────────────────────
     clawkson_api::telegram::boot_pollers(&state, &state.telegram).await;
 
+    // ── Scheduled task runner ───────────────────────────────────────
+    state.scheduler.start(state.clone());
+    tracing::info!("scheduled task runner started");
+
     let frontend_origin = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| "http://localhost:5173".to_string());
     let cors = CorsLayer::new()
@@ -101,6 +105,7 @@ async fn main() -> Result<()> {
         .allow_credentials(true);
 
     let tg_shutdown = state.telegram.clone();
+    let sched_shutdown = state.scheduler.clone();
 
     let app = Router::new()
         .nest("/api", clawkson_api::routes::api_router())
@@ -121,6 +126,7 @@ async fn main() -> Result<()> {
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("shutdown signal received");
             tg_shutdown.shutdown().await;
+            sched_shutdown.shutdown().await;
             if let Some(cm) = cm_shutdown {
                 cm.shutdown().await;
             }

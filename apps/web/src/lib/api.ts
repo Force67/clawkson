@@ -414,6 +414,56 @@ export interface ShareResponse {
   shared_with_user: ShareUserInfo
 }
 
+// ── Scheduled Tasks ─────────────────────────────────────────────────
+
+export interface ScheduledTask {
+  id: string
+  owner_id: string
+  agent_id: string
+  name: string
+  prompt: string
+  cron_expression?: string | null
+  enabled: boolean
+  last_run_at?: string | null
+  next_run_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TaskOutputFile {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+}
+
+export interface TaskExecution {
+  id: string
+  task_id: string
+  conversation_id?: string | null
+  status: string
+  result_summary?: string | null
+  error_message?: string | null
+  started_at: string
+  completed_at?: string | null
+  duration_ms?: number | null
+  output_files?: TaskOutputFile[]
+}
+
+export interface CreateScheduledTaskRequest {
+  name: string
+  agent_id: string
+  prompt: string
+  cron_expression?: string | null
+}
+
+export interface PatchScheduledTaskRequest {
+  name?: string
+  prompt?: string
+  cron_expression?: string | null
+  enabled?: boolean
+}
+
 // ── Create / patch request types ───────────────────────────────────
 
 export interface CreateAgentRequest {
@@ -787,6 +837,21 @@ export const api = {
       const query = qs.toString()
       return request<CalendarEvent[]>(`/api/calendar/shared/${ownerId}${query ? `?${query}` : ''}`)
     },
+  },
+
+  scheduledTasks: {
+    list: () => request<ScheduledTask[]>('/api/scheduled-tasks'),
+    get: (id: string) => request<ScheduledTask>(`/api/scheduled-tasks/${id}`),
+    create: (body: CreateScheduledTaskRequest) =>
+      request<ScheduledTask>('/api/scheduled-tasks', { method: 'POST', body: JSON.stringify(body) }),
+    patch: (id: string, body: PatchScheduledTaskRequest) =>
+      request<ScheduledTask>(`/api/scheduled-tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/scheduled-tasks/${id}`, { method: 'DELETE' }),
+    run: (id: string) =>
+      request<TaskExecution>(`/api/scheduled-tasks/${id}/run`, { method: 'POST' }),
+    history: (id: string) =>
+      request<TaskExecution[]>(`/api/scheduled-tasks/${id}/history`),
   },
 
   uploads: {

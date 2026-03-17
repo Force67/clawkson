@@ -9,5 +9,6 @@ pub mod routes;
 pub mod s3;
 pub mod state;
 pub mod subtask;
+pub mod scheduler;
 pub mod telegram;
 pub mod tools;

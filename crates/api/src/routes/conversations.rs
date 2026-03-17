@@ -436,7 +436,7 @@ async fn save_message(
 /// Files are NOT deleted after upload — the agent may reference them in later messages.
 /// A `.clawkson-attached` manifest tracks which files have already been uploaded so they
 /// are not re-attached on subsequent turns.
-async fn attach_workspace_outputs(
+pub(crate) async fn attach_workspace_outputs(
     state: &AppState,
     agent_id: Uuid,
     assistant_msg_id: Uuid,
@@ -806,7 +806,7 @@ async fn build_user_context(state: &AppState, user: &clawkson_core::User) -> Str
 /// Scan user message for `/skill-name` references and add explicit invocation markers.
 /// The full instructions are already in the system prompt, so this just signals
 /// that the user explicitly wants to use a particular skill.
-async fn expand_skill_references(
+pub(crate) async fn expand_skill_references(
     state: &AppState,
     agent_id: Uuid,
     content: &str,
