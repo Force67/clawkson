@@ -150,11 +150,20 @@ export interface Conversation {
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+export interface OfficeMetadata {
+  type: 'spreadsheet' | 'presentation' | 'document'
+  sheet_count?: number
+  sheet_names?: string[]
+  slide_count?: number
+  paragraph_count?: number
+}
+
 export interface MessageAttachment {
   id: string
   filename: string
   content_type: string
   size_bytes: number
+  metadata?: OfficeMetadata
 }
 
 export interface Message {

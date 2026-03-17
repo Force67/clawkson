@@ -12,6 +12,7 @@ pub struct ChatAttachmentRow {
     pub content_type: String,
     pub s3_key: String,
     pub size_bytes: i64,
+    pub metadata: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -26,10 +27,25 @@ pub async fn create(
     s3_key: &str,
     size_bytes: i64,
 ) -> Result<ChatAttachmentRow, sqlx::Error> {
+    create_with_metadata(pool, id, owner_id, conversation_id, filename, content_type, s3_key, size_bytes, None).await
+}
+
+/// Insert a new chat attachment record with optional metadata.
+pub async fn create_with_metadata(
+    pool: &PgPool,
+    id: Uuid,
+    owner_id: Uuid,
+    conversation_id: Option<Uuid>,
+    filename: &str,
+    content_type: &str,
+    s3_key: &str,
+    size_bytes: i64,
+    metadata: Option<serde_json::Value>,
+) -> Result<ChatAttachmentRow, sqlx::Error> {
     sqlx::query_as::<_, ChatAttachmentRow>(
         r#"
-        INSERT INTO chat_attachments (id, owner_id, conversation_id, filename, content_type, s3_key, size_bytes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO chat_attachments (id, owner_id, conversation_id, filename, content_type, s3_key, size_bytes, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
         "#,
     )
@@ -40,6 +56,7 @@ pub async fn create(
     .bind(content_type)
     .bind(s3_key)
     .bind(size_bytes)
+    .bind(metadata)
     .fetch_one(pool)
     .await
 }

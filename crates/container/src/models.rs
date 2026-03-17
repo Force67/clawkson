@@ -22,7 +22,7 @@ pub struct ContainerConfig {
 }
 
 fn default_image() -> String {
-    "python:3.12-slim".to_string()
+    "clawkson-sandbox:latest".to_string()
 }
 
 impl Default for ContainerConfig {

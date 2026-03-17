@@ -630,6 +630,142 @@
   opacity: 1;
 }
 
+/* ── Rich Office attachment cards ────────────────────────────── */
+
+.officeCards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.officeCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.015);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  max-width: 340px;
+}
+
+.officeCard:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.14);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.officeCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.officeCard_spreadsheet .officeCardIcon {
+  background: rgba(33, 150, 83, 0.1);
+  color: #219653;
+}
+
+.officeCard_presentation .officeCardIcon {
+  background: rgba(217, 123, 74, 0.1);
+  color: #d97b4a;
+}
+
+.officeCard_document .officeCardIcon {
+  background: rgba(74, 108, 247, 0.1);
+  color: #4a6cf7;
+}
+
+.officeCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.officeCardFilename {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.officeCardMeta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.officeCardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.officeCardHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+.officeCard:hover .officeCardHint {
+  opacity: 1;
+}
+
+.officeCardDl {
+  color: var(--text-tertiary);
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.officeCard:hover .officeCardDl {
+  opacity: 1;
+}
+
+/* Dark theme overrides for office cards */
+:global(:root[data-theme="dark"]) .officeCard {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:global(:root[data-theme="dark"]) .officeCard:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .officeCard {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  :global(:root[data-theme="system"]) .officeCard:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  }
+}
+
 /* ── Streaming indicators ────────────────────────────────────── */
 
 .cursor {

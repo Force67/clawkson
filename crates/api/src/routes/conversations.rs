@@ -375,6 +375,7 @@ async fn list_messages(
                     filename: a.filename,
                     content_type: a.content_type,
                     size_bytes: a.size_bytes,
+                    metadata: a.metadata,
                 })
                 .collect();
         }
@@ -548,8 +549,12 @@ pub(crate) async fn attach_workspace_outputs(
             "zip" => "application/zip",
             "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             _ => "application/octet-stream",
         };
+
+        // Extract metadata from Office files (sheet names, slide counts, etc.)
+        let metadata = extract_office_metadata(content_type, &data);
 
         let file_id = Uuid::new_v4();
         let s3_key = format!("outputs/{}/{}/{}", owner_id, file_id, filename);
@@ -560,9 +565,9 @@ pub(crate) async fn attach_workspace_outputs(
             continue;
         }
 
-        match clawkson_db::chat_attachment::create(
+        match clawkson_db::chat_attachment::create_with_metadata(
             pool, file_id, owner_id, Some(conv_id),
-            &filename, content_type, &s3_key, size,
+            &filename, content_type, &s3_key, size, metadata,
         ).await {
             Ok(_) => {
                 if let Err(e) = clawkson_db::chat_attachment::link_to_message(pool, file_id, assistant_msg_id).await {
@@ -589,6 +594,88 @@ pub(crate) async fn attach_workspace_outputs(
         if let Err(e) = tokio::fs::write(&manifest_path, content).await {
             tracing::warn!("failed to write attached-files manifest: {e}");
         }
+    }
+}
+
+/// Extract metadata from Office files (xlsx, pptx, docx) by peeking inside the ZIP archive.
+/// Returns None for non-Office files or on any parse error.
+fn extract_office_metadata(content_type: &str, data: &[u8]) -> Option<serde_json::Value> {
+    use std::io::Cursor;
+
+    let cursor = Cursor::new(data);
+    let mut archive = zip::ZipArchive::new(cursor).ok()?;
+
+    match content_type {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+            // xlsx: extract sheet names from xl/workbook.xml, count worksheets
+            let mut sheet_names: Vec<String> = Vec::new();
+            if let Ok(mut file) = archive.by_name("xl/workbook.xml") {
+                let mut xml = String::new();
+                std::io::Read::read_to_string(&mut file, &mut xml).ok();
+                // Parse <sheet name="..."/> elements
+                for segment in xml.split("<sheet ") {
+                    if let Some(name_start) = segment.find("name=\"") {
+                        let rest = &segment[name_start + 6..];
+                        if let Some(name_end) = rest.find('"') {
+                            sheet_names.push(rest[..name_end].to_string());
+                        }
+                    }
+                }
+            }
+            // Count worksheet files as fallback
+            let sheet_count = if sheet_names.is_empty() {
+                let mut count = 0usize;
+                for i in 0..archive.len() {
+                    if let Ok(f) = archive.by_index(i) {
+                        let n = f.name().to_string();
+                        if n.starts_with("xl/worksheets/sheet") && n.ends_with(".xml") {
+                            count += 1;
+                        }
+                    }
+                }
+                count
+            } else {
+                sheet_names.len()
+            };
+
+            Some(serde_json::json!({
+                "type": "spreadsheet",
+                "sheet_count": sheet_count,
+                "sheet_names": sheet_names,
+            }))
+        }
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {
+            // pptx: count ppt/slides/slide*.xml entries
+            let mut slide_count = 0usize;
+            for i in 0..archive.len() {
+                if let Ok(f) = archive.by_index(i) {
+                    let n = f.name().to_string();
+                    if n.starts_with("ppt/slides/slide") && n.ends_with(".xml") {
+                        slide_count += 1;
+                    }
+                }
+            }
+
+            Some(serde_json::json!({
+                "type": "presentation",
+                "slide_count": slide_count,
+            }))
+        }
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            // docx: count paragraphs from word/document.xml as a rough metric
+            let mut paragraph_count = 0usize;
+            if let Ok(mut file) = archive.by_name("word/document.xml") {
+                let mut xml = String::new();
+                std::io::Read::read_to_string(&mut file, &mut xml).ok();
+                paragraph_count = xml.matches("<w:p ").count() + xml.matches("<w:p>").count();
+            }
+
+            Some(serde_json::json!({
+                "type": "document",
+                "paragraph_count": paragraph_count,
+            }))
+        }
+        _ => None,
     }
 }
 
@@ -631,7 +718,7 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
     if row.container_enabled {
         let image = container_config.as_ref()
             .and_then(|c| c.image.as_deref())
-            .unwrap_or("python:3.12-slim");
+            .unwrap_or("clawkson-sandbox:latest");
         let network = container_config.as_ref().map(|c| c.network_enabled).unwrap_or(false);
 
         let sandbox_instructions = format!(
@@ -1059,7 +1146,7 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
                 let config = agent_cfg.container_config
                     .as_ref()
                     .map(|ac| clawkson_container::ContainerConfig {
-                        image: ac.image.clone().unwrap_or_else(|| "python:3.12-slim".to_string()),
+                        image: ac.image.clone().unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
                         cpu_limit: ac.cpu_limit,
                         memory_limit_mb: ac.memory_limit_mb,
                         network_enabled: ac.network_enabled,
@@ -1488,6 +1575,7 @@ async fn chat(
                     filename: a.filename,
                     content_type: a.content_type,
                     size_bytes: a.size_bytes,
+                    metadata: a.metadata,
                 })
                 .collect();
         }

@@ -34,3 +34,4 @@ tempfile = "3"
 glob-match = "0.2"
 url = "2"
 cron = "0.12"
+zip = { version = "2", default-features = false, features = ["deflate"] }

@@ -46,7 +46,7 @@ pub struct Agent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentContainerConfig {
     /// Docker image to use for this agent's container.
-    /// Defaults to "python:3.12-slim" if not set.
+    /// Defaults to "clawkson-sandbox:latest" if not set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// CPU limit in cores (e.g. 1.0).
@@ -420,6 +420,9 @@ pub struct MessageAttachment {
     pub filename: String,
     pub content_type: String,
     pub size_bytes: i64,
+    /// Optional metadata extracted from Office files (sheet names, slide count, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

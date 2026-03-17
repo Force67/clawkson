@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -157,10 +157,87 @@ interface MsgBubbleProps {
   agentName?: string
 }
 
-function AttachmentIcon({ contentType }: { contentType: string }) {
-  if (contentType.startsWith('image/')) return <ImageIcon size={11} />
-  if (contentType === 'application/pdf') return <FileText size={11} />
-  return <FileIcon size={11} />
+const OFFICE_TYPES = {
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'spreadsheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'document',
+} as const
+
+function isOfficeType(contentType: string): boolean {
+  return contentType in OFFICE_TYPES
+}
+
+function AttachmentIcon({ contentType, size = 11 }: { contentType: string; size?: number }) {
+  if (contentType.startsWith('image/')) return <ImageIcon size={size} />
+  if (contentType === 'application/pdf') return <FileText size={size} />
+  if (contentType in OFFICE_TYPES) {
+    const t = OFFICE_TYPES[contentType as keyof typeof OFFICE_TYPES]
+    if (t === 'spreadsheet') return <FileSpreadsheet size={size} />
+    if (t === 'presentation') return <Presentation size={size} />
+    return <FileText size={size} />
+  }
+  return <FileIcon size={size} />
+}
+
+function officeMetaSummary(att: import('../lib/api').MessageAttachment): string | null {
+  const m = att.metadata
+  if (!m) return null
+  if (m.type === 'spreadsheet' && m.sheet_count) {
+    const names = m.sheet_names?.length ? m.sheet_names.join(', ') : null
+    return names ? `${m.sheet_count} sheet${m.sheet_count > 1 ? 's' : ''}: ${names}` : `${m.sheet_count} sheet${m.sheet_count > 1 ? 's' : ''}`
+  }
+  if (m.type === 'presentation' && m.slide_count) {
+    return `${m.slide_count} slide${m.slide_count > 1 ? 's' : ''}`
+  }
+  if (m.type === 'document' && m.paragraph_count) {
+    return `${m.paragraph_count} paragraph${m.paragraph_count > 1 ? 's' : ''}`
+  }
+  return null
+}
+
+function officeAppHint(contentType: string): string | null {
+  if (contentType in OFFICE_TYPES) {
+    const t = OFFICE_TYPES[contentType as keyof typeof OFFICE_TYPES]
+    if (t === 'spreadsheet') return 'Open in Excel'
+    if (t === 'presentation') return 'Open in PowerPoint'
+    if (t === 'document') return 'Open in Word'
+  }
+  return null
+}
+
+function OfficeAttachmentCard({ att }: { att: import('../lib/api').MessageAttachment }) {
+  const summary = officeMetaSummary(att)
+  const appHint = officeAppHint(att.content_type)
+  const t = OFFICE_TYPES[att.content_type as keyof typeof OFFICE_TYPES]
+
+  return (
+    <a
+      href={api.uploads.downloadUrl(att.id)}
+      download={att.filename}
+      className={`${styles.officeCard} ${styles[`officeCard_${t}`] ?? ''}`}
+      title={`${att.filename} (${formatFileSize(att.size_bytes)})`}
+    >
+      <div className={styles.officeCardIcon}>
+        <AttachmentIcon contentType={att.content_type} size={20} />
+      </div>
+      <div className={styles.officeCardBody}>
+        <span className={styles.officeCardFilename}>{att.filename}</span>
+        <span className={styles.officeCardMeta}>
+          {summary && <>{summary} &middot; </>}
+          {formatFileSize(att.size_bytes)}
+        </span>
+      </div>
+      <div className={styles.officeCardActions}>
+        {appHint && (
+          <span className={styles.officeCardHint}>
+            <ExternalLink size={10} />
+            {appHint}
+          </span>
+        )}
+        <Download size={14} className={styles.officeCardDl} />
+      </div>
+    </a>
+  )
 }
 
 function ArtifactPreview({ id, filename }: { id: string; filename: string }) {
@@ -205,7 +282,9 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
     a.content_type === 'text/html' || a.filename.endsWith('.html') || a.filename.endsWith('.htm')
   )
   const htmlIds = new Set(htmlAttachments.map(a => a.id))
-  const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/') && !htmlIds.has(a.id))
+  const officeAttachments = isUser ? [] : attachments.filter(a => isOfficeType(a.content_type))
+  const officeIds = new Set(officeAttachments.map(a => a.id))
+  const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/') && !htmlIds.has(a.id) && !officeIds.has(a.id))
 
   return (
     <div className={`${styles.messageRow} ${isUser ? styles.messageRowUser : styles.messageRowAssistant}`}>
@@ -245,6 +324,13 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
           <div className={styles.artifactPreview}>
             {htmlAttachments.map(att => (
               <ArtifactPreview key={att.id} id={att.id} filename={att.filename} />
+            ))}
+          </div>
+        )}
+        {officeAttachments.length > 0 && (
+          <div className={styles.officeCards}>
+            {officeAttachments.map(att => (
+              <OfficeAttachmentCard key={att.id} att={att} />
             ))}
           </div>
         )}
