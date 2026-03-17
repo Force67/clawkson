@@ -518,6 +518,8 @@ pub enum ConnectorType {
     Slack,
     AzureDevops,
     Custom,
+    Tavily,
+    Bing,
 }
 
 // ── Tool ───────────────────────────────────────────────────────────

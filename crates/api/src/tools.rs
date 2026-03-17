@@ -747,6 +747,236 @@ impl KernelFunction for KnowledgeSearchTool {
     }
 }
 
+// ── Web Search Tool ──────────────────────────────────────────────
+
+/// Max characters per search result snippet. Keeps tool output lean.
+const MAX_SNIPPET_CHARS: usize = 300;
+/// Hard cap on the serialized JSON output from web_search (bytes).
+/// Prevents token explosion regardless of what the search API returns.
+const MAX_SEARCH_OUTPUT_BYTES: usize = 8_000;
+
+/// Which search provider backs the web_search tool.
+pub enum SearchProvider {
+    Tavily { api_key: String },
+    Bing { api_key: String, endpoint: String },
+}
+
+/// A tool that searches the web. Supports multiple backends (Tavily, Bing).
+/// Registered automatically when a user has an enabled web search connector.
+pub struct WebSearchTool {
+    provider: SearchProvider,
+}
+
+impl WebSearchTool {
+    pub fn new(provider: SearchProvider) -> Self {
+        Self { provider }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+
+    async fn search_tavily(api_key: &str, query: &str, max_results: u8, search_depth: &str, include_answer: bool) -> Result<Value, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
+
+        let body = serde_json::json!({
+            "api_key": api_key,
+            "query": query,
+            "search_depth": search_depth,
+            "include_answer": include_answer,
+            "max_results": max_results,
+        });
+
+        let response = client
+            .post("https://api.tavily.com/search")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Web search request failed: {e}"))?;
+
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap_or_default();
+        if status != 200 {
+            return Err(format!("Tavily API returned status {status}: {text}"));
+        }
+
+        let raw: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse Tavily response: {e}"))?;
+
+        let mut result = serde_json::json!({ "query": query });
+
+        if include_answer {
+            if let Some(answer) = raw.get("answer").and_then(|v| v.as_str()) {
+                result["answer"] = Value::String(answer.to_string());
+            }
+        }
+
+        if let Some(results) = raw.get("results").and_then(|v| v.as_array()) {
+            let formatted: Vec<Value> = results.iter().map(|r| {
+                let content = r.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = if content.len() > MAX_SNIPPET_CHARS { &content[..MAX_SNIPPET_CHARS] } else { content };
+                serde_json::json!({
+                    "title": r.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                    "url": r.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                    "content": content,
+                    "score": r.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                })
+            }).collect();
+            let total = formatted.len();
+            result["results"] = Value::Array(formatted);
+            result["total"] = serde_json::json!(total);
+        }
+
+        Ok(result)
+    }
+
+    async fn search_bing(api_key: &str, endpoint: &str, query: &str, max_results: u8) -> Result<Value, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
+
+        let response = client
+            .get(endpoint)
+            .header("Ocp-Apim-Subscription-Key", api_key)
+            .query(&[
+                ("q", query),
+                ("count", &max_results.to_string()),
+                ("textDecorations", "false"),
+                ("textFormat", "Raw"),
+                ("responseFilter", "Webpages"),
+            ])
+            .send()
+            .await
+            .map_err(|e| format!("Web search request failed: {e}"))?;
+
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap_or_default();
+        tracing::debug!(status, response_len = text.len(), "Bing search response");
+        if status != 200 {
+            tracing::warn!(status, body = &text[..text.len().min(500)], "Bing API error");
+            return Err(format!("Bing API returned status {status}: {text}"));
+        }
+
+        let raw: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse Bing response: {e}"))?;
+
+        let mut result = serde_json::json!({ "query": query });
+
+        if let Some(web_pages) = raw.get("webPages").and_then(|w| w.get("value")).and_then(|v| v.as_array()) {
+            let formatted: Vec<Value> = web_pages.iter().map(|r| {
+                let snippet = r.get("snippet").and_then(|v| v.as_str()).unwrap_or("");
+                let content = if snippet.len() > MAX_SNIPPET_CHARS { &snippet[..MAX_SNIPPET_CHARS] } else { snippet };
+                serde_json::json!({
+                    "title": r.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                    "url": r.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                    "content": content,
+                })
+            }).collect();
+            let total = formatted.len();
+            result["results"] = Value::Array(formatted);
+            result["total"] = serde_json::json!(total);
+        }
+
+        Ok(result)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct WebSearchArgs {
+    query: String,
+    max_results: Option<u8>,
+    search_depth: Option<String>,
+    include_answer: Option<bool>,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for WebSearchTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("web_search")
+            .with_description(
+                "Search the web for current information. Returns relevant web page titles, URLs, and content snippets. \
+                 Use this to answer questions about recent events, look up facts, find documentation, or research topics \
+                 that require up-to-date information beyond your training data.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("query", serde_json::json!({ "type": "string" }))
+                .with_description("The search query — be specific and descriptive for best results"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "max_results",
+                serde_json::json!({ "type": "integer", "minimum": 1, "maximum": 10 }),
+            )
+            .with_description("Maximum number of results to return (default: 5)")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "search_depth",
+                serde_json::json!({ "type": "string", "enum": ["basic", "advanced"] }),
+            )
+            .with_description("Search depth: 'basic' for quick results, 'advanced' for deeper research. Only applies to Tavily provider. (default: basic)")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "include_answer",
+                serde_json::json!({ "type": "boolean" }),
+            )
+            .with_description("If true, include a short AI-generated answer summary alongside results. Only applies to Tavily provider. (default: false)")
+            .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: WebSearchArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for web_search: {e}"
+            ))
+        })?;
+
+        let max_results = args.max_results.unwrap_or(5).min(10);
+
+        let result = match &self.provider {
+            SearchProvider::Tavily { api_key } => {
+                let search_depth = args.search_depth.as_deref().unwrap_or("basic");
+                let include_answer = args.include_answer.unwrap_or(false);
+                Self::search_tavily(api_key, &args.query, max_results, search_depth, include_answer).await
+            }
+            SearchProvider::Bing { api_key, endpoint } => {
+                Self::search_bing(api_key, endpoint, &args.query, max_results).await
+            }
+        };
+
+        match result {
+            Ok(mut v) => {
+                // Hard cap: drop results from the end until output fits the budget
+                if let Some(results) = v.get("results").and_then(|r| r.as_array()).cloned() {
+                    let mut kept = results;
+                    while serde_json::to_string(&v).map(|s| s.len()).unwrap_or(0) > MAX_SEARCH_OUTPUT_BYTES && kept.len() > 1 {
+                        kept.pop();
+                        v["results"] = Value::Array(kept.clone());
+                        v["total"] = serde_json::json!(kept.len());
+                    }
+                }
+                Ok(v)
+            }
+            Err(e) => Ok(serde_json::json!({ "error": e })),
+        }
+    }
+}
+
 // ── Authenticated HTTP Tool ──────────────────────────────────────
 
 pub mod http_tool {

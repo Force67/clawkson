@@ -171,7 +171,7 @@ export interface ChatResponse {
   assistant_message: Message
 }
 
-export type ConnectorType = 'telegram' | 'gmail' | 'slack' | 'azure_devops' | 'custom'
+export type ConnectorType = 'telegram' | 'gmail' | 'slack' | 'azure_devops' | 'custom' | 'tavily' | 'bing'
 
 export interface Connector {
   id: string
@@ -855,10 +855,35 @@ export const api = {
   },
 
   uploads: {
-    upload: async (files: File[], conversationId?: string): Promise<UploadFilesResponse> => {
+    upload: async (files: File[], conversationId?: string, onProgress?: (loaded: number, total: number) => void): Promise<UploadFilesResponse> => {
       const form = new FormData()
       for (const f of files) form.append('files', f)
       if (conversationId) form.append('conversation_id', conversationId)
+
+      // Use XHR when progress callback is provided for byte-level tracking
+      if (onProgress) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('POST', `${BASE}/api/uploads`)
+          xhr.withCredentials = true
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) onProgress(e.loaded, e.total)
+          })
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText))
+            } else {
+              let detail = xhr.statusText
+              try { const body = JSON.parse(xhr.responseText); if (body?.error) detail = body.error } catch {}
+              reject(new Error(`${xhr.status} ${detail}`))
+            }
+          })
+          xhr.addEventListener('error', () => reject(new Error('Upload failed')))
+          xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
+          xhr.send(form)
+        })
+      }
+
       const res = await fetch(`${BASE}/api/uploads`, {
         method: 'POST',
         credentials: 'include',

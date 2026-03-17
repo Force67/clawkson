@@ -15,6 +15,8 @@ pub enum ConnectorType {
     Slack,
     AzureDevops,
     Custom,
+    Tavily,
+    Bing,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -188,6 +190,23 @@ pub async fn get_by_id(db: &Db, id: Uuid) -> Result<Option<ConnectorRow>, DbErro
     .fetch_optional(db.pool())
     .await?;
     Ok(row)
+}
+
+/// Disable all web search connectors for a user except the one with the given id.
+pub async fn disable_other_web_search(db: &Db, user_id: Uuid, keep_id: Uuid) -> Result<u64, DbError> {
+    let result = sqlx::query(
+        "UPDATE connectors
+         SET enabled = FALSE, updated_at = now()
+         WHERE user_id = $1
+           AND id != $2
+           AND connector_type IN ('tavily', 'bing')
+           AND enabled = TRUE",
+    )
+    .bind(user_id)
+    .bind(keep_id)
+    .execute(db.pool())
+    .await?;
+    Ok(result.rows_affected())
 }
 
 pub async fn delete(db: &Db, id: Uuid, user_id: Uuid) -> Result<bool, DbError> {

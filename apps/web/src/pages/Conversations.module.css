@@ -824,6 +824,138 @@
   color: var(--error);
 }
 
+/* ── Upload progress bar ───────────────────────────────────────── */
+
+.uploadProgressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(74, 108, 247, 0.04);
+  border: 1px solid rgba(74, 108, 247, 0.12);
+}
+
+.uploadProgressInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.uploadProgressTrack {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.uploadProgressBar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+/* ── Bulk file summary ─────────────────────────────────────────── */
+
+.bulkSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
+.bulkSummaryToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.bulkSummaryToggle:hover {
+  color: var(--text-primary);
+}
+
+.bulkSummaryToggle strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.bulkClearBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.bulkClearBtn:hover {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error);
+}
+
+.bulkFileList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  width: 100%;
+  padding: 4px 0;
+  animation: fadeIn 0.12s ease-out;
+}
+
+.bulkFileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: background 0.1s ease;
+}
+
+.bulkFileRow:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.bulkFileRow .attachmentName {
+  max-width: 240px;
+  flex: 1;
+  min-width: 0;
+}
+
+.bulkFileRow .attachmentRemove {
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  transition: opacity 0.1s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.bulkFileRow:hover .attachmentRemove {
+  opacity: 1;
+}
+
 .inputBar {
   display: flex;
   flex-direction: column;
@@ -2082,6 +2214,28 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* ── Tool dropdown overrides ──────────────────────────────── */
+
+.toolDropdownIcon {
+  background: rgba(217, 123, 74, 0.1);
+  border-color: rgba(217, 123, 74, 0.18);
+  color: var(--accent);
+}
+
+.toolBadge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(74, 108, 247, 0.06);
+  color: var(--text-tertiary);
+  margin-top: 2px;
 }
 
 /* ── Pin button ───────────────────────────────────────────── */

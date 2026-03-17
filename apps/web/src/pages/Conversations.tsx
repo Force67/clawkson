@@ -1,12 +1,59 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo } from '../lib/api'
+import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool } from '../lib/api'
 import styles from './Conversations.module.css'
+
+// ── Folder drag-and-drop traversal ──────────────────────────────
+
+const IGNORED_FILES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini', '.gitkeep'])
+
+async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const all: FileSystemEntry[] = []
+  let batch: FileSystemEntry[]
+  do {
+    batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+      reader.readEntries(resolve, reject)
+    )
+    all.push(...batch)
+  } while (batch.length > 0)
+  return all
+}
+
+async function traverseEntry(entry: FileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) =>
+      (entry as FileSystemFileEntry).file(resolve, reject)
+    )
+    if (IGNORED_FILES.has(file.name) || file.name.startsWith('.')) return []
+    return [file]
+  }
+  if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader()
+    const entries = await readAllEntries(reader)
+    const nested = await Promise.all(entries.map(traverseEntry))
+    return nested.flat()
+  }
+  return []
+}
+
+async function getFilesFromDataTransfer(dataTransfer: DataTransfer): Promise<File[]> {
+  const items = Array.from(dataTransfer.items)
+  const entries = items
+    .map(item => item.webkitGetAsEntry?.())
+    .filter((e): e is FileSystemEntry => e !== null && e !== undefined)
+
+  if (entries.length > 0) {
+    const nested = await Promise.all(entries.map(traverseEntry))
+    return nested.flat()
+  }
+  // Fallback: plain file list (no folder support)
+  return Array.from(dataTransfer.files)
+}
 
 // ── Markdown renderer ───────────────────────────────────────────
 
@@ -499,6 +546,57 @@ function SkillDropdown({ skills, filter, selectedIndex, onSelect, position }: Sk
   )
 }
 
+// ── Tool Dropdown (@mention) ──────────────────────────────────────
+
+interface ToolDropdownProps {
+  tools: Tool[]
+  filter: string
+  selectedIndex: number
+  onSelect: (tool: Tool) => void
+  position: { bottom: number; left: number }
+}
+
+function ToolDropdown({ tools, filter, selectedIndex, onSelect, position }: ToolDropdownProps) {
+  const filtered = tools.filter(t =>
+    t.name.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  if (filtered.length === 0) return null
+
+  return (
+    <div
+      className={styles.skillDropdown}
+      style={{ bottom: position.bottom, left: position.left }}
+    >
+      <div className={styles.skillDropdownHeader}>
+        <Wrench size={11} />
+        <span>Tools</span>
+      </div>
+      <div className={styles.skillDropdownList}>
+        {filtered.map((tool, i) => (
+          <button
+            key={tool.id}
+            type="button"
+            className={`${styles.skillDropdownItem} ${i === selectedIndex ? styles.skillDropdownItemActive : ''}`}
+            onMouseDown={e => { e.preventDefault(); onSelect(tool) }}
+          >
+            <div className={`${styles.skillDropdownIcon} ${styles.toolDropdownIcon}`}>
+              <Wrench size={12} />
+            </div>
+            <div className={styles.skillDropdownContent}>
+              <span className={styles.skillDropdownName}>@{tool.name}</span>
+              <span className={styles.skillDropdownDesc}>{tool.description}</span>
+            </div>
+            {tool.tool_type === 'connector' && (
+              <span className={styles.toolBadge}>connector</span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Share Dialog ──────────────────────────────────────────────────
 
 interface ShareDialogProps {
@@ -665,7 +763,9 @@ export function ConversationsPage() {
   const [searchEnabled, setSearchEnabled] = useState(true)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0) // 0-100
   const [dragOver, setDragOver] = useState(false)
+  const [filesExpanded, setFilesExpanded] = useState(false)
   const [clearingMessages, setClearingMessages] = useState(false)
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -673,6 +773,10 @@ export function ConversationsPage() {
   const [showSkillDropdown, setShowSkillDropdown] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [skillDropdownIndex, setSkillDropdownIndex] = useState(0)
+  const [userTools, setUserTools] = useState<import('../lib/api').Tool[]>([])
+  const [showToolDropdown, setShowToolDropdown] = useState(false)
+  const [atFilter, setAtFilter] = useState('')
+  const [toolDropdownIndex, setToolDropdownIndex] = useState(0)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
   const [livePreview, setLivePreview] = useState<PreviewInfo | null>(null)
@@ -681,6 +785,7 @@ export function ConversationsPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const stopStreamRef = useRef<(() => void) | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const inputDockRef = useRef<HTMLDivElement>(null)
   const dragCounterRef = useRef(0)
 
@@ -722,6 +827,13 @@ export function ConversationsPage() {
       .catch(() => setAgentSkills([]))
   }, [selectedAgent?.id])
 
+  // Load available tools (user-level)
+  useEffect(() => {
+    api.tools.list()
+      .then(setUserTools)
+      .catch(() => setUserTools([]))
+  }, [])
+
   // Scroll to bottom on new messages or stream buffer changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -749,17 +861,22 @@ export function ConversationsPage() {
     let attachmentIds: string[] = []
     const filesToUpload = [...pendingFiles]
     setPendingFiles([])
+    setFilesExpanded(false)
 
     if (filesToUpload.length > 0) {
       setUploading(true)
+      setUploadProgress(0)
       try {
-        const result = await api.uploads.upload(filesToUpload, selectedId)
+        const result = await api.uploads.upload(filesToUpload, selectedId, (loaded, total) => {
+          setUploadProgress(Math.round((loaded / total) * 100))
+        })
         attachmentIds = result.files.map(f => f.id)
       } catch (err) {
         console.error('File upload failed:', err)
         // Continue sending the message without attachments
       } finally {
         setUploading(false)
+        setUploadProgress(0)
       }
     }
 
@@ -889,20 +1006,33 @@ export function ConversationsPage() {
     const val = e.target.value
     setInput(val)
 
-    // Detect slash command: look for `/` preceded by start-of-string or whitespace
     const cursorPos = e.target.selectionStart ?? val.length
     const textBeforeCursor = val.slice(0, cursorPos)
-    const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/[a-z0-9-]*)$/)
 
+    // Detect slash command: look for `/` preceded by start-of-string or whitespace
+    const slashMatch = textBeforeCursor.match(/(?:^|\s)(\/[a-z0-9-]*)$/)
     if (slashMatch && agentSkills.length > 0) {
       const query = slashMatch[1].slice(1) // remove the leading /
       setSlashFilter(query)
       setSkillDropdownIndex(0)
       setShowSkillDropdown(true)
+      setShowToolDropdown(false)
+      return
     } else {
       setShowSkillDropdown(false)
     }
-  }, [agentSkills])
+
+    // Detect @tool mention: look for `@` preceded by start-of-string or whitespace
+    const atMatch = textBeforeCursor.match(/(?:^|\s)(@[a-z0-9_:.-]*)$/i)
+    if (atMatch && userTools.length > 0) {
+      const query = atMatch[1].slice(1) // remove the leading @
+      setAtFilter(query)
+      setToolDropdownIndex(0)
+      setShowToolDropdown(true)
+    } else {
+      setShowToolDropdown(false)
+    }
+  }, [agentSkills, userTools])
 
   const handleSkillSelect = useCallback((skill: AgentSkillInfo) => {
     const cursorPos = inputRef.current?.selectionStart ?? input.length
@@ -921,8 +1051,52 @@ export function ConversationsPage() {
     inputRef.current?.focus()
   }, [input])
 
+  const handleToolSelect = useCallback((tool: Tool) => {
+    const cursorPos = inputRef.current?.selectionStart ?? input.length
+    const textBeforeCursor = input.slice(0, cursorPos)
+    const textAfterCursor = input.slice(cursorPos)
+
+    // Replace the partial @text with the full tool name
+    const replaced = textBeforeCursor.replace(/(?:^|\s)(@[a-z0-9_:.-]*)$/i, (match) => {
+      const prefix = match.startsWith('@') ? '' : match[0] // keep the whitespace prefix
+      return `${prefix}@${tool.name}`
+    })
+
+    const newVal = replaced + (textAfterCursor.startsWith(' ') ? textAfterCursor : ' ' + textAfterCursor)
+    setInput(newVal.trimEnd() + ' ')
+    setShowToolDropdown(false)
+    inputRef.current?.focus()
+  }, [input])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Handle dropdown navigation
+    // Handle tool dropdown navigation
+    if (showToolDropdown) {
+      const filtered = userTools.filter(t =>
+        t.name.toLowerCase().includes(atFilter.toLowerCase())
+      )
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setToolDropdownIndex(i => Math.min(i + 1, filtered.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setToolDropdownIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && filtered.length > 0) {
+        e.preventDefault()
+        handleToolSelect(filtered[toolDropdownIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowToolDropdown(false)
+        return
+      }
+    }
+
+    // Handle skill dropdown navigation
     if (showSkillDropdown) {
       const filtered = agentSkills.filter(s =>
         s.name.toLowerCase().includes(slashFilter.toLowerCase())
@@ -967,16 +1141,28 @@ export function ConversationsPage() {
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
+    const files = Array.from(e.target.files ?? []).filter(
+      f => !IGNORED_FILES.has(f.name) && !f.name.startsWith('.')
+    )
     if (files.length > 0) {
       setPendingFiles(prev => [...prev, ...files])
+      if (files.length > 4) setFilesExpanded(true)
     }
     // Reset so the same file can be re-selected
     e.target.value = ''
   }
 
+  const handleFolderPick = () => {
+    folderInputRef.current?.click()
+  }
+
   const removePendingFile = (index: number) => {
     setPendingFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const clearAllPendingFiles = () => {
+    setPendingFiles([])
+    setFilesExpanded(false)
   }
 
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -998,13 +1184,17 @@ export function ConversationsPage() {
     e.stopPropagation()
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
     dragCounterRef.current = 0
     setDragOver(false)
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) setPendingFiles(prev => [...prev, ...files])
+    const files = await getFilesFromDataTransfer(e.dataTransfer)
+    if (files.length > 0) {
+      setPendingFiles(prev => [...prev, ...files])
+      // Auto-expand if dropping many files so user sees what was picked up
+      if (files.length > 4) setFilesExpanded(true)
+    }
   }
 
   const handleClearMessages = useCallback(async () => {
@@ -1283,13 +1473,22 @@ export function ConversationsPage() {
               >
                 {dragOver && (
                   <div className={styles.dragOverlay}>
-                    <Paperclip size={22} />
-                    <span>Drop files to attach</span>
+                    <Upload size={22} />
+                    <span>Drop files or folders to attach</span>
                   </div>
                 )}
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
+                  className={styles.hiddenFileInput}
+                  onChange={handleFileChange}
+                />
+                {/* @ts-expect-error webkitdirectory is non-standard but widely supported */}
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  webkitdirectory=""
                   multiple
                   className={styles.hiddenFileInput}
                   onChange={handleFileChange}
@@ -1317,23 +1516,92 @@ export function ConversationsPage() {
                   />
                 )}
 
+                {showToolDropdown && (
+                  <ToolDropdown
+                    tools={userTools}
+                    filter={atFilter}
+                    selectedIndex={toolDropdownIndex}
+                    onSelect={handleToolSelect}
+                    position={{ bottom: inputDockRef.current ? inputDockRef.current.offsetHeight - 8 : 60, left: 24 }}
+                  />
+                )}
+
+                {uploading && (
+                  <div className={styles.uploadProgressWrap}>
+                    <div className={styles.uploadProgressInfo}>
+                      <Loader2 size={13} className={styles.spinning} />
+                      <span>Uploading{uploadProgress > 0 ? ` ${uploadProgress}%` : '...'}</span>
+                    </div>
+                    <div className={styles.uploadProgressTrack}>
+                      <div className={styles.uploadProgressBar} style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  </div>
+                )}
+
                 {pendingFiles.length > 0 && (
                   <div className={styles.attachmentPreview}>
-                    {pendingFiles.map((file, i) => (
-                      <div key={`${file.name}-${i}`} className={styles.attachmentChip}>
-                        {file.type.startsWith('image/') ? <ImageIcon size={12} /> : file.type === 'application/pdf' ? <FileText size={12} /> : <FileIcon size={12} />}
-                        <span className={styles.attachmentName}>{file.name}</span>
-                        <span className={styles.attachmentSize}>{formatFileSize(file.size)}</span>
-                        <button
-                          className={styles.attachmentRemove}
-                          onClick={() => removePendingFile(i)}
-                          type="button"
-                          title="Remove"
-                        >
-                          <X size={10} />
-                        </button>
-                      </div>
-                    ))}
+                    {pendingFiles.length > 4 ? (
+                      <>
+                        <div className={styles.bulkSummary}>
+                          <button
+                            className={styles.bulkSummaryToggle}
+                            onClick={() => setFilesExpanded(prev => !prev)}
+                            type="button"
+                          >
+                            {filesExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                            <Upload size={13} />
+                            <strong>{pendingFiles.length}</strong> files
+                            <span className={styles.attachmentSize}>
+                              ({formatFileSize(pendingFiles.reduce((sum, f) => sum + f.size, 0))})
+                            </span>
+                          </button>
+                          <button
+                            className={styles.bulkClearBtn}
+                            onClick={clearAllPendingFiles}
+                            type="button"
+                            title="Clear all files"
+                          >
+                            <X size={12} />
+                            Clear all
+                          </button>
+                        </div>
+                        {filesExpanded && (
+                          <div className={styles.bulkFileList}>
+                            {pendingFiles.map((file, i) => (
+                              <div key={`${file.name}-${i}`} className={styles.bulkFileRow}>
+                                {file.type.startsWith('image/') ? <ImageIcon size={11} /> : file.type === 'application/pdf' ? <FileText size={11} /> : <FileIcon size={11} />}
+                                <span className={styles.attachmentName}>{file.name}</span>
+                                <span className={styles.attachmentSize}>{formatFileSize(file.size)}</span>
+                                <button
+                                  className={styles.attachmentRemove}
+                                  onClick={() => removePendingFile(i)}
+                                  type="button"
+                                  title="Remove"
+                                >
+                                  <X size={9} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      pendingFiles.map((file, i) => (
+                        <div key={`${file.name}-${i}`} className={styles.attachmentChip}>
+                          {file.type.startsWith('image/') ? <ImageIcon size={12} /> : file.type === 'application/pdf' ? <FileText size={12} /> : <FileIcon size={12} />}
+                          <span className={styles.attachmentName}>{file.name}</span>
+                          <span className={styles.attachmentSize}>{formatFileSize(file.size)}</span>
+                          <button
+                            className={styles.attachmentRemove}
+                            onClick={() => removePendingFile(i)}
+                            type="button"
+                            title="Remove"
+                          >
+                            <X size={10} />
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
 
@@ -1394,6 +1662,15 @@ export function ConversationsPage() {
                       >
                         <Paperclip size={12} />
                         Attach{pendingFiles.length > 0 ? ` (${pendingFiles.length})` : ''}
+                      </button>
+                      <button
+                        className={styles.toolChip}
+                        type="button"
+                        onClick={handleFolderPick}
+                        title="Upload a folder"
+                      >
+                        <FolderOpen size={12} />
+                        Folder
                       </button>
                     </div>
                     <button

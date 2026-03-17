@@ -1127,20 +1127,49 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
         }
     }
 
-    // Authenticated HTTP tool (available if the user has any enabled connectors)
+    // Connector-derived tools
     if let Ok(connectors) = clawkson_db::connector::list_for_user(&state.db, user_id).await {
-        let enabled: Vec<_> = connectors.into_iter()
-            .filter(|c| c.enabled)
-            .map(|c| crate::tools::http_tool::ConnectorAuth {
-                connector_name: c.name,
-                connector_type: c.connector_type,
-                config: c.config,
-            })
-            .collect();
+        let mut http_connectors: Vec<crate::tools::http_tool::ConnectorAuth> = Vec::new();
 
-        if !enabled.is_empty() {
-            let tool = crate::tools::AuthenticatedHttpTool::new(enabled);
-            // Wrap with the HTTP-specific permission guard that checks ConnectorPolicy
+        for c in connectors.into_iter().filter(|c| c.enabled) {
+            match c.connector_type {
+                clawkson_db::connector::ConnectorType::Tavily => {
+                    if let Some(api_key) = c.config.get("api_key").and_then(|v| v.as_str()) {
+                        let provider = crate::tools::SearchProvider::Tavily { api_key: api_key.to_string() };
+                        let tool = crate::tools::WebSearchTool::new(provider);
+                        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+                            tool.into_dyn(), "web_search".to_string(), guard_ctx.clone(),
+                        );
+                        registry.register(guarded.into_dyn());
+                    }
+                }
+                clawkson_db::connector::ConnectorType::Bing => {
+                    if let Some(api_key) = c.config.get("api_key").and_then(|v| v.as_str()) {
+                        let endpoint = c.config.get("endpoint")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("https://api.bing.microsoft.com/v7.0/search")
+                            .to_string();
+                        let provider = crate::tools::SearchProvider::Bing { api_key: api_key.to_string(), endpoint };
+                        let tool = crate::tools::WebSearchTool::new(provider);
+                        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+                            tool.into_dyn(), "web_search".to_string(), guard_ctx.clone(),
+                        );
+                        registry.register(guarded.into_dyn());
+                    }
+                }
+                _ => {
+                    // All other connector types use the generic authenticated_http tool
+                    http_connectors.push(crate::tools::http_tool::ConnectorAuth {
+                        connector_name: c.name,
+                        connector_type: c.connector_type,
+                        config: c.config,
+                    });
+                }
+            }
+        }
+
+        if !http_connectors.is_empty() {
+            let tool = crate::tools::AuthenticatedHttpTool::new(http_connectors);
             let guarded = crate::permission_guard::GuardedHttpTool::new(tool.into_dyn(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
         }
@@ -1149,7 +1178,65 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
     registry
 }
 
+/// Rough token estimate: ~4 chars per token for English text.
+/// Includes text content and base64 image data URLs.
+fn estimate_tokens(history: &[(MessageRole, String, Vec<String>)]) -> usize {
+    history.iter().map(|(_, content, images)| {
+        let text_tokens = content.len() / 4;
+        let image_tokens: usize = images.iter().map(|img| img.len() / 4).sum();
+        text_tokens + image_tokens
+    }).sum()
+}
+
+/// Truncate history from the front to fit within a token budget, always keeping
+/// the most recent messages. Returns a slice of the input starting from the
+/// first message that fits.
+fn truncate_history(
+    history: &[(MessageRole, String, Vec<String>)],
+    max_tokens: usize,
+) -> &[(MessageRole, String, Vec<String>)] {
+    let total = estimate_tokens(history);
+    if total <= max_tokens {
+        return history;
+    }
+
+    // Walk from the end, accumulating tokens until we hit the budget
+    let mut budget = max_tokens;
+    let mut start_idx = history.len();
+    for (i, (_, content, images)) in history.iter().enumerate().rev() {
+        let msg_tokens = content.len() / 4
+            + images.iter().map(|img| img.len() / 4).sum::<usize>();
+        if msg_tokens > budget {
+            break;
+        }
+        budget -= msg_tokens;
+        start_idx = i;
+    }
+
+    // Always keep at least the last message
+    if start_idx >= history.len() {
+        start_idx = history.len().saturating_sub(1);
+    }
+
+    let trimmed = history.len() - start_idx;
+    if trimmed < history.len() {
+        tracing::info!(
+            total_messages = history.len(),
+            kept = trimmed,
+            dropped = history.len() - trimmed,
+            estimated_total_tokens = total,
+            "truncated conversation history to fit token budget"
+        );
+    }
+
+    &history[start_idx..]
+}
+
 /// Run LLM completion with optional tool-calling.
+/// Max tokens reserved for conversation history. Leaves room for system prompt,
+/// tool definitions, and model output within the provider's context window.
+const HISTORY_TOKEN_BUDGET: usize = 200_000;
+
 pub(crate) async fn run_completion(
     state: &AppState,
     connector: &clawkson_core::LlmConnector,
@@ -1161,6 +1248,8 @@ pub(crate) async fn run_completion(
     search_enabled: bool,
     timeout_secs: u64,
 ) -> anyhow::Result<String> {
+    let history = truncate_history(history, HISTORY_TOKEN_BUDGET);
+
     let mut registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
 
     // Register the delegation tool for sub-agent coordination (non-streaming, no tx)
@@ -1548,7 +1637,10 @@ async fn chat_stream(
         provider_supports_vision(&connector)
     };
     let agent_has_container = agent_cfg.as_ref().map(|c| c.container_enabled).unwrap_or(false);
-    let history = enrich_history(&state, raw_history, supports_vision, agent_has_container).await;
+    let full_history = enrich_history(&state, raw_history, supports_vision, agent_has_container).await;
+    // Truncate history to fit within token budget
+    let truncated = truncate_history(&full_history, HISTORY_TOKEN_BUDGET);
+    let history = truncated.to_vec();
 
     let default_cfg = AgentConfig {
         agent_id,

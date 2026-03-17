@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, Mail, MessageSquare, ToggleLeft, ToggleRight, Trash2, Send,
-  Loader2, Plug, GitBranch, AlignLeft, Check, X, Settings2,
+  Loader2, Plug, GitBranch, AlignLeft, Check, X, Settings2, Globe, Search,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -16,7 +16,11 @@ const PLATFORM_META: Record<ConnectorType, { label: string; icon: typeof Message
   slack: { label: 'Slack', icon: MessageSquare, description: 'Integrate with Slack for team notifications.', color: '#4A154B' },
   azure_devops: { label: 'Azure DevOps', icon: GitBranch, description: 'Access work items, pipelines, and repos via Azure DevOps.', color: '#0078D4' },
   custom: { label: 'Custom', icon: Plug, description: 'A custom integration connector.', color: 'var(--accent)' },
+  tavily: { label: 'Tavily', icon: Globe, description: 'Search the web using Tavily AI search API.', color: '#0EA5E9' },
+  bing: { label: 'Bing', icon: Search, description: 'Search the web using Microsoft Bing Search API.', color: '#00809D' },
 }
+
+const WEB_SEARCH_TYPES: ConnectorType[] = ['tavily', 'bing']
 
 interface AddPlatformModalProps {
   onClose: () => void
@@ -34,6 +38,11 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
   const [azureOrg, setAzureOrg] = useState('')
   const [azurePat, setAzurePat] = useState('')
   const [azureProject, setAzureProject] = useState('')
+  // Tavily
+  const [tavilyApiKey, setTavilyApiKey] = useState('')
+  // Bing
+  const [bingApiKey, setBingApiKey] = useState('')
+  const [bingEndpoint, setBingEndpoint] = useState('')
 
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -53,6 +62,8 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
       slack: 'My Slack',
       azure_devops: 'My Azure DevOps',
       custom: 'My Connector',
+      tavily: 'Web Search',
+      bing: 'Web Search',
     }
     setName(defaults[t])
   }
@@ -67,6 +78,8 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
       if (!azureOrg.trim()) { setError('Organization is required.'); return }
       if (!azurePat.trim()) { setError('Personal Access Token is required.'); return }
     }
+    if (type === 'tavily' && !tavilyApiKey.trim()) { setError('API key is required.'); return }
+    if (type === 'bing' && !bingApiKey.trim()) { setError('API key is required.'); return }
     setSaving(true)
     try {
       let config: Record<string, string> = {}
@@ -74,6 +87,11 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
       if (type === 'azure_devops') {
         config = { organization: azureOrg.trim(), pat: azurePat.trim() }
         if (azureProject.trim()) config.project = azureProject.trim()
+      }
+      if (type === 'tavily') config = { api_key: tavilyApiKey.trim() }
+      if (type === 'bing') {
+        config = { api_key: bingApiKey.trim() }
+        if (bingEndpoint.trim()) config.endpoint = bingEndpoint.trim()
       }
       const connector = await api.connectors.create({
         name: name.trim(),
@@ -100,6 +118,8 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
               <option value="gmail">Gmail</option>
               <option value="slack">Slack</option>
               <option value="azure_devops">Azure DevOps</option>
+              <option value="tavily">Tavily (Web Search)</option>
+              <option value="bing">Bing (Web Search)</option>
               <option value="custom">Custom</option>
             </select>
           </label>
@@ -166,6 +186,61 @@ function AddPlatformModal({ onClose, onCreated }: AddPlatformModalProps) {
                 </span>
               </label>
             </>
+          )}
+          {type === 'tavily' && (
+            <label className={styles.fieldLabel}>
+              API Key
+              <input
+                className={styles.input}
+                type="password"
+                value={tavilyApiKey}
+                onChange={e => setTavilyApiKey(e.target.value)}
+                placeholder="tvly-xxxxxxxxxxxxxxxx"
+                autoComplete="new-password"
+              />
+              <span className={styles.hint}>
+                Get your API key from <a href="https://app.tavily.com" target="_blank" rel="noreferrer">app.tavily.com</a>.
+                Free tier includes 1,000 searches/month.
+              </span>
+            </label>
+          )}
+          {type === 'bing' && (
+            <>
+              <label className={styles.fieldLabel}>
+                API Key
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={bingApiKey}
+                  onChange={e => setBingApiKey(e.target.value)}
+                  placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  autoComplete="new-password"
+                />
+                <span className={styles.hint}>
+                  Create a Bing Search resource in the <a href="https://portal.azure.com/#create/Microsoft.BingSearch" target="_blank" rel="noreferrer">Azure Portal</a> and
+                  copy a key from <strong>Keys and Endpoint</strong>.
+                </span>
+              </label>
+              <label className={styles.fieldLabel}>
+                Endpoint <span className={styles.hintInline}>(optional)</span>
+                <input
+                  className={styles.input}
+                  value={bingEndpoint}
+                  onChange={e => setBingEndpoint(e.target.value)}
+                  placeholder="https://api.bing.microsoft.com/v7.0/search"
+                  autoComplete="off"
+                />
+                <span className={styles.hint}>
+                  Override if your resource uses a different endpoint (check <strong>Keys and Endpoint</strong> in the Azure Portal).
+                  Leave blank for the default.
+                </span>
+              </label>
+            </>
+          )}
+          {WEB_SEARCH_TYPES.includes(type) && (
+            <p className={styles.searchNotice}>
+              Only one web search connector can be active at a time. Adding this will disable any other web search connector.
+            </p>
           )}
           {error && <p className={styles.errorMsg}>{error}</p>}
           <div className={styles.modalActions}>
@@ -279,6 +354,10 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
   const [azureOrg, setAzureOrg] = useState(cfg.organization ?? '')
   const [azurePat, setAzurePat] = useState(cfg.pat ?? '')
   const [azureProject, setAzureProject] = useState(cfg.project ?? '')
+  // Tavily / Bing fields (both use api_key)
+  const [tavilyApiKey, setTavilyApiKey] = useState(cfg.api_key ?? '')
+  const [bingApiKey, setBingApiKey] = useState(cfg.api_key ?? '')
+  const [bingEndpoint, setBingEndpoint] = useState(cfg.endpoint ?? '')
   // Name
   const [name, setName] = useState(connector.name)
 
@@ -287,7 +366,7 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
   const [error, setError] = useState<string | null>(null)
 
   // Only show the edit button for connector types that have configurable fields
-  const hasConfig = connector.connector_type === 'telegram' || connector.connector_type === 'azure_devops'
+  const hasConfig = connector.connector_type === 'telegram' || connector.connector_type === 'azure_devops' || connector.connector_type === 'tavily' || connector.connector_type === 'bing'
   if (!hasConfig) return null
 
   async function handleSave() {
@@ -299,6 +378,12 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
     if (connector.connector_type === 'telegram') {
       if (!botToken.trim()) { setError('Bot token is required.'); return }
     }
+    if (connector.connector_type === 'tavily') {
+      if (!tavilyApiKey.trim()) { setError('API key is required.'); return }
+    }
+    if (connector.connector_type === 'bing') {
+      if (!bingApiKey.trim()) { setError('API key is required.'); return }
+    }
 
     setSaving(true)
     try {
@@ -308,6 +393,11 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
       } else if (connector.connector_type === 'azure_devops') {
         newConfig = { organization: azureOrg.trim(), pat: azurePat.trim() }
         if (azureProject.trim()) newConfig.project = azureProject.trim()
+      } else if (connector.connector_type === 'tavily') {
+        newConfig = { api_key: tavilyApiKey.trim() }
+      } else if (connector.connector_type === 'bing') {
+        newConfig = { api_key: bingApiKey.trim() }
+        if (bingEndpoint.trim()) newConfig.endpoint = bingEndpoint.trim()
       }
       const updated = await api.connectors.patch(connector.id, {
         name: name.trim() || connector.name,
@@ -330,6 +420,9 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
     setAzureOrg(cfg.organization ?? '')
     setAzurePat(cfg.pat ?? '')
     setAzureProject(cfg.project ?? '')
+    setTavilyApiKey(cfg.api_key ?? '')
+    setBingApiKey(cfg.api_key ?? '')
+    setBingEndpoint(cfg.endpoint ?? '')
     setName(connector.name)
     setError(null)
     setOpen(false)
@@ -434,6 +527,55 @@ function ConfigEditor({ connector, agents, onSaved }: ConfigEditorProps) {
         </>
       )}
 
+      {connector.connector_type === 'tavily' && (
+        <label className={styles.configFieldLabel}>
+          API Key
+          <input
+            className={styles.configInput}
+            type="password"
+            value={tavilyApiKey}
+            onChange={e => setTavilyApiKey(e.target.value)}
+            placeholder="tvly-xxxxxxxxxxxxxxxx"
+            autoComplete="new-password"
+          />
+          <span className={styles.configHint}>
+            Get your API key from <a href="https://app.tavily.com" target="_blank" rel="noreferrer">app.tavily.com</a>.
+          </span>
+        </label>
+      )}
+
+      {connector.connector_type === 'bing' && (
+        <>
+          <label className={styles.configFieldLabel}>
+            API Key
+            <input
+              className={styles.configInput}
+              type="password"
+              value={bingApiKey}
+              onChange={e => setBingApiKey(e.target.value)}
+              placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              autoComplete="new-password"
+            />
+            <span className={styles.configHint}>
+              From the Azure Portal: <strong>Bing Search resource → Keys and Endpoint</strong>.
+            </span>
+          </label>
+          <label className={styles.configFieldLabel}>
+            Endpoint <span className={styles.hintInline}>(optional)</span>
+            <input
+              className={styles.configInput}
+              value={bingEndpoint}
+              onChange={e => setBingEndpoint(e.target.value)}
+              placeholder="https://api.bing.microsoft.com/v7.0/search"
+              autoComplete="off"
+            />
+            <span className={styles.configHint}>
+              Leave blank for default. Check <strong>Keys and Endpoint</strong> in your Azure resource for the correct URL.
+            </span>
+          </label>
+        </>
+      )}
+
       {error && <p className={styles.configError}>{error}</p>}
 
       <div className={styles.contextActions}>
@@ -471,8 +613,10 @@ export function ConnectorsPage() {
 
   async function handleToggle(id: string, enabled: boolean) {
     try {
-      const updated = await api.connectors.patch(id, { enabled: !enabled })
-      setConnectors(cs => cs.map(c => c.id === id ? updated : c))
+      await api.connectors.patch(id, { enabled: !enabled })
+      // Re-fetch full list — backend may have disabled other web search connectors
+      const all = await api.connectors.list()
+      setConnectors(all)
     } catch { /* swallow */ }
   }
 
@@ -483,6 +627,11 @@ export function ConnectorsPage() {
     } catch { /* swallow */ }
   }
 
+  function handleCreated(created: Connector) {
+    // Re-fetch full list — backend may have disabled other web search connectors
+    api.connectors.list().then(setConnectors)
+  }
+
   function handleUpdated(updated: Connector) {
     setConnectors(cs => cs.map(c => c.id === updated.id ? updated : c))
   }
@@ -491,7 +640,7 @@ export function ConnectorsPage() {
     <div className="fade-in">
       <PageHeader
         title="Connectors"
-        description="Connect platforms like Telegram, Gmail, Slack, and Azure DevOps to enable agent interactions."
+        description="Connect platforms and search providers to enable agent interactions."
         actions={
           <Button onClick={() => setShowAdd(true)}>
             <Plus size={15} /> Add Connector
@@ -551,7 +700,7 @@ export function ConnectorsPage() {
       {showAdd && (
         <AddPlatformModal
           onClose={() => setShowAdd(false)}
-          onCreated={c => { setConnectors(cs => [...cs, c]); setShowAdd(false) }}
+          onCreated={c => { handleCreated(c); setShowAdd(false) }}
         />
       )}
     </div>

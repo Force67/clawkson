@@ -97,23 +97,46 @@ async fn list_tools(auth: AuthUser, State(state): State<AppState>) -> Json<Vec<T
         },
     ];
 
-    // Add one authenticated_http entry per enabled connector owned by this user.
+    // Add connector-derived tools for enabled connectors owned by this user.
     if let Ok(connectors) =
         clawkson_db::connector::list_for_user(&state.db, auth.id()).await
     {
         for c in connectors.into_iter().filter(|c| c.enabled) {
-            tools.push(ToolInfo {
-                id: format!("connector:{}", c.id),
-                name: format!("authenticated_http:{}", c.name),
-                description: format!(
-                    "Make authenticated HTTP requests using the '{}' connector. \
-                     Credentials are injected automatically.",
-                    c.name
-                ),
-                connector_id: Some(c.id),
-                tool_type: "connector".into(),
-                enabled: true,
-            });
+            match c.connector_type {
+                clawkson_db::connector::ConnectorType::Tavily
+                | clawkson_db::connector::ConnectorType::Bing => {
+                    let provider_label = match c.connector_type {
+                        clawkson_db::connector::ConnectorType::Tavily => "Tavily",
+                        clawkson_db::connector::ConnectorType::Bing => "Bing",
+                        _ => "Web",
+                    };
+                    tools.push(ToolInfo {
+                        id: format!("connector:{}", c.id),
+                        name: "web_search".into(),
+                        description: format!(
+                            "Search the web using {} (connector: '{}').",
+                            provider_label, c.name
+                        ),
+                        connector_id: Some(c.id),
+                        tool_type: "connector".into(),
+                        enabled: true,
+                    });
+                }
+                _ => {
+                    tools.push(ToolInfo {
+                        id: format!("connector:{}", c.id),
+                        name: format!("authenticated_http:{}", c.name),
+                        description: format!(
+                            "Make authenticated HTTP requests using the '{}' connector. \
+                             Credentials are injected automatically.",
+                            c.name
+                        ),
+                        connector_id: Some(c.id),
+                        tool_type: "connector".into(),
+                        enabled: true,
+                    });
+                }
+            }
         }
     }
 

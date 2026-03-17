@@ -27,6 +27,8 @@ fn db_type_to_core(t: &db_connector::ConnectorType) -> ConnectorType {
         db_connector::ConnectorType::Slack => ConnectorType::Slack,
         db_connector::ConnectorType::AzureDevops => ConnectorType::AzureDevops,
         db_connector::ConnectorType::Custom => ConnectorType::Custom,
+        db_connector::ConnectorType::Tavily => ConnectorType::Tavily,
+        db_connector::ConnectorType::Bing => ConnectorType::Bing,
     }
 }
 
@@ -37,7 +39,14 @@ fn core_type_to_db(t: &ConnectorType) -> db_connector::ConnectorType {
         ConnectorType::Slack => db_connector::ConnectorType::Slack,
         ConnectorType::AzureDevops => db_connector::ConnectorType::AzureDevops,
         ConnectorType::Custom => db_connector::ConnectorType::Custom,
+        ConnectorType::Tavily => db_connector::ConnectorType::Tavily,
+        ConnectorType::Bing => db_connector::ConnectorType::Bing,
     }
+}
+
+/// Returns true if this connector type provides web search (only one should be active at a time).
+fn is_web_search_type(t: &ConnectorType) -> bool {
+    matches!(t, ConnectorType::Tavily | ConnectorType::Bing)
 }
 
 fn row_to_connector(row: db_connector::ConnectorRow) -> Connector {
@@ -121,6 +130,11 @@ async fn create_connector(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Web search connectors are mutually exclusive — disable others when a new one is created
+    if is_web_search_type(&req.connector_type) {
+        let _ = db_connector::disable_other_web_search(&state.db, auth.id(), row.id).await;
+    }
+
     // Start Telegram polling if applicable
     sync_telegram_poller(&state, &row).await;
 
@@ -176,6 +190,12 @@ async fn patch_connector(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::NOT_FOUND)?;
+
+        // Web search connectors are mutually exclusive — disable others when one is enabled
+        if enabled && is_web_search_type(&db_type_to_core(&row.connector_type)) {
+            let _ = db_connector::disable_other_web_search(&state.db, auth.id(), id).await;
+        }
+
         sync_telegram_poller(&state, &row).await;
         return Ok(Json(row_to_connector(row)));
     }
