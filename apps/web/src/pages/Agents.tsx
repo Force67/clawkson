@@ -3,7 +3,7 @@ import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown, ChevronRight,
   Loader2, Cpu, Thermometer, Hash, Container, RotateCw,
   BookOpen, Zap, Search, Filter, Share2,
-  Shield, HardDrive, Terminal, Database, Globe, X,
+  Shield, HardDrive, Terminal, Database, Globe, X, GitBranch,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -410,6 +410,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
     agent.max_tokens != null ? String(agent.max_tokens) : ''
   )
   const [connectorId, setConnectorId] = useState(agent.llm_connector_id ?? '')
+  const [subtaskConnectorId, setSubtaskConnectorId] = useState(agent.subtask_llm_connector_id ?? '')
   const [containerEnabled, setContainerEnabled] = useState(agent.container_enabled)
   const [cpuLimit, setCpuLimit] = useState(
     agent.container_config?.cpu_limit != null ? String(agent.container_config.cpu_limit) : ''
@@ -533,6 +534,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
         temperature: temperature ? parseFloat(temperature) : undefined,
         max_tokens: maxTokens ? parseInt(maxTokens) : undefined,
         llm_connector_id: connectorId || undefined,
+        subtask_llm_connector_id: subtaskConnectorId || undefined,
         container_enabled: containerEnabled,
         container_config: containerEnabled ? {
           cpu_limit: cpuLimit ? parseFloat(cpuLimit) : null,
@@ -661,6 +663,27 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                 </select>
                 <ChevronDown size={13} className={styles.selectChevron} />
               </div>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>
+                <GitBranch size={11} /> Sub-task LLM
+              </label>
+              <div className={styles.selectWrap}>
+                <select
+                  className={styles.select}
+                  value={subtaskConnectorId}
+                  onChange={e => setSubtaskConnectorId(e.target.value)}
+                >
+                  <option value="">Same as primary</option>
+                  {connectors.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.model})</option>
+                  ))}
+                </select>
+                <ChevronDown size={13} className={styles.selectChevron} />
+              </div>
+              <p className={styles.fieldHint}>
+                Optional cheaper/faster model for parallel sub-tasks via delegate_tasks.
+              </p>
             </div>
             <div className={styles.formRow}>
               <div className={styles.formGroup}>

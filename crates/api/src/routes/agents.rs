@@ -34,6 +34,7 @@ pub struct CreateAgentRequest {
     pub connector_policies: Vec<ConnectorPolicy>,
     #[serde(default)]
     pub shared: bool,
+    pub subtask_llm_connector_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +50,7 @@ pub struct PatchAgentRequest {
     pub container_config: Option<AgentContainerConfig>,
     pub connector_policies: Option<Vec<ConnectorPolicy>>,
     pub shared: Option<bool>,
+    pub subtask_llm_connector_id: Option<Uuid>,
 }
 
 /// Map DB row to API type.
@@ -72,6 +74,7 @@ fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
         container_enabled: row.container_enabled,
         container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
         connector_policies,
+        subtask_llm_connector_id: row.subtask_llm_connector_id,
         owner_id: row.owner_id,
         shared: row.shared,
         created_at: row.created_at,
@@ -156,6 +159,7 @@ async fn create_agent(
         connector_policies_json,
         auth.id(),
         req.shared,
+        req.subtask_llm_connector_id,
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -202,6 +206,7 @@ async fn patch_agent(
         req.container_config.as_ref().map(|c| Some(serde_json::to_value(c).unwrap_or_default())),
         connector_policies_json,
         req.shared,
+        if req.subtask_llm_connector_id.is_some() { Some(req.subtask_llm_connector_id) } else { None },
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?

@@ -1666,6 +1666,38 @@
   background: rgba(0, 0, 0, 0.03);
 }
 
+/* ── Sub-task Coordination ───────────────────────────────────── */
+
+.subtaskHeader {
+  margin-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  padding-top: 10px;
+  color: var(--accent);
+  gap: 6px;
+}
+
+.subtaskHeader svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.subtaskStep {
+  padding-left: 16px;
+  border-left: 2px solid rgba(74, 108, 247, 0.12);
+  margin-left: 10px;
+}
+
+.subtaskStep .activityName {
+  font-weight: 500;
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+.subtaskStep .activityName svg {
+  color: var(--accent);
+  opacity: 0.5;
+}
+
 /* ── Utility ─────────────────────────────────────────────────── */
 
 .spinning {

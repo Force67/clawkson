@@ -309,6 +309,7 @@ async fn handle_message(
         container_enabled: false,
         container_config: None,
         connector_policies: vec![],
+        subtask_llm_connector_id: None,
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 

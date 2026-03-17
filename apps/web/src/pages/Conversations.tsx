@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2 } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -273,6 +273,8 @@ interface ActivityStep {
   description: string
   result?: string
   durationMs?: number
+  /** Whether this step is a sub-task (from delegate_tasks) */
+  isSubtask?: boolean
 }
 
 const TOOL_NAME_MAP: Record<string, string> = {
@@ -281,20 +283,23 @@ const TOOL_NAME_MAP: Record<string, string> = {
   workspace_write: 'Write File',
   workspace_list: 'List Files',
   knowledge_search: 'Knowledge Search',
+  delegate_tasks: 'Sub-Agent Coordination',
 }
 
 function formatToolName(name: string): string {
   return TOOL_NAME_MAP[name] || name.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
-function ToolTypeIcon({ name }: { name: string }) {
+function ToolTypeIcon({ name, isSubtask }: { name: string; isSubtask?: boolean }) {
   const s = 11
+  if (isSubtask) return <GitBranch size={s} />
   switch (name) {
     case 'code_execution': return <Terminal size={s} />
     case 'workspace_read': return <FileText size={s} />
     case 'workspace_write': return <Pencil size={s} />
     case 'workspace_list': return <FolderOpen size={s} />
     case 'knowledge_search': return <Search size={s} />
+    case 'delegate_tasks': return <GitBranch size={s} />
     default: return <Wrench size={s} />
   }
 }
@@ -302,54 +307,109 @@ function ToolTypeIcon({ name }: { name: string }) {
 function ActivityFeed({ steps }: { steps: ActivityStep[] }) {
   if (steps.length === 0) return null
 
+  const toolSteps = steps.filter(s => !s.isSubtask)
+  const subtaskSteps = steps.filter(s => s.isSubtask)
   const runningCount = steps.filter(s => s.status === 'running').length
   const completedCount = steps.filter(s => s.status !== 'running').length
+  const hasSubtasks = subtaskSteps.length > 0
+  const subtaskRunning = subtaskSteps.filter(s => s.status === 'running').length
+  const subtaskCompleted = subtaskSteps.filter(s => s.status !== 'running').length
 
   return (
     <div className={styles.activityFeed}>
-      <div className={styles.activityHeader}>
-        {runningCount > 0 && <span className={styles.activityPulse} />}
-        <span>
-          {runningCount > 0
-            ? `Working\u2002·\u2002${completedCount}/${steps.length} tools`
-            : `${completedCount} tool${completedCount !== 1 ? 's' : ''} executed`}
-        </span>
-      </div>
-      <div className={styles.activitySteps}>
-        {steps.map(step => (
-          <div key={step.id} className={styles.activityStep}>
-            <div className={`${styles.activityIcon} ${
-              step.status === 'running' ? styles.activityIconRunning
-              : step.status === 'done' ? styles.activityIconDone
-              : styles.activityIconError
-            }`}>
-              {step.status === 'running'
-                ? <div className={styles.activitySpinner} />
-                : step.status === 'done'
-                ? <Check size={11} />
-                : <X size={11} />}
-            </div>
-            <div className={styles.activityInfo}>
-              <div className={styles.activityName}>
-                <ToolTypeIcon name={step.name} />
-                {formatToolName(step.name)}
-              </div>
-              <div className={styles.activityDesc}>
-                {step.status === 'running'
-                  ? step.description
-                  : step.result || step.description}
-              </div>
-            </div>
-            {step.durationMs != null && (
-              <span className={styles.activityDuration}>
-                {step.durationMs < 1000
-                  ? `${step.durationMs}ms`
-                  : `${(step.durationMs / 1000).toFixed(1)}s`}
-              </span>
-            )}
+      {toolSteps.length > 0 && (
+        <>
+          <div className={styles.activityHeader}>
+            {runningCount > 0 && <span className={styles.activityPulse} />}
+            <span>
+              {runningCount > 0
+                ? `Working\u2002·\u2002${completedCount}/${steps.length} tools`
+                : `${completedCount} tool${completedCount !== 1 ? 's' : ''} executed`}
+            </span>
           </div>
-        ))}
-      </div>
+          <div className={styles.activitySteps}>
+            {toolSteps.map(step => (
+              <div key={step.id} className={styles.activityStep}>
+                <div className={`${styles.activityIcon} ${
+                  step.status === 'running' ? styles.activityIconRunning
+                  : step.status === 'done' ? styles.activityIconDone
+                  : styles.activityIconError
+                }`}>
+                  {step.status === 'running'
+                    ? <div className={styles.activitySpinner} />
+                    : step.status === 'done'
+                    ? <Check size={11} />
+                    : <X size={11} />}
+                </div>
+                <div className={styles.activityInfo}>
+                  <div className={styles.activityName}>
+                    <ToolTypeIcon name={step.name} />
+                    {formatToolName(step.name)}
+                  </div>
+                  <div className={styles.activityDesc}>
+                    {step.status === 'running'
+                      ? step.description
+                      : step.result || step.description}
+                  </div>
+                </div>
+                {step.durationMs != null && (
+                  <span className={styles.activityDuration}>
+                    {step.durationMs < 1000
+                      ? `${step.durationMs}ms`
+                      : `${(step.durationMs / 1000).toFixed(1)}s`}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {hasSubtasks && (
+        <>
+          <div className={`${styles.activityHeader} ${styles.subtaskHeader}`}>
+            <GitBranch size={12} />
+            {subtaskRunning > 0 && <span className={styles.activityPulse} />}
+            <span>
+              {subtaskRunning > 0
+                ? `Sub-tasks\u2002·\u2002${subtaskCompleted}/${subtaskSteps.length} completed`
+                : `${subtaskCompleted} sub-task${subtaskCompleted !== 1 ? 's' : ''} completed`}
+            </span>
+          </div>
+          <div className={styles.activitySteps}>
+            {subtaskSteps.map(step => (
+              <div key={step.id} className={`${styles.activityStep} ${styles.subtaskStep}`}>
+                <div className={`${styles.activityIcon} ${
+                  step.status === 'running' ? styles.activityIconRunning
+                  : step.status === 'done' ? styles.activityIconDone
+                  : styles.activityIconError
+                }`}>
+                  {step.status === 'running'
+                    ? <div className={styles.activitySpinner} />
+                    : step.status === 'done'
+                    ? <Check size={11} />
+                    : <X size={11} />}
+                </div>
+                <div className={styles.activityInfo}>
+                  <div className={styles.activityName}>
+                    <ToolTypeIcon name={step.name} isSubtask />
+                    {step.description}
+                  </div>
+                  {step.result && step.status !== 'running' && (
+                    <div className={styles.activityDesc}>{step.result}</div>
+                  )}
+                </div>
+                {step.durationMs != null && (
+                  <span className={styles.activityDuration}>
+                    {step.durationMs < 1000
+                      ? `${step.durationMs}ms`
+                      : `${(step.durationMs / 1000).toFixed(1)}s`}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -799,6 +859,26 @@ export function ConversationsPage() {
               }
             } catch { /* not JSON */ }
           }
+        } else if (event.type === 'subtask_start') {
+          setActivitySteps(prev => [...prev, {
+            id: `subtask-${event.id}`,
+            name: event.name || 'subtask',
+            round: event.round || 0,
+            status: 'running',
+            description: event.description || event.id || 'Sub-task',
+            isSubtask: true,
+          }])
+        } else if (event.type === 'subtask_end') {
+          setActivitySteps(prev => {
+            const idx = prev.findIndex(s => s.id === `subtask-${event.id}`)
+            if (idx === -1) return prev
+            return prev.map((s, i) => i === idx ? {
+              ...s,
+              status: (event.ok ? 'done' : 'error') as ActivityStep['status'],
+              result: event.result,
+              durationMs: event.duration_ms,
+            } : s)
+          })
         }
       },
     )

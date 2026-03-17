@@ -354,6 +354,10 @@ fn tool_description(name: &str, args: &serde_json::Value) -> String {
                 format!("\"{}\"", &q[..end])
             }
         }
+        "delegate_tasks" => {
+            let count = args.get("tasks").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            format!("Delegating {count} sub-task{}", if count != 1 { "s" } else { "" })
+        }
         other => other.replace('_', " "),
     }
 }
@@ -394,6 +398,16 @@ fn tool_result_summary(name: &str, result_str: &str, ok: bool) -> String {
                 .unwrap_or_else(|| "done".into()),
             // Pass through full result for start_preview so the frontend gets the URL
             "start_preview" => result_str.to_string(),
+            "delegate_tasks" => {
+                let completed = v.get("completed").and_then(|v| v.as_u64()).unwrap_or(0);
+                let total = v.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                let all_ok = v.get("all_succeeded").and_then(|v| v.as_bool()).unwrap_or(false);
+                if all_ok {
+                    format!("{completed}/{total} sub-tasks completed")
+                } else {
+                    format!("{completed}/{total} sub-tasks (some failed)")
+                }
+            }
             _ => "done".into(),
         }
     } else {

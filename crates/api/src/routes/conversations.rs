@@ -593,6 +593,7 @@ async fn attach_workspace_outputs(
 }
 
 /// Load agent config for chat handlers.
+#[derive(Clone)]
 pub(crate) struct AgentConfig {
     pub(crate) agent_id: Uuid,
     pub(crate) system_prompt: Option<String>,
@@ -601,6 +602,9 @@ pub(crate) struct AgentConfig {
     pub(crate) container_enabled: bool,
     pub(crate) container_config: Option<clawkson_core::AgentContainerConfig>,
     pub(crate) connector_policies: Vec<clawkson_core::ConnectorPolicy>,
+    /// Optional LLM connector for sub-task execution. When set, sub-agents use this
+    /// (potentially cheaper/faster) model instead of the agent's primary connector.
+    pub(crate) subtask_llm_connector_id: Option<Uuid>,
 }
 
 pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
@@ -697,6 +701,7 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         container_enabled: row.container_enabled,
         container_config: container_config,
         connector_policies,
+        subtask_llm_connector_id: row.subtask_llm_connector_id,
     })
 }
 
@@ -1156,7 +1161,20 @@ pub(crate) async fn run_completion(
     search_enabled: bool,
     timeout_secs: u64,
 ) -> anyhow::Result<String> {
-    let registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
+    let mut registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
+
+    // Register the delegation tool for sub-agent coordination (non-streaming, no tx)
+    let delegate_tool = crate::subtask::DelegateTasksTool::new(
+        state.clone(),
+        agent_cfg.clone(),
+        connector.clone(),
+        conversation_id,
+        user_id,
+        search_enabled,
+        timeout_secs,
+        None,
+    );
+    registry.register(delegate_tool.into_dyn());
 
     if !registry.definitions().is_empty() {
         return crate::llm::complete_with_tools(
@@ -1327,6 +1345,7 @@ async fn chat(
         container_enabled: false,
         container_config: None,
         connector_policies: vec![],
+        subtask_llm_connector_id: None,
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
@@ -1539,9 +1558,10 @@ async fn chat_stream(
         container_enabled: false,
         container_config: None,
         connector_policies: vec![],
+        subtask_llm_connector_id: None,
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
-    let registry = build_tool_registry(&state, &cfg, conv_id, auth.id(), req.search_enabled).await;
+    let mut registry = build_tool_registry(&state, &cfg, conv_id, auth.id(), req.search_enabled).await;
     let system_prompt = cfg.system_prompt.clone();
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;
@@ -1558,6 +1578,22 @@ async fn chat_stream(
     //   "\x00DONE:id"  = completion sentinel
     //   anything else  = message delta
     let (tx, mut rx) = mpsc::channel::<String>(64);
+
+    // Register the delegation tool for sub-agent coordination (with streaming tx)
+    {
+        let delegate_tool = crate::subtask::DelegateTasksTool::new(
+            state.clone(),
+            cfg.clone(),
+            connector.clone(),
+            conv_id,
+            auth.id(),
+            req.search_enabled,
+            timeout_secs,
+            Some(tx.clone()),
+        );
+        registry.register(delegate_tool.into_dyn());
+    }
+
     let state2 = state.clone();
     let owner_id = auth.id();
 

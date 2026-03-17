@@ -8,5 +8,6 @@ pub mod proxy;
 pub mod routes;
 pub mod s3;
 pub mod state;
+pub mod subtask;
 pub mod telegram;
 pub mod tools;

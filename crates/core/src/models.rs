@@ -28,6 +28,10 @@ pub struct Agent {
     /// make through each connector. Stored as JSON in the DB.
     #[serde(default)]
     pub connector_policies: Vec<ConnectorPolicy>,
+    /// Optional LLM connector for sub-task execution via delegate_tasks.
+    /// When set, sub-agents use this (potentially cheaper/faster) model instead of the primary one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_llm_connector_id: Option<Uuid>,
     /// The user who owns this agent. `None` for legacy agents with no owner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<Uuid>,

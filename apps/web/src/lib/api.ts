@@ -130,6 +130,7 @@ export interface Agent {
   container_enabled: boolean
   container_config: AgentContainerConfig | null
   connector_policies: ConnectorPolicy[]
+  subtask_llm_connector_id: string | null
   owner_id?: string | null
   shared: boolean
   created_at: string
@@ -426,6 +427,7 @@ export interface CreateAgentRequest {
   container_config?: AgentContainerConfig
   connector_policies?: ConnectorPolicy[]
   shared?: boolean
+  subtask_llm_connector_id?: string
 }
 
 export interface PatchAgentRequest {
@@ -440,6 +442,7 @@ export interface PatchAgentRequest {
   container_config?: AgentContainerConfig
   connector_policies?: ConnectorPolicy[]
   shared?: boolean
+  subtask_llm_connector_id?: string
 }
 
 export interface CreateConversationRequest {
@@ -812,13 +815,17 @@ export const api = {
 // ── SSE streaming helper ───────────────────────────────────────────
 
 export interface ToolEvent {
-  type: 'tool_start' | 'tool_end'
+  type: 'tool_start' | 'tool_end' | 'subtask_start' | 'subtask_end'
   name: string
   round: number
   description?: string
   ok?: boolean
   result?: string
   duration_ms?: number
+  /** Sub-task specific fields */
+  id?: string
+  total?: number
+  completed?: number
 }
 
 export interface PreviewInfo {
