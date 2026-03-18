@@ -5,6 +5,6 @@ pub mod models;
 pub mod workspace;
 
 pub use error::ContainerError;
-pub use manager::ContainerManager;
+pub use manager::{ContainerManager, PERSISTENT_SENTINEL};
 pub use models::*;
 pub use workspace::{WorkspaceEntry, WorkspaceListing, OutputFile, sandbox_path, list_workspace, collect_output_files};

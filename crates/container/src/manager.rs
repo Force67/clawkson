@@ -27,7 +27,11 @@ const DEFAULT_OUTPUT_DIR: &str = "outputs";
 const INTERNAL_NETWORK: &str = "clawkson-internal";
 
 /// Composite key for per-conversation container isolation.
+/// For persistent containers, `conversation_id` is `Uuid::nil()`.
 type ContainerKey = (Uuid, Uuid); // (agent_id, conversation_id)
+
+/// Sentinel conversation_id used as the key for persistent (agent-level) containers.
+pub const PERSISTENT_SENTINEL: Uuid = Uuid::nil();
 
 pub struct ContainerManager {
     docker: Docker,
@@ -108,29 +112,39 @@ impl ContainerManager {
 
     /// Create and start a container for an agent+conversation pair.
     /// Each conversation gets its own isolated container and workspace directory.
+    ///
+    /// When `config.persistent` is true, a single shared container is used for
+    /// all conversations of this agent, keyed by `PERSISTENT_SENTINEL`.
     pub async fn start_container(
         &self,
         agent_id: Uuid,
         conversation_id: Uuid,
         config: &ContainerConfig,
     ) -> Result<ContainerInfo, ContainerError> {
-        let key = (agent_id, conversation_id);
+        let is_persistent = config.persistent;
+        let effective_conv_id = if is_persistent { PERSISTENT_SENTINEL } else { conversation_id };
+        let key = (agent_id, effective_conv_id);
 
         // Stop existing container if any
         if self.containers.read().await.contains_key(&key) {
-            self.stop_container(agent_id, conversation_id).await.ok();
+            self.stop_container(agent_id, effective_conv_id).await.ok();
         }
 
         // Ensure image is available
         self.ensure_image(&config.image).await?;
 
-        // Create workspace directory scoped to agent+conversation.
-        // Layout: {workspace_root}/{agent_id}/{conversation_id}/
-        // Set permissions to 777 so the container process can write regardless of
-        // which user it runs as (CAP_DROP ALL removes DAC_OVERRIDE from root).
-        let workspace = self.workspace_root
-            .join(agent_id.to_string())
-            .join(conversation_id.to_string());
+        // Create workspace directory.
+        // Persistent: {workspace_root}/{agent_id}/shared/
+        // Temporal:   {workspace_root}/{agent_id}/{conversation_id}/
+        let workspace = if is_persistent {
+            self.workspace_root
+                .join(agent_id.to_string())
+                .join("shared")
+        } else {
+            self.workspace_root
+                .join(agent_id.to_string())
+                .join(conversation_id.to_string())
+        };
         for dir in [&workspace, &workspace.join("inputs"), &workspace.join("outputs")] {
             std::fs::create_dir_all(dir)?;
             #[cfg(unix)]
@@ -146,7 +160,7 @@ impl ContainerManager {
             .to_string_lossy()
             .to_string();
 
-        // Build container config
+        // Build container labels
         let mut labels = HashMap::new();
         labels.insert(
             format!("{LABEL_PREFIX}.agent_id"),
@@ -154,9 +168,12 @@ impl ContainerManager {
         );
         labels.insert(
             format!("{LABEL_PREFIX}.conversation_id"),
-            conversation_id.to_string(),
+            effective_conv_id.to_string(),
         );
         labels.insert(format!("{LABEL_PREFIX}.managed"), "true".to_string());
+        if is_persistent {
+            labels.insert(format!("{LABEL_PREFIX}.persistent"), "true".to_string());
+        }
 
         let nano_cpus = config.cpu_limit.map(|c| (c * 1e9) as i64);
         let memory = config.memory_limit_mb.map(|m| (m * 1024 * 1024) as i64);
@@ -186,21 +203,22 @@ impl ContainerManager {
         };
 
         // Resource limits
+        // Persistent containers always get a writable rootfs so packages survive restarts.
         let pids_limit = perms.resources.max_processes;
-        let readonly_rootfs = Some(perms.resources.readonly_rootfs);
+        let effective_readonly = if is_persistent { false } else { perms.resources.readonly_rootfs };
+        let readonly_rootfs = Some(effective_readonly);
         let tmp_size = perms.resources.max_tmp_size_mb.unwrap_or(256);
         let storage_size = perms.resources.max_storage_size_mb.unwrap_or(512);
 
         // Build tmpfs mounts for writable areas the runtime needs.
-        // We mount a dedicated /opt/sandbox-packages tmpfs (not /usr/local, which
-        // would shadow Python/Node binaries on images like python:3.12-slim).
-        // Environment variables direct pip/npm to write into this tmpfs.
+        // For persistent containers, skip the /opt/sandbox-packages tmpfs —
+        // packages install directly onto the writable rootfs and survive restarts.
         let mut tmpfs_mounts = HashMap::from([
             ("/tmp".to_string(), format!("size={tmp_size}m")),
             ("/var/tmp".to_string(), "size=32m".to_string()),
             ("/root".to_string(), "size=64m".to_string()),
         ]);
-        if perms.resources.readonly_rootfs && storage_size > 0 {
+        if effective_readonly && storage_size > 0 {
             tmpfs_mounts.insert(
                 "/opt/sandbox-packages".to_string(),
                 format!("size={storage_size}m"),
@@ -213,7 +231,7 @@ impl ContainerManager {
             // Pre-installed Playwright browsers baked into the image
             "PLAYWRIGHT_BROWSERS_PATH=/usr/lib/playwright".to_string(),
         ];
-        if perms.resources.readonly_rootfs && storage_size > 0 {
+        if effective_readonly && storage_size > 0 {
             pkg_env.extend([
                 "PIP_TARGET=/opt/sandbox-packages/pip".to_string(),
                 "PYTHONPATH=/opt/sandbox-packages/pip".to_string(),
@@ -253,12 +271,20 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        // Create container — name includes both agent and conversation for uniqueness
-        let name = format!(
-            "clawkson-{}-{}",
-            &agent_id.as_simple().to_string()[..8],
-            &conversation_id.as_simple().to_string()[..8],
-        );
+        // Create container — name includes both agent and conversation for uniqueness.
+        // Persistent containers get a stable name so they can be re-adopted after restart.
+        let name = if is_persistent {
+            format!(
+                "clawkson-{}-persistent",
+                &agent_id.as_simple().to_string()[..8],
+            )
+        } else {
+            format!(
+                "clawkson-{}-{}",
+                &agent_id.as_simple().to_string()[..8],
+                &conversation_id.as_simple().to_string()[..8],
+            )
+        };
         let response = self
             .docker
             .create_container(
@@ -303,23 +329,109 @@ impl ContainerManager {
             .filter(|ip| !ip.is_empty());
 
         if let Some(ref ip) = ip_address {
-            tracing::info!(%agent_id, %conversation_id, ip, "container reachable on internal network");
+            tracing::info!(%agent_id, %effective_conv_id, ip, "container reachable on internal network");
         }
 
         let info = ContainerInfo {
             agent_id,
-            conversation_id,
+            conversation_id: effective_conv_id,
             docker_id: response.id,
             state: ContainerState::Running,
             image: config.image.clone(),
             workspace_path: workspace_str,
             ip_address,
+            persistent: is_persistent,
         };
 
         self.containers.write().await.insert(key, info.clone());
-        tracing::info!(%agent_id, %conversation_id, "container started");
+        tracing::info!(%agent_id, %effective_conv_id, persistent = is_persistent, "container started");
 
         Ok(info)
+    }
+
+    /// Get a running persistent container for an agent, or start one if none exists.
+    /// Checks in-memory map first, then tries to re-adopt from Docker, then starts fresh.
+    pub async fn get_or_start_persistent(
+        &self,
+        agent_id: Uuid,
+        config: &ContainerConfig,
+    ) -> Result<ContainerInfo, ContainerError> {
+        let key = (agent_id, PERSISTENT_SENTINEL);
+
+        // 1. Check in-memory map
+        if let Some(info) = self.containers.read().await.get(&key).cloned() {
+            if info.state == ContainerState::Running {
+                return Ok(info);
+            }
+        }
+
+        // 2. Try to re-adopt an existing Docker container by name
+        if let Some(info) = self.try_readopt_persistent(agent_id).await {
+            return Ok(info);
+        }
+
+        // 3. Start fresh
+        self.start_container(agent_id, PERSISTENT_SENTINEL, config).await
+    }
+
+    /// Try to re-adopt a persistent container that is still running in Docker
+    /// (e.g. after a server restart). Returns `Some(info)` if found and reinserted.
+    async fn try_readopt_persistent(&self, agent_id: Uuid) -> Option<ContainerInfo> {
+        let name = format!(
+            "clawkson-{}-persistent",
+            &agent_id.as_simple().to_string()[..8],
+        );
+
+        let inspect = self.docker.inspect_container(&name, None).await.ok()?;
+
+        let running = inspect.state.as_ref()
+            .and_then(|s| s.running)
+            .unwrap_or(false);
+        if !running {
+            return None;
+        }
+
+        let docker_id = inspect.id?.clone();
+
+        let ip_address = inspect.network_settings
+            .and_then(|ns| ns.networks)
+            .and_then(|nets| nets.get(INTERNAL_NETWORK).cloned())
+            .and_then(|ep| ep.ip_address)
+            .filter(|ip| !ip.is_empty());
+
+        // Resolve workspace path from the bind mount
+        let workspace_path = inspect.host_config
+            .and_then(|hc| hc.binds)
+            .and_then(|binds| binds.into_iter().next())
+            .and_then(|b| b.split(':').next().map(String::from))
+            .unwrap_or_else(|| {
+                self.workspace_root
+                    .join(agent_id.to_string())
+                    .join("shared")
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+        let image = inspect.config
+            .and_then(|c| c.image)
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let info = ContainerInfo {
+            agent_id,
+            conversation_id: PERSISTENT_SENTINEL,
+            docker_id,
+            state: ContainerState::Running,
+            image,
+            workspace_path,
+            ip_address,
+            persistent: true,
+        };
+
+        let key = (agent_id, PERSISTENT_SENTINEL);
+        self.containers.write().await.insert(key, info.clone());
+        tracing::info!(%agent_id, "re-adopted persistent container");
+
+        Some(info)
     }
 
     /// Stop a container.
@@ -467,10 +579,16 @@ impl ContainerManager {
     }
 
     /// Resolve the workspace path for a conversation (container need not be running).
+    /// For persistent agents, also checks the sentinel key.
     pub async fn conversation_workspace(&self, agent_id: Uuid, conversation_id: Uuid) -> Result<PathBuf, ContainerError> {
         let key = (agent_id, conversation_id);
         // Check if we have a running/stopped container first.
         if let Some(info) = self.containers.read().await.get(&key) {
+            return Ok(PathBuf::from(&info.workspace_path));
+        }
+        // Check if there's a persistent container for this agent.
+        let persistent_key = (agent_id, PERSISTENT_SENTINEL);
+        if let Some(info) = self.containers.read().await.get(&persistent_key) {
             return Ok(PathBuf::from(&info.workspace_path));
         }
         // Fall back to the on-disk workspace directory.
@@ -523,6 +641,8 @@ impl ContainerManager {
     }
 
     /// Clean up orphan containers from previous runs (label-based).
+    /// Persistent containers (label `clawkson.persistent=true`) are re-adopted
+    /// into the in-memory map instead of being removed.
     pub async fn cleanup_orphans(&self) -> Result<usize, ContainerError> {
         let mut filters = HashMap::new();
         filters.insert(
@@ -539,35 +659,67 @@ impl ContainerManager {
             }))
             .await?;
 
-        let count = containers.len();
+        let mut removed = 0usize;
+        let mut readopted = 0usize;
+
         for container in &containers {
-            if let Some(id) = &container.id {
-                self.docker
-                    .remove_container(
-                        id,
-                        Some(RemoveContainerOptions {
-                            force: true,
-                            ..Default::default()
-                        }),
-                    )
-                    .await
-                    .ok();
+            let Some(id) = &container.id else { continue };
+
+            // Check if this container is persistent
+            let is_persistent = container.labels.as_ref()
+                .and_then(|l| l.get(&format!("{LABEL_PREFIX}.persistent")))
+                .map(|v| v == "true")
+                .unwrap_or(false);
+
+            if is_persistent {
+                // Re-adopt: parse the agent_id from labels and reinsert
+                let agent_id = container.labels.as_ref()
+                    .and_then(|l| l.get(&format!("{LABEL_PREFIX}.agent_id")))
+                    .and_then(|v| Uuid::parse_str(v).ok());
+
+                if let Some(agent_id) = agent_id {
+                    if self.try_readopt_persistent(agent_id).await.is_some() {
+                        readopted += 1;
+                        continue;
+                    }
+                }
+                // If re-adopt failed (container stopped, bad labels, etc.), fall through to remove
             }
+
+            self.docker
+                .remove_container(
+                    id,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .ok();
+            removed += 1;
         }
 
-        if count > 0 {
-            tracing::info!(count, "cleaned up orphan containers");
+        if removed > 0 {
+            tracing::info!(removed, "cleaned up orphan containers");
+        }
+        if readopted > 0 {
+            tracing::info!(readopted, "re-adopted persistent containers");
         }
 
-        Ok(count)
+        Ok(removed)
     }
 
     /// Stop all managed containers (for graceful shutdown).
+    /// Persistent containers are left running so they survive restarts.
     pub async fn shutdown(&self) {
         let containers: Vec<ContainerInfo> =
             self.containers.read().await.values().cloned().collect();
 
         for info in containers {
+            if info.persistent {
+                tracing::info!(agent_id = %info.agent_id, "shutdown: leaving persistent container running");
+                continue;
+            }
             self.docker
                 .stop_container(
                     &info.docker_id,

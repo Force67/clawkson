@@ -439,6 +439,9 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
   const [connectorId, setConnectorId] = useState(agent.llm_connector_id ?? '')
   const [subtaskConnectorId, setSubtaskConnectorId] = useState(agent.subtask_llm_connector_id ?? '')
   const [containerEnabled, setContainerEnabled] = useState(agent.container_enabled)
+  const [containerMode, setContainerMode] = useState<'temporal' | 'persistent'>(
+    agent.container_config?.container_mode ?? 'temporal'
+  )
   const [cpuLimit, setCpuLimit] = useState(
     agent.container_config?.cpu_limit != null ? String(agent.container_config.cpu_limit) : ''
   )
@@ -568,6 +571,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
           memory_limit_mb: memoryLimit ? parseInt(memoryLimit) : null,
           network_enabled: networkEnabled,
           permissions,
+          container_mode: containerMode,
         } : undefined,
       })
       savedConfig.current = updated.container_config
@@ -765,24 +769,57 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
               </p>
             </div>
             {containerEnabled && (
-              <div className={styles.formRow}>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}><Cpu size={11} /> CPU Limit (cores)</label>
-                  <input
-                    className={styles.input} value={cpuLimit}
-                    onChange={e => setCpuLimit(e.target.value)}
-                    placeholder="1.0" type="number" min="0.1" max="4" step="0.1"
-                  />
+              <>
+                <div className={styles.formGroup} style={{ marginBottom: 10 }}>
+                  <label className={styles.label}>Container Mode</label>
+                  <div className={styles.segmentedControl}>
+                    <button
+                      type="button"
+                      className={`${styles.segmentBtn} ${containerMode === 'temporal' ? styles.segmentBtnActive : ''}`}
+                      onClick={() => setContainerMode('temporal')}
+                    >
+                      Temporal
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.segmentBtn} ${containerMode === 'persistent' ? styles.segmentBtnActive : ''}`}
+                      onClick={() => {
+                        setContainerMode('persistent')
+                        // Persistent mode requires writable rootfs
+                        setPermissions(prev => ({
+                          ...prev,
+                          resources: { ...prev.resources, readonly_rootfs: false },
+                        }))
+                      }}
+                    >
+                      Persistent
+                    </button>
+                  </div>
+                  <p className={styles.fieldHint}>
+                    {containerMode === 'temporal'
+                      ? 'Each conversation gets its own isolated container. Containers are removed on server restart.'
+                      : 'One shared container across all conversations. Installed packages and state survive restarts.'}
+                  </p>
                 </div>
-                <div className={styles.formGroup}>
-                  <label className={styles.label}><Hash size={11} /> Memory (MB)</label>
-                  <input
-                    className={styles.input} value={memoryLimit}
-                    onChange={e => setMemoryLimit(e.target.value)}
-                    placeholder="512" type="number" min="64" max="4096" step="64"
-                  />
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}><Cpu size={11} /> CPU Limit (cores)</label>
+                    <input
+                      className={styles.input} value={cpuLimit}
+                      onChange={e => setCpuLimit(e.target.value)}
+                      placeholder="1.0" type="number" min="0.1" max="4" step="0.1"
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}><Hash size={11} /> Memory (MB)</label>
+                    <input
+                      className={styles.input} value={memoryLimit}
+                      onChange={e => setMemoryLimit(e.target.value)}
+                      placeholder="512" type="number" min="64" max="4096" step="64"
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
             {containerConfigDirty && runningContainerCount > 0 && (
               <div className={styles.restartBanner}>
@@ -982,8 +1019,14 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                     <input type="checkbox" className={styles.checkbox}
                       checked={permissions.resources.readonly_rootfs}
                       onChange={e => updatePerm('resources', { readonly_rootfs: e.target.checked })}
+                      disabled={containerMode === 'persistent'}
                     />
                   </label>
+                  {containerMode === 'persistent' && (
+                    <p className={styles.fieldHint} style={{ marginTop: -4, marginBottom: 6 }}>
+                      Persistent containers require a writable filesystem so installed packages survive restarts.
+                    </p>
+                  )}
                   <div className={styles.storageGauge} data-disabled={!permissions.resources.readonly_rootfs || undefined}>
                     <div className={styles.storageHeader}>
                       <label className={styles.label}>Package storage</label>

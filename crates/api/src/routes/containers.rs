@@ -49,12 +49,43 @@ fn err_json(msg: impl Into<String>) -> Json<ErrorResponse> {
 }
 
 /// Query parameter for specifying the conversation a container belongs to.
+/// For persistent agents, `conversation_id` can be omitted (defaults to sentinel).
 #[derive(Debug, Deserialize)]
 struct ConversationQuery {
-    conversation_id: Uuid,
+    conversation_id: Option<Uuid>,
+}
+
+/// Resolve the effective conversation_id for container operations.
+/// If `conversation_id` is provided, use it. Otherwise check if the agent uses
+/// persistent mode and fall back to the sentinel key.
+async fn resolve_conv_id(
+    state: &AppState,
+    agent_id: Uuid,
+    query_conv_id: Option<Uuid>,
+) -> Result<Uuid, (StatusCode, Json<ErrorResponse>)> {
+    if let Some(id) = query_conv_id {
+        return Ok(id);
+    }
+    // Check if agent is persistent
+    let agent = clawkson_db::agent::get_by_id(&state.db, agent_id)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, err_json("db error")))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("agent not found")))?;
+
+    let is_persistent = agent.container_config
+        .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v).ok())
+        .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+        .unwrap_or(false);
+
+    if is_persistent {
+        Ok(clawkson_container::PERSISTENT_SENTINEL)
+    } else {
+        Err((StatusCode::BAD_REQUEST, err_json("conversation_id is required for temporal containers")))
+    }
 }
 
 /// POST /api/agents/{id}/container/start?conversation_id=...
+/// For persistent agents, `conversation_id` can be omitted.
 async fn start_container(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -71,7 +102,7 @@ async fn start_container(
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
     // Get agent container config from DB
-    let config = {
+    let (config, is_persistent) = {
         let agent = clawkson_db::agent::get_by_id(&state.db, agent_id)
             .await
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, err_json("db error")))?
@@ -84,22 +115,35 @@ async fn start_container(
             ));
         }
 
-        agent.container_config
-            .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v).ok())
+        let ac = agent.container_config
+            .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v).ok());
+        let persistent = ac.as_ref()
+            .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+            .unwrap_or(false);
+        let cfg = ac
             .map(|ac| ContainerConfig {
                 image: ac.image.unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
                 cpu_limit: ac.cpu_limit,
                 memory_limit_mb: ac.memory_limit_mb,
                 network_enabled: ac.network_enabled,
                 permissions: ac.permissions,
+                persistent,
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        (cfg, persistent)
     };
 
-    let info = cm
-        .start_container(agent_id, query.conversation_id, &config)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
+    let info = if is_persistent {
+        cm.get_or_start_persistent(agent_id, &config)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?
+    } else {
+        let conv_id = query.conversation_id
+            .ok_or_else(|| (StatusCode::BAD_REQUEST, err_json("conversation_id is required for temporal containers")))?;
+        cm.start_container(agent_id, conv_id, &config)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?
+    };
 
     Ok(Json(ContainerStatusResponse {
         agent_id: info.agent_id.to_string(),
@@ -114,6 +158,7 @@ async fn start_container(
 }
 
 /// POST /api/agents/{id}/container/stop?conversation_id=...
+/// For persistent agents, `conversation_id` can be omitted.
 async fn stop_container(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -129,7 +174,8 @@ async fn stop_container(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
-    cm.stop_container(agent_id, query.conversation_id)
+    let conv_id = resolve_conv_id(&state, agent_id, query.conversation_id).await?;
+    cm.stop_container(agent_id, conv_id)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
@@ -137,6 +183,7 @@ async fn stop_container(
 }
 
 /// DELETE /api/agents/{id}/container?conversation_id=...
+/// For persistent agents, `conversation_id` can be omitted.
 async fn remove_container(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -152,7 +199,8 @@ async fn remove_container(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
-    cm.remove_container(agent_id, query.conversation_id, true)
+    let conv_id = resolve_conv_id(&state, agent_id, query.conversation_id).await?;
+    cm.remove_container(agent_id, conv_id, true)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
@@ -161,6 +209,7 @@ async fn remove_container(
 
 /// GET /api/agents/{id}/container?conversation_id=...
 /// Returns the container for a specific conversation.
+/// For persistent agents, `conversation_id` can be omitted.
 async fn get_container(
     _auth: AuthUser,
     State(state): State<AppState>,
@@ -172,8 +221,9 @@ async fn get_container(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
+    let conv_id = resolve_conv_id(&state, agent_id, query.conversation_id).await?;
     let info = cm
-        .get_container(agent_id, query.conversation_id)
+        .get_container(agent_id, conv_id)
         .await
         .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("no container for this agent/conversation")))?;
 
@@ -191,11 +241,12 @@ async fn get_container(
 
 #[derive(Debug, Deserialize)]
 struct LogsQuery {
-    conversation_id: Uuid,
+    conversation_id: Option<Uuid>,
     tail: Option<usize>,
 }
 
 /// GET /api/agents/{id}/container/logs?conversation_id=...
+/// For persistent agents, `conversation_id` can be omitted.
 async fn get_logs(
     _auth: AuthUser,
     State(state): State<AppState>,
@@ -207,8 +258,9 @@ async fn get_logs(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
+    let conv_id = resolve_conv_id(&state, agent_id, query.conversation_id).await?;
     let logs = cm
-        .logs(agent_id, query.conversation_id, query.tail)
+        .logs(agent_id, conv_id, query.tail)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
@@ -217,12 +269,13 @@ async fn get_logs(
 
 #[derive(Debug, Deserialize)]
 struct ExecCommandRequest {
-    conversation_id: Uuid,
+    conversation_id: Option<Uuid>,
     #[serde(flatten)]
     exec: ExecRequest,
 }
 
 /// POST /api/agents/{id}/container/exec
+/// For persistent agents, `conversation_id` can be omitted.
 async fn exec_command(
     auth: AuthUser,
     State(state): State<AppState>,
@@ -238,8 +291,9 @@ async fn exec_command(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
+    let conv_id = resolve_conv_id(&state, agent_id, req.conversation_id).await?;
     let result = cm
-        .exec(agent_id, req.conversation_id, &req.exec)
+        .exec(agent_id, conv_id, &req.exec)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, err_json(e.to_string())))?;
 
@@ -250,7 +304,7 @@ async fn exec_command(
 
 #[derive(Debug, Deserialize)]
 struct PreviewQuery {
-    conversation_id: Uuid,
+    conversation_id: Option<Uuid>,
 }
 
 /// GET /api/agents/{id}/container/preview/{*rest}
@@ -288,8 +342,9 @@ async fn do_container_preview(
         .as_ref()
         .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, err_json("Docker not available")))?;
 
+    let conv_id = resolve_conv_id(&state, agent_id, query.conversation_id).await?;
     let info = cm
-        .get_container(agent_id, query.conversation_id)
+        .get_container(agent_id, conv_id)
         .await
         .ok_or_else(|| (StatusCode::NOT_FOUND, err_json("no container for this conversation")))?;
 

@@ -1485,3 +1485,40 @@
   from { transform: translateX(24px); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
 }
+
+/* ── Segmented control (container mode) ── */
+
+.segmentedControl {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmentBtn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.segmentBtn + .segmentBtn {
+  border-left: 1px solid var(--border);
+}
+
+.segmentBtn:hover {
+  background: var(--bg-hover);
+}
+
+.segmentBtnActive {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmentBtnActive:hover {
+  background: var(--accent);
+}

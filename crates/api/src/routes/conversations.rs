@@ -722,6 +722,24 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
             .and_then(|c| c.image.as_deref())
             .unwrap_or("clawkson-sandbox:latest");
         let network = container_config.as_ref().map(|c| c.network_enabled).unwrap_or(false);
+        let is_persistent = container_config.as_ref()
+            .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+            .unwrap_or(false);
+
+        let persistence_note = if is_persistent {
+            "- This is a PERSISTENT container shared across all your conversations. Installed \
+               packages, created files, and environment changes survive across conversations \
+               and server restarts. The /workspace directory is shared — files written in one \
+               conversation are visible in all others.\n\
+             - The container's filesystem is WRITABLE — you can install packages globally \
+               with `pip install` or `apt-get install -y` and they will persist.\n"
+        } else {
+            "- The container is ephemeral and isolated, so installing packages is safe and expected.\n\
+             - The container has a /workspace directory that is the ONLY writable persistent location. \
+               The rest of the filesystem is read-only. Read inputs from /workspace/inputs/ and \
+               write outputs to /workspace/outputs/. These directories are pre-created and writable. \
+               NEVER fall back to /tmp or other directories — always use /workspace.\n"
+        };
 
         let sandbox_instructions = format!(
             "\n\n<sandbox-environment>\n\
@@ -739,14 +757,10 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
              Important guidelines:\n\
              - Proactively install packages and dependencies when needed. Do not ask the user for \
                permission to install — just run `pip install <package>` or `apt-get install -y <package>` \
-               via code_execution before using them. The container is ephemeral and isolated, so \
-               installing packages is safe and expected.\n\
+               via code_execution before using them.\n\
+             {persistence_note}\
              - When a task requires a library you are not sure is pre-installed, install it first \
                in a separate code_execution call, then proceed with the actual task.\n\
-             - The container has a /workspace directory that is the ONLY writable persistent location. \
-               The rest of the filesystem is read-only. Read inputs from /workspace/inputs/ and \
-               write outputs to /workspace/outputs/. These directories are pre-created and writable. \
-               NEVER fall back to /tmp or other directories — always use /workspace.\n\
              {network_note}\
              - You can chain multiple code_execution calls to build up complex workflows step by step.\n\
              - NEVER show code to the user unless they explicitly ask to see it. Just describe what \
@@ -1156,43 +1170,60 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
     // Code execution tool (requires container)
     if agent_cfg.container_enabled {
         if let Some(cm) = &state.container_manager {
-            // Auto-start container for this conversation if needed
-            if cm.get_container(agent_cfg.agent_id, conversation_id).await.is_none() {
-                let config = agent_cfg.container_config
-                    .as_ref()
-                    .map(|ac| clawkson_container::ContainerConfig {
-                        image: ac.image.clone().unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
-                        cpu_limit: ac.cpu_limit,
-                        memory_limit_mb: ac.memory_limit_mb,
-                        network_enabled: ac.network_enabled,
-                        permissions: ac.permissions.clone(),
-                    })
-                    .unwrap_or_default();
-                if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &config).await {
+            let is_persistent = agent_cfg.container_config.as_ref()
+                .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+                .unwrap_or(false);
+
+            // Auto-start container for this conversation if needed.
+            // Persistent mode: use get_or_start_persistent (shared container).
+            // Temporal mode: start a per-conversation container.
+            let container_config = agent_cfg.container_config
+                .as_ref()
+                .map(|ac| clawkson_container::ContainerConfig {
+                    image: ac.image.clone().unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
+                    cpu_limit: ac.cpu_limit,
+                    memory_limit_mb: ac.memory_limit_mb,
+                    network_enabled: ac.network_enabled,
+                    permissions: ac.permissions.clone(),
+                    persistent: is_persistent,
+                })
+                .unwrap_or_default();
+
+            if is_persistent {
+                if let Err(e) = cm.get_or_start_persistent(agent_cfg.agent_id, &container_config).await {
+                    tracing::error!("failed to auto-start persistent container: {e}");
+                }
+            } else if cm.get_container(agent_cfg.agent_id, conversation_id).await.is_none() {
+                if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &container_config).await {
                     tracing::error!("failed to auto-start container: {e}");
                 }
             }
             let workspace_root = cm.workspace_root().to_path_buf();
 
-            let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone());
+            let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone())
+                .with_persistent(is_persistent);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
             // Workspace tools — let the LLM read, write, and list files in its workspace
-            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
+            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                .with_persistent(is_persistent);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(read_tool.into_dyn(), "workspace_read".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
-            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
+            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                .with_persistent(is_persistent);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
-            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
+            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                .with_persistent(is_persistent);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
             // Live preview tool — lets the agent register a web server for inline display
-            let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, conversation_id);
+            let preview_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
+            let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, preview_conv_id);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(preview_tool.into_dyn(), "start_preview".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
@@ -1202,8 +1233,9 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
                 .map(|c| c.permissions.network.enabled || c.network_enabled)
                 .unwrap_or(false);
             if net_enabled {
+                let browser_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
                 let browser_tool = crate::browser_tools::BrowserTool::new(
-                    agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root,
+                    agent_cfg.agent_id, browser_conv_id, cm.clone(), workspace_root,
                 );
                 let guarded = crate::permission_guard::GuardedBuiltinTool::new(
                     browser_tool.into_dyn(), "browser".to_string(), guard_ctx.clone(),

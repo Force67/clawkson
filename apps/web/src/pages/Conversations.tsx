@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -1658,6 +1658,15 @@ export function ConversationsPage() {
                     <span>
                       <strong>Sandbox has no internet access.</strong> Package installation (<code>pip install</code>) and downloads will fail.
                       Enable network permissions in agent settings to allow it.
+                    </span>
+                  </div>
+                )}
+                {selectedAgent?.container_enabled && selectedAgent.container_config?.container_mode === 'persistent' && (
+                  <div className={styles.sandboxWarning} style={{ borderColor: 'var(--accent)' }}>
+                    <Container size={13} />
+                    <span>
+                      <strong>Shared Container.</strong> This agent uses a persistent container shared across all conversations.
+                      Installed packages and workspace files persist between sessions.
                     </span>
                   </div>
                 )}

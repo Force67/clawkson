@@ -187,6 +187,24 @@ async fn patch_agent(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    // Detect persistent→temporal mode switch: stop & remove the persistent container
+    if let Some(ref new_config) = req.container_config {
+        let old_is_persistent = existing.container_config
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v.clone()).ok())
+            .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+            .unwrap_or(false);
+        let new_is_persistent = new_config.container_mode == clawkson_core::ContainerMode::Persistent;
+
+        if old_is_persistent && !new_is_persistent {
+            if let Some(cm) = &state.container_manager {
+                let sentinel = clawkson_container::PERSISTENT_SENTINEL;
+                cm.remove_container(id, sentinel, false).await.ok();
+                tracing::info!(%id, "removed persistent container on mode switch to temporal");
+            }
+        }
+    }
+
     let connector_policies_json = req
         .connector_policies
         .as_ref()

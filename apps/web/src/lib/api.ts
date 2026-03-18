@@ -29,11 +29,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type AgentStatus = 'online' | 'offline' | 'busy' | 'error'
 
+export type ContainerMode = 'temporal' | 'persistent'
+
 export interface AgentContainerConfig {
   cpu_limit: number | null
   memory_limit_mb: number | null
   network_enabled: boolean
   permissions?: AgentPermissions
+  container_mode?: ContainerMode
 }
 
 // ── Agent Permissions (Android-style) ─────────────────────────────

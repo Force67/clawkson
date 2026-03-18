@@ -60,6 +60,9 @@ pub struct AgentContainerConfig {
     /// Android-style granular permissions. Defaults applied when absent.
     #[serde(default)]
     pub permissions: AgentPermissions,
+    /// Container lifecycle mode: temporal (per-conversation, default) or persistent (shared).
+    #[serde(default)]
+    pub container_mode: ContainerMode,
 }
 
 // ── Android-Style Permissions ─────────────────────────────────────
@@ -220,6 +223,21 @@ impl Default for DataAccessPermission {
             knowledge_bases: true,
             conversation_history: true,
         }
+    }
+}
+
+/// Whether a container is per-conversation (temporal) or shared across
+/// all conversations for an agent (persistent).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerMode {
+    Temporal,
+    Persistent,
+}
+
+impl Default for ContainerMode {
+    fn default() -> Self {
+        Self::Temporal
     }
 }
 

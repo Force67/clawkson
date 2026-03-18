@@ -40,13 +40,28 @@ fn err_with(code: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<Error
 /// Get the workspace root for an agent+conversation from the container manager.
 /// The container does NOT need to be running — the directory on the host
 /// is the source of truth.
+///
+/// For persistent agents, resolves to `{root}/{agent_id}/shared/` regardless
+/// of the conversation_id provided.
 async fn get_workspace(state: &AppState, agent_id: Uuid, conversation_id: Uuid) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
     let cm = state
         .container_manager
         .as_ref()
         .ok_or_else(|| err_with(StatusCode::SERVICE_UNAVAILABLE, "Docker not available"))?;
 
-    cm.conversation_workspace(agent_id, conversation_id)
+    // Check if this agent uses persistent mode — if so, resolve via sentinel.
+    let effective_conv_id = match clawkson_db::agent::get_by_id(&state.db, agent_id).await {
+        Ok(Some(agent)) => {
+            let is_persistent = agent.container_config
+                .and_then(|v| serde_json::from_value::<clawkson_core::AgentContainerConfig>(v).ok())
+                .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+                .unwrap_or(false);
+            if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id }
+        }
+        _ => conversation_id,
+    };
+
+    cm.conversation_workspace(agent_id, effective_conv_id)
         .await
         .map_err(|e| err_with(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }

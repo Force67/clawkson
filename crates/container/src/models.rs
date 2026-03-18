@@ -19,6 +19,9 @@ pub struct ContainerConfig {
     /// Granular permissions from the agent config.
     #[serde(default)]
     pub permissions: clawkson_core::AgentPermissions,
+    /// Whether this is a persistent (agent-level) container.
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 fn default_image() -> String {
@@ -33,6 +36,7 @@ impl Default for ContainerConfig {
             memory_limit_mb: Some(512),
             network_enabled: false,
             permissions: clawkson_core::AgentPermissions::default(),
+            persistent: false,
         }
     }
 }
@@ -42,7 +46,7 @@ impl Default for ContainerConfig {
 pub struct ContainerInfo {
     pub agent_id: Uuid,
     /// The conversation this container is scoped to.
-    /// Each conversation gets its own isolated workspace and container.
+    /// For persistent containers this is `Uuid::nil()` (sentinel).
     pub conversation_id: Uuid,
     pub docker_id: String,
     pub state: ContainerState,
@@ -51,6 +55,9 @@ pub struct ContainerInfo {
     /// Container IP on the internal proxy network (if connected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ip_address: Option<String>,
+    /// Whether this is a persistent (agent-level) container.
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 /// Container lifecycle states.

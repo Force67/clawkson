@@ -18,12 +18,14 @@ const MAX_INLINE_FILE_BYTES: u64 = 64 * 1024; // 64 KB
 pub use http_tool::AuthenticatedHttpTool;
 
 /// A tool that executes code inside an agent's sandboxed container.
-/// Scoped to a specific conversation for workspace isolation.
+/// Scoped to a specific conversation for workspace isolation,
+/// or to the shared persistent container when `persistent` is true.
 pub struct CodeExecutionTool {
     agent_id: Uuid,
     conversation_id: Uuid,
     container_manager: Arc<ContainerManager>,
     workspace_root: std::path::PathBuf,
+    persistent: bool,
 }
 
 impl CodeExecutionTool {
@@ -33,7 +35,13 @@ impl CodeExecutionTool {
             conversation_id,
             container_manager,
             workspace_root,
+            persistent: false,
         }
+    }
+
+    pub fn with_persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        self
     }
 
     pub fn into_dyn(self) -> DynKernelFunction {
@@ -50,21 +58,35 @@ struct CodeExecArgs {
 #[async_trait::async_trait]
 impl KernelFunction for CodeExecutionTool {
     fn definition(&self) -> FunctionDefinition {
+        let desc = if self.persistent {
+            "Execute code REMOTELY in a PERSISTENT sandboxed Docker container shared across all \
+             conversations for this agent. You are NOT inside the container — this tool sends your \
+             code to a separate container and returns the output. \
+             Use this for running Python or Bash code. \
+             Proactively install any needed packages (pip install, apt-get install -y) \
+             without asking — the container is PERSISTENT so installed packages survive across \
+             conversations and server restarts. \
+             The workspace at /workspace is shared across all conversations. \
+             Always use /workspace for file operations — read inputs from /workspace/inputs/ \
+             and write outputs to /workspace/outputs/. \
+             After execution, any files written to /workspace/outputs/ are automatically \
+             returned to you so you can read or summarise their contents."
+        } else {
+            "Execute code REMOTELY in a sandboxed Docker container. \
+             You are NOT inside the container — this tool sends your code to a separate, \
+             isolated container for execution and returns the output. \
+             Use this for running Python or Bash code. \
+             Proactively install any needed packages (pip install, apt-get install -y) \
+             without asking — the container is ephemeral and safe to modify. \
+             The container's filesystem is read-only except for /workspace, which is \
+             the only writable persistent location. Always use /workspace for file operations — \
+             read inputs from /workspace/inputs/ and write outputs to /workspace/outputs/. \
+             Never fall back to /tmp or other paths. \
+             After execution, any files written to /workspace/outputs/ are automatically \
+             returned to you so you can read or summarise their contents."
+        };
         let mut def = FunctionDefinition::new("code_execution")
-            .with_description(
-                "Execute code REMOTELY in a sandboxed Docker container. \
-                 You are NOT inside the container — this tool sends your code to a separate, \
-                 isolated container for execution and returns the output. \
-                 Use this for running Python or Bash code. \
-                 Proactively install any needed packages (pip install, apt-get install -y) \
-                 without asking — the container is ephemeral and safe to modify. \
-                 The container's filesystem is read-only except for /workspace, which is \
-                 the only writable persistent location. Always use /workspace for file operations — \
-                 read inputs from /workspace/inputs/ and write outputs to /workspace/outputs/. \
-                 Never fall back to /tmp or other paths. \
-                 After execution, any files written to /workspace/outputs/ are automatically \
-                 returned to you so you can read or summarise their contents.",
-            );
+            .with_description(desc);
 
         def.add_parameter(
             FunctionParameter::new(
@@ -111,17 +133,28 @@ impl KernelFunction for CodeExecutionTool {
             output_dir: Some("outputs".to_string()),
         };
 
-        let exec_result = match self.container_manager.exec(self.agent_id, self.conversation_id, &request).await {
+        let exec_conv_id = if self.persistent { clawkson_container::PERSISTENT_SENTINEL } else { self.conversation_id };
+
+        let exec_result = match self.container_manager.exec(self.agent_id, exec_conv_id, &request).await {
             Err(clawkson_container::ContainerError::NotFound(_)) => {
                 // Container gone — try to auto-restart and retry once
                 tracing::info!(agent_id = %self.agent_id, conversation_id = %self.conversation_id, "container not found, attempting auto-restart");
-                let config = clawkson_container::ContainerConfig::default();
-                if let Err(e) = self.container_manager.start_container(self.agent_id, self.conversation_id, &config).await {
+                let config = clawkson_container::ContainerConfig {
+                    persistent: self.persistent,
+                    ..clawkson_container::ContainerConfig::default()
+                };
+                if self.persistent {
+                    if let Err(e) = self.container_manager.get_or_start_persistent(self.agent_id, &config).await {
+                        return Ok(serde_json::json!({
+                            "error": format!("Container lost and restart failed: {e}. Please try again."),
+                        }));
+                    }
+                } else if let Err(e) = self.container_manager.start_container(self.agent_id, self.conversation_id, &config).await {
                     return Ok(serde_json::json!({
                         "error": format!("Container lost and restart failed: {e}. Please try again."),
                     }));
                 }
-                self.container_manager.exec(self.agent_id, self.conversation_id, &request).await
+                self.container_manager.exec(self.agent_id, exec_conv_id, &request).await
             }
             other => other,
         };
@@ -138,9 +171,15 @@ impl KernelFunction for CodeExecutionTool {
                 // Read output file contents back so the LLM can see them directly.
                 if let Some(output_files) = &result.output_files {
                     if !output_files.is_empty() {
-                        let workspace = self.workspace_root
-                            .join(self.agent_id.to_string())
-                            .join(self.conversation_id.to_string());
+                        let workspace = if self.persistent {
+                            self.workspace_root
+                                .join(self.agent_id.to_string())
+                                .join("shared")
+                        } else {
+                            self.workspace_root
+                                .join(self.agent_id.to_string())
+                                .join(self.conversation_id.to_string())
+                        };
                         let files_json: Vec<Value> = output_files.iter().map(|f| {
                             let abs = workspace.join(&f.path);
                             let content = if f.size <= MAX_INLINE_FILE_BYTES {
@@ -190,15 +229,29 @@ pub struct WorkspaceReadTool {
     agent_id: Uuid,
     conversation_id: Uuid,
     workspace_root: std::path::PathBuf,
+    persistent: bool,
 }
 
 impl WorkspaceReadTool {
     pub fn new(agent_id: Uuid, conversation_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
-        Self { agent_id, conversation_id, workspace_root }
+        Self { agent_id, conversation_id, workspace_root, persistent: false }
+    }
+
+    pub fn with_persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        self
     }
 
     pub fn into_dyn(self) -> DynKernelFunction {
         Arc::new(self)
+    }
+
+    fn workspace_path(&self) -> std::path::PathBuf {
+        if self.persistent {
+            self.workspace_root.join(self.agent_id.to_string()).join("shared")
+        } else {
+            self.workspace_root.join(self.agent_id.to_string()).join(self.conversation_id.to_string())
+        }
     }
 }
 
@@ -233,9 +286,7 @@ impl KernelFunction for WorkspaceReadTool {
             ))
         })?;
 
-        let workspace = self.workspace_root
-            .join(self.agent_id.to_string())
-            .join(self.conversation_id.to_string());
+        let workspace = self.workspace_path();
 
         match clawkson_container::workspace::sandbox_path(&workspace, &args.path) {
             Err(e) => Ok(serde_json::json!({ "error": format!("Invalid path: {e}") })),
@@ -299,15 +350,29 @@ pub struct WorkspaceWriteTool {
     agent_id: Uuid,
     conversation_id: Uuid,
     workspace_root: std::path::PathBuf,
+    persistent: bool,
 }
 
 impl WorkspaceWriteTool {
     pub fn new(agent_id: Uuid, conversation_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
-        Self { agent_id, conversation_id, workspace_root }
+        Self { agent_id, conversation_id, workspace_root, persistent: false }
+    }
+
+    pub fn with_persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        self
     }
 
     pub fn into_dyn(self) -> DynKernelFunction {
         Arc::new(self)
+    }
+
+    fn workspace_path(&self) -> std::path::PathBuf {
+        if self.persistent {
+            self.workspace_root.join(self.agent_id.to_string()).join("shared")
+        } else {
+            self.workspace_root.join(self.agent_id.to_string()).join(self.conversation_id.to_string())
+        }
     }
 }
 
@@ -348,9 +413,7 @@ impl KernelFunction for WorkspaceWriteTool {
             ))
         })?;
 
-        let workspace = self.workspace_root
-            .join(self.agent_id.to_string())
-            .join(self.conversation_id.to_string());
+        let workspace = self.workspace_path();
 
         match clawkson_container::workspace::sandbox_path(&workspace, &args.path) {
             Err(e) => Ok(serde_json::json!({ "error": format!("Invalid path: {e}") })),
@@ -381,15 +444,29 @@ pub struct WorkspaceListTool {
     agent_id: Uuid,
     conversation_id: Uuid,
     workspace_root: std::path::PathBuf,
+    persistent: bool,
 }
 
 impl WorkspaceListTool {
     pub fn new(agent_id: Uuid, conversation_id: Uuid, workspace_root: std::path::PathBuf) -> Self {
-        Self { agent_id, conversation_id, workspace_root }
+        Self { agent_id, conversation_id, workspace_root, persistent: false }
+    }
+
+    pub fn with_persistent(mut self, persistent: bool) -> Self {
+        self.persistent = persistent;
+        self
     }
 
     pub fn into_dyn(self) -> DynKernelFunction {
         Arc::new(self)
+    }
+
+    fn workspace_path(&self) -> std::path::PathBuf {
+        if self.persistent {
+            self.workspace_root.join(self.agent_id.to_string()).join("shared")
+        } else {
+            self.workspace_root.join(self.agent_id.to_string()).join(self.conversation_id.to_string())
+        }
     }
 }
 
@@ -423,9 +500,7 @@ impl KernelFunction for WorkspaceListTool {
             ))
         })?;
 
-        let workspace = self.workspace_root
-            .join(self.agent_id.to_string())
-            .join(self.conversation_id.to_string());
+        let workspace = self.workspace_path();
         let sub = args.path.as_deref().unwrap_or("");
 
         match clawkson_container::workspace::list_workspace(&workspace, sub) {
