@@ -53,6 +53,8 @@ fn row_to_api(row: clawkson_db::scheduled_task::ScheduledTaskRow) -> ScheduledTa
         next_run_at: row.next_run_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        created_by_agent_id: row.created_by_agent_id,
+        created_by_conversation_id: row.created_by_conversation_id,
     }
 }
 

@@ -149,25 +149,33 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 200;
-  backdrop-filter: blur(8px);
-  animation: fadeIn 0.15s ease-out;
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 24px 64px rgba(0, 0, 0, 0.15);
-  border-radius: 16px;
-  padding: 28px;
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    0 4px 8px rgba(0, 0, 0, 0.04),
+    0 24px 64px rgba(0, 0, 0, 0.15);
+  border-radius: 20px;
+  padding: 32px;
   width: 420px;
   max-width: calc(100vw - 32px);
-  animation: fadeUp 0.2s ease-out;
+  animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .modalTitle {
@@ -213,8 +221,9 @@
 
 .input:focus,
 .select:focus {
-  border-color: #4a6cf7;
-  box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.1));
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .hint {
@@ -224,7 +233,7 @@
 }
 
 .hint a {
-  color: #4a6cf7;
+  color: var(--accent-text);
   text-decoration: none;
 }
 

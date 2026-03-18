@@ -8,11 +8,17 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .button:disabled {
@@ -21,11 +27,42 @@
 }
 
 .primary {
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: var(--text-inverse);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(74, 108, 247, 0.1);
 }
+
 .primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--accent-gradient-hover, var(--accent-hover));
+  box-shadow: var(--shadow-md), var(--shadow-accent);
+  transform: translateY(-1px);
+}
+
+.primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Shine sweep on primary buttons */
+.primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 100%
+  );
+  transition: left 0.5s ease;
+  pointer-events: none;
+}
+
+.primary:hover:not(:disabled)::after {
+  left: 200%;
 }
 
 .secondary {
@@ -33,17 +70,26 @@
   backdrop-filter: var(--glass-blur);
   color: var(--text-secondary);
   border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
 }
+
 .secondary:hover:not(:disabled) {
   background: var(--bg-active);
   color: var(--text-primary);
   border-color: var(--border-bright);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.secondary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }
 
 .ghost {
   background: transparent;
   color: var(--text-secondary);
 }
+
 .ghost:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);

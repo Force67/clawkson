@@ -5,15 +5,36 @@
   border: 1px solid var(--glass-border);
   border-radius: 16px;
   padding: 22px;
-  transition: border-color 0.2s ease;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-sm);
+  position: relative;
 }
 
 .card:hover {
   border-color: var(--border-bright);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-md);
+}
+
+.cardInteractive {
+  cursor: pointer;
 }
 
 .cardInteractive:hover {
-  border-color: rgba(74, 108, 247, 0.3);
-  cursor: pointer;
+  border-color: rgba(74, 108, 247, 0.25);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-md),
+    0 0 0 1px rgba(74, 108, 247, 0.08);
+  transform: translateY(-2px);
+}
+
+.cardInteractive:active {
+  transform: translateY(0);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-sm);
 }

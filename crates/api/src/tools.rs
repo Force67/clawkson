@@ -1394,3 +1394,674 @@ impl KernelFunction for CreateSkillTool {
         }))
     }
 }
+
+// ── ManageScheduledTasksTool ────────────────────────────────────────
+
+/// A tool that lets agents create, list, update, enable/disable, and delete scheduled tasks.
+pub struct ManageScheduledTasksTool {
+    db: clawkson_db::Db,
+    agent_id: Uuid,
+    conversation_id: Uuid,
+    owner_id: Uuid,
+}
+
+impl ManageScheduledTasksTool {
+    pub fn new(db: clawkson_db::Db, agent_id: Uuid, conversation_id: Uuid, owner_id: Uuid) -> Self {
+        Self { db, agent_id, conversation_id, owner_id }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ManageScheduledTasksArgs {
+    action: String,
+    name: Option<String>,
+    agent_id: Option<String>,
+    prompt: Option<String>,
+    cron_expression: Option<String>,
+    task_id: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for ManageScheduledTasksTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("manage_scheduled_tasks")
+            .with_description(
+                "Create, list, update, enable, disable, or delete scheduled tasks. \
+                 This is the platform's built-in scheduler — use this instead of cron, \
+                 systemd timers, CI/CD pipelines, or any external scheduling system. \
+                 Each task runs an agent with a prompt on a cron schedule. \
+                 ALWAYS use this tool when the user asks for recurring, scheduled, \
+                 or periodic automation.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "action",
+                serde_json::json!({
+                    "type": "string",
+                    "enum": ["create", "list", "update", "enable", "disable", "delete"]
+                }),
+            )
+            .with_description("The action to perform."),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "name",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("Task name (required for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "agent_id",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("UUID of the agent that should run the task. Defaults to the current agent (for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "prompt",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("The prompt text for the task. Can include /skill-name references (for create/update).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "cron_expression",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description(
+                "Standard 7-field cron expression: sec min hour day month weekday year. \
+                 Examples: '0 0 22 * * * *' (daily at 22:00), '0 0 9 * * MON *' (Monday 9 AM). \
+                 Required for create if you want recurring execution.",
+            )
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "task_id",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("UUID of the task (required for update/enable/disable/delete).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "enabled",
+                serde_json::json!({ "type": "boolean" }),
+            )
+            .with_description("Set enabled state (for update).")
+            .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: ManageScheduledTasksArgs = serde_json::from_value(arguments.clone())
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "manage_scheduled_tasks".to_string(),
+                message: format!("Invalid arguments: {e}"),
+            })?;
+
+        match args.action.as_str() {
+            "list" => {
+                let rows = clawkson_db::scheduled_task::list_for_user(&self.db, self.owner_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: format!("Failed to list tasks: {e}"),
+                    })?;
+
+                let tasks: Vec<Value> = rows.iter().map(|r| serde_json::json!({
+                    "id": r.id.to_string(),
+                    "name": r.name,
+                    "agent_id": r.agent_id.to_string(),
+                    "prompt": r.prompt,
+                    "cron_expression": r.cron_expression,
+                    "enabled": r.enabled,
+                    "last_run_at": r.last_run_at.map(|t| t.to_rfc3339()),
+                    "next_run_at": r.next_run_at.map(|t| t.to_rfc3339()),
+                })).collect();
+
+                Ok(serde_json::json!({ "tasks": tasks, "count": tasks.len() }))
+            }
+
+            "create" => {
+                let name = args.name.as_deref().unwrap_or("").trim();
+                if name.is_empty() {
+                    return Ok(serde_json::json!({ "error": "name is required for create action." }));
+                }
+                let prompt = args.prompt.as_deref().unwrap_or("").trim();
+                if prompt.is_empty() {
+                    return Ok(serde_json::json!({ "error": "prompt is required for create action." }));
+                }
+
+                let target_agent_id = if let Some(ref aid) = args.agent_id {
+                    Uuid::parse_str(aid).map_err(|_| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: "Invalid agent_id UUID.".to_string(),
+                    })?
+                } else {
+                    self.agent_id
+                };
+
+                // Validate cron expression if provided
+                let next_run = if let Some(ref expr) = args.cron_expression {
+                    let next = crate::scheduler::compute_next_run(Some(expr));
+                    if next.is_none() {
+                        return Ok(serde_json::json!({
+                            "error": format!("Invalid cron expression: '{expr}'. Use 7-field format: sec min hour day month weekday year."),
+                        }));
+                    }
+                    next
+                } else {
+                    None
+                };
+
+                let row = clawkson_db::scheduled_task::create_with_provenance(
+                    &self.db,
+                    self.owner_id,
+                    target_agent_id,
+                    name,
+                    prompt,
+                    args.cron_expression.as_deref(),
+                    next_run,
+                    Some(self.agent_id),
+                    Some(self.conversation_id),
+                )
+                .await
+                .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                    function: "manage_scheduled_tasks".to_string(),
+                    message: format!("Failed to create task: {e}"),
+                })?;
+
+                Ok(serde_json::json!({
+                    "success": true,
+                    "task": {
+                        "id": row.id.to_string(),
+                        "name": row.name,
+                        "cron_expression": row.cron_expression,
+                        "enabled": row.enabled,
+                        "next_run_at": row.next_run_at.map(|t| t.to_rfc3339()),
+                    },
+                }))
+            }
+
+            "update" => {
+                let task_id = parse_task_id(&args.task_id)?;
+
+                // Ownership check
+                let existing = clawkson_db::scheduled_task::get_by_id(&self.db, task_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: format!("DB error: {e}"),
+                    })?;
+                let Some(existing) = existing else {
+                    return Ok(serde_json::json!({ "error": "Task not found." }));
+                };
+                if existing.owner_id != self.owner_id {
+                    return Ok(serde_json::json!({ "error": "You do not own this task." }));
+                }
+
+                // Recompute next_run if cron changed
+                let cron_opt = args.cron_expression.as_ref().map(|c| {
+                    if c.is_empty() { None } else { Some(c.as_str()) }
+                });
+                let next_run_update = cron_opt.map(|c| {
+                    if let Some(expr) = c {
+                        crate::scheduler::compute_next_run(Some(expr))
+                    } else {
+                        None
+                    }
+                });
+
+                let row = clawkson_db::scheduled_task::update(
+                    &self.db,
+                    task_id,
+                    args.name.as_deref(),
+                    args.prompt.as_deref(),
+                    cron_opt,
+                    args.enabled,
+                    next_run_update,
+                )
+                .await
+                .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                    function: "manage_scheduled_tasks".to_string(),
+                    message: format!("Failed to update task: {e}"),
+                })?;
+
+                match row {
+                    Some(r) => Ok(serde_json::json!({
+                        "success": true,
+                        "task": {
+                            "id": r.id.to_string(),
+                            "name": r.name,
+                            "enabled": r.enabled,
+                            "cron_expression": r.cron_expression,
+                        },
+                    })),
+                    None => Ok(serde_json::json!({ "error": "Task not found." })),
+                }
+            }
+
+            "enable" | "disable" => {
+                let task_id = parse_task_id(&args.task_id)?;
+                let enable = args.action == "enable";
+
+                let existing = clawkson_db::scheduled_task::get_by_id(&self.db, task_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: format!("DB error: {e}"),
+                    })?;
+                let Some(existing) = existing else {
+                    return Ok(serde_json::json!({ "error": "Task not found." }));
+                };
+                if existing.owner_id != self.owner_id {
+                    return Ok(serde_json::json!({ "error": "You do not own this task." }));
+                }
+
+                // Recompute next_run when enabling
+                let next_run_update = if enable {
+                    Some(crate::scheduler::compute_next_run(existing.cron_expression.as_deref()))
+                } else {
+                    Some(None)
+                };
+
+                let row = clawkson_db::scheduled_task::update(
+                    &self.db,
+                    task_id,
+                    None,
+                    None,
+                    None,
+                    Some(enable),
+                    next_run_update,
+                )
+                .await
+                .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                    function: "manage_scheduled_tasks".to_string(),
+                    message: format!("Failed to update task: {e}"),
+                })?;
+
+                match row {
+                    Some(r) => Ok(serde_json::json!({
+                        "success": true,
+                        "task_id": r.id.to_string(),
+                        "enabled": r.enabled,
+                    })),
+                    None => Ok(serde_json::json!({ "error": "Task not found." })),
+                }
+            }
+
+            "delete" => {
+                let task_id = parse_task_id(&args.task_id)?;
+
+                let existing = clawkson_db::scheduled_task::get_by_id(&self.db, task_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: format!("DB error: {e}"),
+                    })?;
+                let Some(existing) = existing else {
+                    return Ok(serde_json::json!({ "error": "Task not found." }));
+                };
+                if existing.owner_id != self.owner_id {
+                    return Ok(serde_json::json!({ "error": "You do not own this task." }));
+                }
+
+                clawkson_db::scheduled_task::delete(&self.db, task_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_scheduled_tasks".to_string(),
+                        message: format!("Failed to delete task: {e}"),
+                    })?;
+
+                Ok(serde_json::json!({ "success": true, "deleted": task_id.to_string() }))
+            }
+
+            other => Ok(serde_json::json!({
+                "error": format!("Unknown action '{other}'. Valid actions: create, list, update, enable, disable, delete."),
+            })),
+        }
+    }
+}
+
+fn parse_task_id(task_id: &Option<String>) -> Result<Uuid, denkwerk::LLMError> {
+    let id_str = task_id.as_deref().unwrap_or("");
+    Uuid::parse_str(id_str).map_err(|_| denkwerk::LLMError::FunctionExecution {
+        function: "manage_scheduled_tasks".to_string(),
+        message: "task_id is required and must be a valid UUID.".to_string(),
+    })
+}
+
+// ── ManageCalendarTool ──────────────────────────────────────────────
+
+/// A tool that lets agents create, list, update, and delete calendar events.
+pub struct ManageCalendarTool {
+    db: clawkson_db::Db,
+    owner_id: Uuid,
+}
+
+impl ManageCalendarTool {
+    pub fn new(db: clawkson_db::Db, owner_id: Uuid) -> Self {
+        Self { db, owner_id }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ManageCalendarArgs {
+    action: String,
+    title: Option<String>,
+    date: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    category: Option<String>,
+    location: Option<String>,
+    notes: Option<String>,
+    event_id: Option<String>,
+    from_date: Option<String>,
+    to_date: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for ManageCalendarTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("manage_calendar")
+            .with_description(
+                "Create, list, update, or delete calendar events on the user's built-in calendar. \
+                 Use this to schedule reminders, add workflow markers, or manage calendar entries. \
+                 This is the platform's calendar — do not suggest Google Calendar, Outlook, or \
+                 external calendar tools.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "action",
+                serde_json::json!({
+                    "type": "string",
+                    "enum": ["create", "list", "update", "delete"]
+                }),
+            )
+            .with_description("The action to perform."),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("title", serde_json::json!({ "type": "string" }))
+            .with_description("Event title (required for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("date", serde_json::json!({ "type": "string" }))
+            .with_description("Date in YYYY-MM-DD format (required for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("start_time", serde_json::json!({ "type": "string" }))
+            .with_description("Start time in HH:MM format (required for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("end_time", serde_json::json!({ "type": "string" }))
+            .with_description("End time in HH:MM format (required for create).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("category", serde_json::json!({ "type": "string" }))
+            .with_description("Event category: work, personal, meeting, health, travel, creative. Default: work.")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("location", serde_json::json!({ "type": "string" }))
+            .with_description("Event location (optional).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("notes", serde_json::json!({ "type": "string" }))
+            .with_description("Event notes (optional).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("event_id", serde_json::json!({ "type": "string" }))
+            .with_description("UUID of the event (required for update/delete).")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("from_date", serde_json::json!({ "type": "string" }))
+            .with_description("Start of date range filter for list (YYYY-MM-DD). Defaults to today.")
+            .optional(),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("to_date", serde_json::json!({ "type": "string" }))
+            .with_description("End of date range filter for list (YYYY-MM-DD). Defaults to 30 days from today.")
+            .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        use chrono::{NaiveDate, NaiveTime};
+
+        let args: ManageCalendarArgs = serde_json::from_value(arguments.clone())
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "manage_calendar".to_string(),
+                message: format!("Invalid arguments: {e}"),
+            })?;
+
+        match args.action.as_str() {
+            "list" => {
+                let today = chrono::Utc::now().date_naive();
+                let from = args.from_date.as_deref()
+                    .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+                    .unwrap_or(today);
+                let to = args.to_date.as_deref()
+                    .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+                    .unwrap_or(today + chrono::Duration::days(30));
+
+                let rows = clawkson_db::calendar_event::list_for_user(&self.db, self.owner_id, from, to)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_calendar".to_string(),
+                        message: format!("Failed to list events: {e}"),
+                    })?;
+
+                let events: Vec<Value> = rows.iter().map(|r| serde_json::json!({
+                    "id": r.id.to_string(),
+                    "title": r.title,
+                    "date": r.date.to_string(),
+                    "start_time": r.start_time.format("%H:%M").to_string(),
+                    "end_time": r.end_time.format("%H:%M").to_string(),
+                    "category": r.category,
+                    "location": r.location,
+                    "notes": r.notes,
+                    "completed": r.completed,
+                })).collect();
+
+                Ok(serde_json::json!({ "events": events, "count": events.len() }))
+            }
+
+            "create" => {
+                let title = args.title.as_deref().unwrap_or("").trim();
+                if title.is_empty() {
+                    return Ok(serde_json::json!({ "error": "title is required for create." }));
+                }
+
+                let date = parse_date(&args.date, "date")?;
+                let start_time = parse_time(&args.start_time, "start_time")?;
+                let end_time = parse_time(&args.end_time, "end_time")?;
+                let category = args.category.as_deref().unwrap_or("work");
+
+                let row = clawkson_db::calendar_event::create(
+                    &self.db,
+                    self.owner_id,
+                    title,
+                    date,
+                    start_time,
+                    end_time,
+                    category,
+                    args.location.as_deref(),
+                    args.notes.as_deref(),
+                )
+                .await
+                .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                    function: "manage_calendar".to_string(),
+                    message: format!("Failed to create event: {e}"),
+                })?;
+
+                Ok(serde_json::json!({
+                    "success": true,
+                    "event": {
+                        "id": row.id.to_string(),
+                        "title": row.title,
+                        "date": row.date.to_string(),
+                        "start_time": row.start_time.format("%H:%M").to_string(),
+                        "end_time": row.end_time.format("%H:%M").to_string(),
+                        "category": row.category,
+                    },
+                }))
+            }
+
+            "update" => {
+                let event_id = parse_event_id(&args.event_id)?;
+
+                let existing = clawkson_db::calendar_event::get_by_id(&self.db, event_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_calendar".to_string(),
+                        message: format!("DB error: {e}"),
+                    })?;
+                let Some(existing) = existing else {
+                    return Ok(serde_json::json!({ "error": "Event not found." }));
+                };
+                if existing.owner_id != self.owner_id {
+                    return Ok(serde_json::json!({ "error": "You do not own this event." }));
+                }
+
+                let title = args.title.as_deref().unwrap_or(&existing.title);
+                let date = args.date.as_deref()
+                    .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+                    .unwrap_or(existing.date);
+                let start_time = args.start_time.as_deref()
+                    .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok())
+                    .unwrap_or(existing.start_time);
+                let end_time = args.end_time.as_deref()
+                    .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok())
+                    .unwrap_or(existing.end_time);
+                let category = args.category.as_deref().unwrap_or(&existing.category);
+
+                let row = clawkson_db::calendar_event::update(
+                    &self.db,
+                    event_id,
+                    title,
+                    date,
+                    start_time,
+                    end_time,
+                    category,
+                    args.location.as_deref().or(existing.location.as_deref()),
+                    args.notes.as_deref().or(existing.notes.as_deref()),
+                    existing.completed,
+                )
+                .await
+                .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                    function: "manage_calendar".to_string(),
+                    message: format!("Failed to update event: {e}"),
+                })?;
+
+                match row {
+                    Some(r) => Ok(serde_json::json!({
+                        "success": true,
+                        "event": {
+                            "id": r.id.to_string(),
+                            "title": r.title,
+                            "date": r.date.to_string(),
+                        },
+                    })),
+                    None => Ok(serde_json::json!({ "error": "Event not found." })),
+                }
+            }
+
+            "delete" => {
+                let event_id = parse_event_id(&args.event_id)?;
+
+                let existing = clawkson_db::calendar_event::get_by_id(&self.db, event_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_calendar".to_string(),
+                        message: format!("DB error: {e}"),
+                    })?;
+                let Some(existing) = existing else {
+                    return Ok(serde_json::json!({ "error": "Event not found." }));
+                };
+                if existing.owner_id != self.owner_id {
+                    return Ok(serde_json::json!({ "error": "You do not own this event." }));
+                }
+
+                clawkson_db::calendar_event::delete(&self.db, event_id)
+                    .await
+                    .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                        function: "manage_calendar".to_string(),
+                        message: format!("Failed to delete event: {e}"),
+                    })?;
+
+                Ok(serde_json::json!({ "success": true, "deleted": event_id.to_string() }))
+            }
+
+            other => Ok(serde_json::json!({
+                "error": format!("Unknown action '{other}'. Valid actions: create, list, update, delete."),
+            })),
+        }
+    }
+}
+
+fn parse_date(val: &Option<String>, field: &str) -> Result<chrono::NaiveDate, denkwerk::LLMError> {
+    let s = val.as_deref().unwrap_or("");
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| denkwerk::LLMError::FunctionExecution {
+        function: "manage_calendar".to_string(),
+        message: format!("{field} is required and must be in YYYY-MM-DD format."),
+    })
+}
+
+fn parse_time(val: &Option<String>, field: &str) -> Result<chrono::NaiveTime, denkwerk::LLMError> {
+    let s = val.as_deref().unwrap_or("");
+    chrono::NaiveTime::parse_from_str(s, "%H:%M").map_err(|_| denkwerk::LLMError::FunctionExecution {
+        function: "manage_calendar".to_string(),
+        message: format!("{field} is required and must be in HH:MM format."),
+    })
+}
+
+fn parse_event_id(event_id: &Option<String>) -> Result<Uuid, denkwerk::LLMError> {
+    let id_str = event_id.as_deref().unwrap_or("");
+    Uuid::parse_str(id_str).map_err(|_| denkwerk::LLMError::FunctionExecution {
+        function: "manage_calendar".to_string(),
+        message: "event_id is required and must be a valid UUID.".to_string(),
+    })
+}

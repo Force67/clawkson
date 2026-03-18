@@ -1,20 +1,36 @@
 .pageHeader {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .pageTitle {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1.8px;
+  letter-spacing: 2px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   margin-bottom: 6px;
   line-height: 1.4;
+  position: relative;
+  display: inline-block;
+}
+
+/* Subtle gradient underline accent */
+.pageTitle::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 24px;
+  height: 2px;
+  background: var(--accent-gradient, var(--accent));
+  border-radius: 1px;
+  opacity: 0.6;
 }
 
 .pageDescription {
   font-size: 13px;
   color: var(--text-tertiary);
   line-height: 1.5;
+  margin-top: 2px;
 }

@@ -46,7 +46,7 @@
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.15s;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .todayBtn:hover {
@@ -107,7 +107,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .miniCalHeader {
@@ -237,7 +237,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 14px 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .legendTitle {
@@ -281,7 +281,7 @@
   border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 14px 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -395,7 +395,7 @@
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -634,7 +634,7 @@
   top: 0;
   z-index: 3;
   background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
 }
 
 .weekDayHeader {
@@ -1031,12 +1031,12 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 300;
-  animation: fadeIn 0.12s ease-out;
+  animation: fadeIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes fadeIn {
@@ -1060,7 +1060,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: modalSlide 0.2s ease-out;
+  animation: modalSlide 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modalHeader {
@@ -1355,7 +1355,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.15s;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .shareBtn:hover {

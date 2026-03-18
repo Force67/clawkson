@@ -6,6 +6,31 @@
   gap: 10px;
 }
 
+/* ── Section labels ────────────────────────────────────────── */
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.sectionLabel:first-child {
+  margin-top: 0;
+}
+
+.sectionLabel svg {
+  color: var(--accent);
+  opacity: 0.6;
+}
+
 /* ── Task card ──────────────────────────────────────────────── */
 
 .taskHeader {
@@ -51,10 +76,42 @@
 }
 
 .taskAgent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
   margin-bottom: 8px;
+}
+
+.provenanceBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: rgba(74, 108, 247, 0.08);
+}
+
+.provenanceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.provenanceLink:hover {
+  color: var(--accent);
 }
 
 .taskPrompt {
@@ -291,7 +348,7 @@
   backdrop-filter: var(--glass-blur);
   border: 1px dashed rgba(0, 0, 0, 0.1);
   border-radius: 16px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .emptyIcon {
@@ -338,20 +395,20 @@
   align-items: center;
   justify-content: center;
   z-index: 200;
-  backdrop-filter: blur(8px);
-  animation: fadeIn 0.15s ease-out;
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 24px 64px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, 0 24px 64px rgba(0, 0, 0, 0.15);
   border-radius: 16px;
   padding: 28px;
   width: 480px;
   max-width: calc(100vw - 32px);
-  animation: fadeUp 0.2s ease-out;
+  animation: fadeUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modalTitle {
@@ -405,8 +462,9 @@
 .input:focus,
 .select:focus,
 .textarea:focus {
-  border-color: #4a6cf7;
-  box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.1));
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .hint {

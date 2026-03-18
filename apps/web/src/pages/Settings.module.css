@@ -27,12 +27,12 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
-  background: rgba(74, 108, 247, 0.08);
+  background: var(--accent-gradient-subtle, rgba(74, 108, 247, 0.08));
   border: 1px solid rgba(74, 108, 247, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4a6cf7;
+  color: var(--accent-text, #4a6cf7);
   flex-shrink: 0;
 }
 
@@ -176,13 +176,14 @@
   font-size: 13px;
   font-family: var(--font-sans);
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
   box-sizing: border-box;
 }
 
 .formInput:focus {
-  border-color: #4a6cf7;
-  box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.1));
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .formInput::placeholder { color: var(--text-tertiary); }
@@ -213,7 +214,7 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.testBtn:hover { border-color: rgba(74, 108, 247, 0.3); color: #4a6cf7; background: rgba(74, 108, 247, 0.05); }
+.testBtn:hover { border-color: rgba(74, 108, 247, 0.3); color: var(--accent-text); background: rgba(74, 108, 247, 0.05); }
 .testBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .testResult {
@@ -309,7 +310,7 @@
 }
 
 .azureDeploymentAdd:hover {
-  color: #4a6cf7;
+  color: var(--accent-text);
   border-color: rgba(74, 108, 247, 0.3);
 }
 
@@ -331,11 +332,15 @@
   border: 1px solid var(--glass-border);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
-  transition: border-color 0.2s;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.inferenceRow:hover { border-color: rgba(0, 0, 0, 0.1); }
+.inferenceRow:hover {
+  border-color: var(--border-bright);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
+  transform: translateY(-1px);
+}
 
 .inferenceRowDefault {
   border-color: rgba(74, 108, 247, 0.2);
@@ -402,10 +407,10 @@
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #4a6cf7;
+  color: var(--accent-text);
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(74, 108, 247, 0.08);
+  background: var(--accent-muted);
   border: 1px solid rgba(74, 108, 247, 0.18);
 }
 
@@ -445,8 +450,8 @@
 }
 
 .editBtn:hover {
-  background: rgba(74, 108, 247, 0.07);
-  color: #4a6cf7;
+  background: var(--accent-muted);
+  color: var(--accent-text);
 }
 
 .deleteBtn:hover {
@@ -504,7 +509,7 @@
   transition: border-color 0.2s;
 }
 
-.select:focus { border-color: #4a6cf7; }
+.select:focus { border-color: var(--accent); }
 
 .selectChevron {
   position: absolute;

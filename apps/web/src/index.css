@@ -53,10 +53,12 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.04), 0 12px 40px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.06), 0 24px 64px rgba(0, 0, 0, 0.14);
   --shadow-glow: 0 0 20px rgba(74, 108, 247, 0.08);
+  --shadow-accent: 0 4px 20px rgba(74, 108, 247, 0.15);
 
   /* ── Frosted glass ─────────────────────────────────────────── */
   --glass-blur: blur(14px);
@@ -65,9 +67,18 @@
   --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 50%);
   --glass-inset-highlight: rgba(255, 255, 255, 0.5);
 
+  /* ── Accent gradients ──────────────────────────────────────── */
+  --accent-gradient: linear-gradient(135deg, #4a6cf7 0%, #7b5cf7 50%, #a855f7 100%);
+  --accent-gradient-hover: linear-gradient(135deg, #3b5de8 0%, #6b4ce8 50%, #9845e8 100%);
+  --accent-gradient-subtle: linear-gradient(135deg, rgba(74,108,247,0.08) 0%, rgba(168,85,247,0.06) 100%);
+
   /* ── Layout iridescent layer opacity ───────────────────────── */
   --prism-opacity: 1;
   --track-ring-opacity: 0.015;
+
+  /* ── Transitions ───────────────────────────────────────────── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ── Scrollbar ─────────────────────────────────────────────── */
   --scrollbar-thumb: rgba(0, 0, 0, 0.08);
@@ -123,10 +134,12 @@
   --error: #f05555;
   --info: #4a9eff;
 
-  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.55);
-  --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.7);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.35), 0 12px 48px rgba(0, 0, 0, 0.7);
+  --shadow-xl: 0 8px 20px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(0, 0, 0, 0.75);
   --shadow-glow: 0 0 24px rgba(107, 140, 255, 0.14);
+  --shadow-accent: 0 4px 20px rgba(107, 140, 255, 0.2);
 
   /* ── Dark glass: subtle dark-tinted panel, no white wash ──── */
   --glass-blur: blur(20px);
@@ -135,9 +148,18 @@
   --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 60%);
   --glass-inset-highlight: rgba(255, 255, 255, 0.035);
 
+  /* ── Accent gradients ──────────────────────────────────────── */
+  --accent-gradient: linear-gradient(135deg, #6b8cff 0%, #9b7cff 50%, #c084fc 100%);
+  --accent-gradient-hover: linear-gradient(135deg, #5a7bf0 0%, #8b6cf0 50%, #b074ec 100%);
+  --accent-gradient-subtle: linear-gradient(135deg, rgba(107,140,255,0.1) 0%, rgba(192,132,252,0.06) 100%);
+
   /* ── Tone down the iridescent prism effect in dark mode ───── */
   --prism-opacity: 0.45;
   --track-ring-opacity: 0.025;
+
+  /* ── Transitions ───────────────────────────────────────────── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.08);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
@@ -186,10 +208,12 @@
     --error: #f05555;
     --info: #4a9eff;
 
-    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.55);
-    --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.7);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.35), 0 12px 48px rgba(0, 0, 0, 0.7);
+    --shadow-xl: 0 8px 20px rgba(0, 0, 0, 0.4), 0 24px 64px rgba(0, 0, 0, 0.75);
     --shadow-glow: 0 0 24px rgba(107, 140, 255, 0.14);
+    --shadow-accent: 0 4px 20px rgba(107, 140, 255, 0.2);
 
     --glass-blur: blur(20px);
     --glass-bg: rgba(28, 28, 32, 0.85);
@@ -197,8 +221,15 @@
     --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 60%);
     --glass-inset-highlight: rgba(255, 255, 255, 0.035);
 
+    --accent-gradient: linear-gradient(135deg, #6b8cff 0%, #9b7cff 50%, #c084fc 100%);
+    --accent-gradient-hover: linear-gradient(135deg, #5a7bf0 0%, #8b6cf0 50%, #b074ec 100%);
+    --accent-gradient-subtle: linear-gradient(135deg, rgba(107,140,255,0.1) 0%, rgba(192,132,252,0.06) 100%);
+
     --prism-opacity: 0.45;
     --track-ring-opacity: 0.025;
+
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
     --scrollbar-thumb: rgba(255, 255, 255, 0.08);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
@@ -262,17 +293,38 @@ a:hover { color: var(--accent-hover); }
   100% { background-position: 200% 0; }
 }
 
-.fade-in { animation: fadeIn 0.3s ease-out; }
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shine {
+  0% { left: -100%; }
+  100% { left: 200%; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.fade-in { animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 .spinning { animation: spin 0.8s linear infinite; }
 
 .stagger > * {
-  animation: fadeUp 0.25s ease-out both;
+  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .stagger > *:nth-child(1) { animation-delay: 0ms; }
-.stagger > *:nth-child(2) { animation-delay: 40ms; }
-.stagger > *:nth-child(3) { animation-delay: 80ms; }
-.stagger > *:nth-child(4) { animation-delay: 120ms; }
-.stagger > *:nth-child(5) { animation-delay: 160ms; }
-.stagger > *:nth-child(6) { animation-delay: 200ms; }
-.stagger > *:nth-child(7) { animation-delay: 240ms; }
-.stagger > *:nth-child(8) { animation-delay: 280ms; }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 200ms; }
+.stagger > *:nth-child(6) { animation-delay: 250ms; }
+.stagger > *:nth-child(7) { animation-delay: 300ms; }
+.stagger > *:nth-child(8) { animation-delay: 350ms; }

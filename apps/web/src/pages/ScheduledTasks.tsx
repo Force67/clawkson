@@ -336,6 +336,7 @@ function TaskModal({ task, agents, onClose, onSaved }: TaskModalProps) {
 interface TaskCardProps {
   task: ScheduledTask
   agentName: string
+  createdByAgentName?: string
   onToggle: () => void
   onEdit: () => void
   onDelete: () => void
@@ -343,7 +344,7 @@ interface TaskCardProps {
   onTaskUpdated: (t: ScheduledTask) => void
 }
 
-function TaskCard({ task, agentName, onToggle, onEdit, onDelete, onRunNow, onTaskUpdated }: TaskCardProps) {
+function TaskCard({ task, agentName, createdByAgentName, onToggle, onEdit, onDelete, onRunNow, onTaskUpdated }: TaskCardProps) {
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState<TaskExecution[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -426,7 +427,24 @@ function TaskCard({ task, agentName, onToggle, onEdit, onDelete, onRunNow, onTas
         </div>
       </div>
 
-      <div className={styles.taskAgent}>{agentName}</div>
+      <div className={styles.taskAgent}>
+        {agentName}
+        {task.created_by_agent_id && (
+          <span className={styles.provenanceBadge} title={createdByAgentName ? `Workflow created by ${createdByAgentName}` : 'Created by an agent workflow'}>
+            <Zap size={10} />
+            {createdByAgentName ? `via ${createdByAgentName}` : 'Workflow'}
+          </span>
+        )}
+        {task.created_by_conversation_id && (
+          <a
+            href={`/conversations/${task.created_by_conversation_id}`}
+            className={styles.provenanceLink}
+            title="View the conversation that created this task"
+          >
+            <ExternalLink size={9} /> Source
+          </a>
+        )}
+      </div>
       <div className={styles.taskPrompt}>{task.prompt}</div>
 
       <div className={styles.taskMeta}>
@@ -620,20 +638,54 @@ export function ScheduledTasksPage() {
           </Button>
         </div>
       ) : (
-        <div className={styles.taskGrid}>
-          {tasks.map(task => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              agentName={agentMap.get(task.agent_id) ?? 'Unknown agent'}
-              onToggle={() => handleToggle(task)}
-              onEdit={() => { setEditingTask(task); setShowModal(true) }}
-              onDelete={() => handleDelete(task.id)}
-              onRunNow={() => handleRunNow(task)}
-              onTaskUpdated={(updated) => setTasks(ts => ts.map(t => t.id === updated.id ? updated : t))}
-            />
-          ))}
-        </div>
+        <>
+          {/* Workflow-created tasks */}
+          {(() => {
+            const workflowTasks = tasks.filter(t => t.created_by_agent_id)
+            const manualTasks = tasks.filter(t => !t.created_by_agent_id)
+
+            const renderCard = (task: ScheduledTask) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                agentName={agentMap.get(task.agent_id) ?? 'Unknown agent'}
+                createdByAgentName={task.created_by_agent_id ? agentMap.get(task.created_by_agent_id) : undefined}
+                onToggle={() => handleToggle(task)}
+                onEdit={() => { setEditingTask(task); setShowModal(true) }}
+                onDelete={() => handleDelete(task.id)}
+                onRunNow={() => handleRunNow(task)}
+                onTaskUpdated={(updated) => setTasks(ts => ts.map(t => t.id === updated.id ? updated : t))}
+              />
+            )
+
+            return (
+              <>
+                {workflowTasks.length > 0 && (
+                  <>
+                    <div className={styles.sectionLabel}>
+                      <Zap size={11} /> Workflow Tasks
+                    </div>
+                    <div className={styles.taskGrid}>
+                      {workflowTasks.map(renderCard)}
+                    </div>
+                  </>
+                )}
+                {manualTasks.length > 0 && (
+                  <>
+                    {workflowTasks.length > 0 && (
+                      <div className={styles.sectionLabel}>
+                        <Timer size={11} /> Manual Tasks
+                      </div>
+                    )}
+                    <div className={styles.taskGrid}>
+                      {manualTasks.map(renderCard)}
+                    </div>
+                  </>
+                )}
+              </>
+            )
+          })()}
+        </>
       )}
 
       {showModal && (

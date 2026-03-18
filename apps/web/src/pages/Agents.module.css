@@ -31,11 +31,13 @@
   border-radius: 10px;
   color: var(--text-tertiary);
   min-width: 180px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .searchBox:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, 0 0 0 3px var(--accent-muted);
 }
 
 .searchInput {
@@ -132,12 +134,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: border-color 0.2s;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .agentCard:hover {
   border-color: var(--border-bright);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 .agentCardTop {
@@ -163,11 +167,12 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: var(--accent-muted);
+  background: var(--accent-gradient-subtle, var(--accent-muted));
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--accent-text);
+  transition: background 0.2s;
 }
 
 .statusDot {
@@ -322,13 +327,13 @@
 .configPanelOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
   z-index: 200;
-  animation: fadeIn 0.15s ease-out;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .configPanel {
@@ -339,7 +344,8 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  animation: slideIn 0.2s ease-out;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: var(--shadow-xl);
 }
 
 .panelHeader {
@@ -456,12 +462,13 @@
   font-size: 13px;
   font-family: var(--font-sans);
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.25s;
 }
 
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-muted);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .input::placeholder { color: var(--text-tertiary); }

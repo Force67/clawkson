@@ -1119,6 +1119,15 @@ pub(crate) async fn enrich_history(
 ///   - Check `ConnectorPolicy` for the authenticated HTTP tool
 ///   - Record audit log entries for every invocation (allowed or denied)
 pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
+    build_tool_registry_inner(state, agent_cfg, conversation_id, user_id, search_enabled, false).await
+}
+
+/// Variant that omits scheduling/calendar tools to prevent recursive task creation.
+pub(crate) async fn build_tool_registry_for_task(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool) -> denkwerk::FunctionRegistry {
+    build_tool_registry_inner(state, agent_cfg, conversation_id, user_id, search_enabled, true).await
+}
+
+async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, conversation_id: Uuid, user_id: Uuid, search_enabled: bool, is_task_execution: bool) -> denkwerk::FunctionRegistry {
     let mut registry = denkwerk::FunctionRegistry::new();
 
     // Build the guard context (shared across all guarded tools)
@@ -1234,10 +1243,28 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
         }
     }
 
-    // Skill-creator tool — only available when the agent has the `skill-creator` skill linked
-    if agent_cfg.skill_names.iter().any(|n| n == "skill-creator") {
+    // Skill-creator tool — only available when the agent has the skill-creator or workflow-creator skill linked
+    if agent_cfg.skill_names.iter().any(|n| n == "skill-creator" || n == "workflow-creator") {
         let tool = crate::tools::CreateSkillTool::new(state.db.clone(), agent_cfg.agent_id);
         let guarded = crate::permission_guard::GuardedBuiltinTool::new(tool.into_dyn(), "create_skill".to_string(), guard_ctx.clone());
+        registry.register(guarded.into_dyn());
+    }
+
+    // Scheduling & calendar tools — available in interactive conversations only.
+    // Excluded during scheduled task execution to prevent recursive task creation.
+    if !is_task_execution {
+        let tasks_tool = crate::tools::ManageScheduledTasksTool::new(
+            state.db.clone(), agent_cfg.agent_id, conversation_id, user_id,
+        );
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+            tasks_tool.into_dyn(), "manage_scheduled_tasks".to_string(), guard_ctx.clone(),
+        );
+        registry.register(guarded.into_dyn());
+
+        let calendar_tool = crate::tools::ManageCalendarTool::new(state.db.clone(), user_id);
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+            calendar_tool.into_dyn(), "manage_calendar".to_string(), guard_ctx.clone(),
+        );
         registry.register(guarded.into_dyn());
     }
 
@@ -1367,6 +1394,62 @@ pub(crate) async fn run_completion(
     let mut registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
 
     // Register the delegation tool for sub-agent coordination (non-streaming, no tx)
+    let delegate_tool = crate::subtask::DelegateTasksTool::new(
+        state.clone(),
+        agent_cfg.clone(),
+        connector.clone(),
+        conversation_id,
+        user_id,
+        search_enabled,
+        timeout_secs,
+        None,
+    );
+    registry.register(delegate_tool.into_dyn());
+
+    if !registry.definitions().is_empty() {
+        return crate::llm::complete_with_tools(
+            connector,
+            agent_cfg.system_prompt.as_deref(),
+            history,
+            agent_cfg.temperature,
+            agent_cfg.max_tokens,
+            &registry,
+            10,
+            reasoning_effort,
+            timeout_secs,
+        )
+        .await;
+    }
+
+    crate::llm::complete(
+        connector,
+        agent_cfg.system_prompt.as_deref(),
+        history,
+        agent_cfg.temperature,
+        agent_cfg.max_tokens,
+        reasoning_effort,
+        timeout_secs,
+    )
+    .await
+}
+
+/// Like `run_completion` but uses the task-specific tool registry that excludes
+/// `manage_scheduled_tasks` and `manage_calendar` to prevent recursive scheduling.
+pub(crate) async fn run_completion_for_task(
+    state: &AppState,
+    connector: &clawkson_core::LlmConnector,
+    agent_cfg: &AgentConfig,
+    history: &[(MessageRole, String, Vec<String>)],
+    reasoning_effort: Option<&ReasoningEffort>,
+    conversation_id: Uuid,
+    user_id: Uuid,
+    search_enabled: bool,
+    timeout_secs: u64,
+) -> anyhow::Result<String> {
+    let history = truncate_history(history, HISTORY_TOKEN_BUDGET);
+
+    let mut registry = build_tool_registry_for_task(state, agent_cfg, conversation_id, user_id, search_enabled).await;
+
     let delegate_tool = crate::subtask::DelegateTasksTool::new(
         state.clone(),
         agent_cfg.clone(),

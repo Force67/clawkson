@@ -19,6 +19,8 @@ pub struct ScheduledTaskRow {
     pub next_run_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub created_by_agent_id: Option<Uuid>,
+    pub created_by_conversation_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, FromRow, serde::Serialize, serde::Deserialize)]
@@ -45,9 +47,23 @@ pub async fn create(
     cron_expression: Option<&str>,
     next_run_at: Option<DateTime<Utc>>,
 ) -> Result<ScheduledTaskRow, DbError> {
+    create_with_provenance(db, owner_id, agent_id, name, prompt, cron_expression, next_run_at, None, None).await
+}
+
+pub async fn create_with_provenance(
+    db: &Db,
+    owner_id: Uuid,
+    agent_id: Uuid,
+    name: &str,
+    prompt: &str,
+    cron_expression: Option<&str>,
+    next_run_at: Option<DateTime<Utc>>,
+    created_by_agent_id: Option<Uuid>,
+    created_by_conversation_id: Option<Uuid>,
+) -> Result<ScheduledTaskRow, DbError> {
     let row = sqlx::query_as::<_, ScheduledTaskRow>(
-        "INSERT INTO scheduled_tasks (owner_id, agent_id, name, prompt, cron_expression, next_run_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO scheduled_tasks (owner_id, agent_id, name, prompt, cron_expression, next_run_at, created_by_agent_id, created_by_conversation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *",
     )
     .bind(owner_id)
@@ -56,6 +72,8 @@ pub async fn create(
     .bind(prompt)
     .bind(cron_expression)
     .bind(next_run_at)
+    .bind(created_by_agent_id)
+    .bind(created_by_conversation_id)
     .fetch_one(db.pool())
     .await?;
 

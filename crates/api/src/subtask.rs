@@ -20,7 +20,27 @@ use clawkson_core::LlmConnector;
 /// Maximum number of sub-tasks that can run in parallel.
 const MAX_SUBTASKS: usize = 5;
 /// Maximum tool-calling rounds per sub-task.
-const MAX_SUBTASK_ROUNDS: usize = 5;
+const MAX_SUBTASK_ROUNDS: usize = 8;
+/// Maximum characters returned per sub-task result to the parent context.
+/// Results longer than this are truncated with a note. Keeps parent context lean.
+const MAX_RESULT_CHARS: usize = 3000;
+
+/// Lean system prompt for sub-agents. Much shorter than the full SOUL.md
+/// to save tokens in the sub-agent context. Focused on execution, not orchestration.
+const SUBTASK_SYSTEM_PROMPT: &str = "\
+You are a focused worker agent executing a specific task. You have tools available: \
+code execution (Python/Bash in a Docker sandbox), browser automation, HTTP requests, \
+knowledge base search, and web search.\n\n\
+Rules:\n\
+- Act immediately. Never ask questions — make reasonable assumptions and proceed.\n\
+- Use tools proactively. Install packages without asking (pip install, apt-get).\n\
+- If a tool call fails, try an alternative approach.\n\
+- Be CONCISE. Return only the key findings, data, and conclusions.\n\
+- Prefer structured output: bullet points, numbered lists, or short tables.\n\
+- Do NOT include lengthy preambles, caveats, or meta-commentary.\n\
+- Do NOT repeat the task description back. Jump straight to results.\n\
+- Aim for under 500 words unless the task explicitly requires more detail.\n\
+- Include specific data, numbers, URLs, and sources — not vague summaries.";
 
 /// A tool that lets the LLM break complex work into parallel sub-tasks.
 /// Each sub-task spawns its own LLM completion with the same tools (minus delegation).
@@ -92,14 +112,23 @@ impl KernelFunction for DelegateTasksTool {
     fn definition(&self) -> FunctionDefinition {
         let mut def = FunctionDefinition::new("delegate_tasks")
             .with_description(
-                "Break complex work into parallel sub-tasks that run simultaneously. \
-                 Each sub-task gets its own independent AI agent with access to the same tools \
-                 (code execution, knowledge search, HTTP requests, etc.). \
-                 Use this when a task naturally decomposes into independent parts that can be \
-                 worked on in parallel — for example, researching multiple topics, analyzing \
-                 different data sources, or running several computations at once. \
-                 Do NOT use this for simple sequential tasks or when sub-tasks depend on each other's results. \
-                 Maximum 5 sub-tasks per call.",
+                "YOUR PRIMARY TOOL. Spawn parallel sub-agents to do the heavy lifting. \
+                 Each sub-agent runs independently with its own context window and full \
+                 tool access (code execution, browser, HTTP, knowledge search, web search). \
+                 \
+                 DEFAULT TO THIS for any work involving: fetching data, browsing websites, \
+                 running code, researching topics, analyzing documents, or any task \
+                 requiring 2+ tool calls. This keeps YOUR context lean and fast. \
+                 \
+                 Sub-agents return concise results that you synthesize into a final answer. \
+                 \
+                 Each sub-agent has NO conversation memory — include ALL context, URLs, \
+                 data, and expected output format in each task description. Tell each \
+                 sub-agent to keep output concise (bullet points, key facts, data). \
+                 \
+                 Only skip delegation for: simple knowledge answers, single quick tool \
+                 calls (one schedule, one calendar event), or conversational responses. \
+                 Max 5 parallel sub-tasks.",
             );
 
         def.add_parameter(
@@ -116,11 +145,14 @@ impl KernelFunction for DelegateTasksTool {
                             },
                             "description": {
                                 "type": "string",
-                                "description": "Clear, complete instructions for what this sub-task should accomplish"
+                                "description": "Self-contained instructions: what to do, where to look (URLs, APIs), \
+                                    and what format to return results in. The sub-agent has NO conversation memory, \
+                                    so include everything it needs."
                             },
                             "context": {
                                 "type": "string",
-                                "description": "Optional additional context or data to provide to this sub-task"
+                                "description": "Additional data the sub-agent needs: user requirements, specs, \
+                                    reference data, or prior results from other steps."
                             }
                         },
                         "required": ["id", "description"]
@@ -249,10 +281,26 @@ impl KernelFunction for DelegateTasksTool {
                 "total": task_count,
             }));
 
+            // Truncate result to keep parent context lean
+            let truncated = if content.len() > MAX_RESULT_CHARS {
+                let cut = &content[..MAX_RESULT_CHARS];
+                // Try to cut at a word boundary
+                let cut = match cut.rfind('\n') {
+                    Some(pos) if pos > MAX_RESULT_CHARS / 2 => &cut[..pos],
+                    _ => match cut.rfind(' ') {
+                        Some(pos) if pos > MAX_RESULT_CHARS / 2 => &cut[..pos],
+                        _ => cut,
+                    },
+                };
+                format!("{cut}\n\n[... truncated from {} chars — key findings above]", content.len())
+            } else {
+                content.clone()
+            };
+
             results.push(serde_json::json!({
                 "task_id": id,
                 "success": ok,
-                "result": content,
+                "result": truncated,
             }));
         }
 
@@ -307,23 +355,11 @@ async fn run_subtask(
     )
     .await;
 
-    // Build the sub-task user message
-    let mut user_message = format!(
-        "You are a focused sub-agent working on a specific task. \
-         Complete the following task thoroughly and return your findings concisely.\n\n\
-         ## Task\n{}\n",
-        task.description
-    );
+    // Build the sub-task user message — lean and focused, no fluff
+    let mut user_message = format!("## Task\n{}\n", task.description);
     if let Some(ctx) = &task.context {
-        user_message.push_str(&format!("\n## Additional Context\n{ctx}\n"));
+        user_message.push_str(&format!("\n## Context\n{ctx}\n"));
     }
-    user_message.push_str(
-        "\n## Instructions\n\
-         - Focus exclusively on the task described above.\n\
-         - Use available tools as needed to complete the task.\n\
-         - Return a clear, concise summary of your findings or results.\n\
-         - Do not ask questions — make reasonable assumptions and proceed.",
-    );
 
     let history = vec![(
         clawkson_core::MessageRole::User,
@@ -331,10 +367,14 @@ async fn run_subtask(
         vec![], // no images
     )];
 
+    // Use lean sub-agent system prompt instead of the full parent system prompt.
+    // This saves tokens and prevents the sub-agent from trying to orchestrate/delegate.
+    let system_prompt = SUBTASK_SYSTEM_PROMPT;
+
     if !registry.definitions().is_empty() {
         crate::llm::complete_with_tools(
             connector,
-            agent_cfg.system_prompt.as_deref(),
+            Some(system_prompt),
             &history,
             agent_cfg.temperature,
             agent_cfg.max_tokens,
@@ -348,7 +388,7 @@ async fn run_subtask(
     } else {
         crate::llm::complete(
             connector,
-            agent_cfg.system_prompt.as_deref(),
+            Some(system_prompt),
             &history,
             agent_cfg.temperature,
             agent_cfg.max_tokens,

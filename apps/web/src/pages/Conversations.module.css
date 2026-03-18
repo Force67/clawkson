@@ -4,8 +4,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  height: calc(100% + 48px);
-  margin: -24px;
+  height: calc(100% + 56px);
+  margin: -28px;
 }
 
 /* ── Layout ──────────────────────────────────────────────────── */
@@ -22,11 +22,11 @@
   align-items: center;
   gap: 10px;
   padding: 16px 22px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--glass-border);
   border-radius: 16px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset;
   color: var(--text-secondary);
   font-size: 13px;
 }
@@ -46,7 +46,7 @@
   flex-direction: column;
   min-height: 0;
   padding: 20px 14px 14px;
-  border-right: 1px solid rgba(0, 0, 0, 0.07);
+  border-right: 1px solid var(--bubble-border, rgba(0, 0, 0, 0.07));
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
 }
@@ -84,18 +84,18 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-tertiary);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .iconBtn:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
   color: var(--text-secondary);
-  border-color: rgba(0, 0, 0, 0.12);
+  border-color: var(--border-default);
 }
 
 .newConversationBtn {
@@ -108,7 +108,7 @@
   margin-bottom: 12px;
   border: none;
   border-radius: 10px;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: #fff;
   font: inherit;
   font-size: 11px;
@@ -118,18 +118,40 @@
   letter-spacing: 1px;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(74, 108, 247, 0.25);
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.newConversationBtn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%);
+  transition: left 0.5s ease;
+  pointer-events: none;
 }
 
 .newConversationBtn:hover {
-  background: #a82028;
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(74, 108, 247, 0.3);
+}
+
+.newConversationBtn:hover::after {
+  left: 200%;
+}
+
+.newConversationBtn:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .sidebarHeader {
   padding-bottom: 12px;
   margin-bottom: 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .searchWrap {
@@ -148,14 +170,14 @@
 .searchInput {
   width: 100%;
   padding: 8px 12px 8px 32px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-tertiary);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .searchInput::placeholder {
@@ -163,8 +185,9 @@
 }
 
 .searchInput:focus {
-  border-color: rgba(74, 108, 247, 0.4);
-  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.08));
+  background: rgba(0, 0, 0, 0.01);
 }
 
 /* ── Conversation list ───────────────────────────────────────── */
@@ -207,7 +230,7 @@
   cursor: pointer;
   text-align: left;
   font: inherit;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .convoItem + .convoItem {
@@ -215,17 +238,21 @@
 }
 
 .convoItem:hover {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}
+
+.convoItem:active {
+  transform: scale(0.99);
 }
 
 .convoItemActive {
-  background: rgba(74, 108, 247, 0.06);
+  background: var(--accent-gradient-subtle, rgba(74, 108, 247, 0.06));
   border-color: rgba(74, 108, 247, 0.15);
 }
 
 .convoItemActive:hover {
-  background: rgba(74, 108, 247, 0.06);
+  background: var(--accent-gradient-subtle, rgba(74, 108, 247, 0.06));
 }
 
 .convoItemTop {
@@ -268,7 +295,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: rgba(232, 230, 227, 0.5);
+  background: var(--chat-bg, rgba(232, 230, 227, 0.5));
   overflow: hidden;
 }
 
@@ -287,10 +314,10 @@
   justify-content: space-between;
   gap: 16px;
   padding: 14px 24px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  border-bottom: 1px solid var(--bubble-border, rgba(0, 0, 0, 0.07));
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset;
   flex-shrink: 0;
 }
 
@@ -496,16 +523,16 @@
 .bubbleContentAssistant {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  border: 1px solid var(--bubble-border, rgba(0, 0, 0, 0.07));
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset;
   color: var(--text-primary);
   border-top-left-radius: 4px;
 }
 
 .bubbleContentUser {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  background: var(--bubble-user-bg, rgba(255, 255, 255, 0.72));
+  border: 1px solid var(--bubble-border, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset;
   color: var(--text-primary);
   border-top-right-radius: 4px;
 }
@@ -681,8 +708,8 @@
 }
 
 .officeCard_document .officeCardIcon {
-  background: rgba(74, 108, 247, 0.1);
-  color: #4a6cf7;
+  background: var(--accent-muted);
+  color: var(--accent-text);
 }
 
 .officeCardBody {
@@ -742,7 +769,23 @@
   opacity: 1;
 }
 
-/* Dark theme overrides for office cards */
+/* ── Dark theme overrides ───────────────────────────────────── */
+
+:global(:root[data-theme="dark"]) .chat {
+  --chat-bg: rgba(17, 17, 19, 0.6);
+  --bubble-border: rgba(255, 255, 255, 0.07);
+  --bubble-user-bg: rgba(255, 255, 255, 0.06);
+  --input-bar-bg: rgba(28, 28, 32, 0.8);
+}
+
+:global(:root[data-theme="dark"]) .sidebar {
+  --bubble-border: rgba(255, 255, 255, 0.07);
+}
+
+:global(:root[data-theme="dark"]) .chatHeader {
+  --bubble-border: rgba(255, 255, 255, 0.07);
+}
+
 :global(:root[data-theme="dark"]) .officeCard {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
@@ -755,6 +798,18 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .chat {
+    --chat-bg: rgba(17, 17, 19, 0.6);
+    --bubble-border: rgba(255, 255, 255, 0.07);
+    --bubble-user-bg: rgba(255, 255, 255, 0.06);
+    --input-bar-bg: rgba(28, 28, 32, 0.8);
+  }
+  :global(:root[data-theme="system"]) .sidebar {
+    --bubble-border: rgba(255, 255, 255, 0.07);
+  }
+  :global(:root[data-theme="system"]) .chatHeader {
+    --bubble-border: rgba(255, 255, 255, 0.07);
+  }
   :global(:root[data-theme="system"]) .officeCard {
     border-color: rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.03);
@@ -1097,16 +1152,16 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--bubble-border, rgba(0, 0, 0, 0.08));
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.65);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 4px rgba(0, 0, 0, 0.06);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background: var(--input-bar-bg, rgba(255, 255, 255, 0.65));
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  transition: border-color 0.25s, box-shadow 0.25s;
 }
 
 .inputBar:focus-within {
   border-color: rgba(74, 108, 247, 0.35);
-  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.08)), 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
 }
 
 .input {
@@ -1206,18 +1261,21 @@
   height: 34px;
   border: none;
   border-radius: 10px;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: #fff;
   cursor: pointer;
   flex-shrink: 0;
-  box-shadow: 0 1px 4px rgba(74, 108, 247, 0.25);
-  transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: var(--shadow-accent);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s;
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: #a82028;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 10px rgba(74, 108, 247, 0.3);
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 4px 16px rgba(74, 108, 247, 0.35);
+}
+
+.sendBtn:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .sendBtn:disabled {
@@ -1983,6 +2041,96 @@
 .subtaskStep .activityName svg {
   color: var(--accent);
   opacity: 0.5;
+}
+
+/* ── Activity Feed – Dark Mode ──────────────────────────────── */
+
+:global(:root[data-theme="dark"]) .activityFeed {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+:global(:root[data-theme="dark"]) .activityHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .activityStep:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:global(:root[data-theme="dark"]) .activityIconRunning {
+  background: rgba(74, 108, 247, 0.15);
+}
+
+:global(:root[data-theme="dark"]) .activityIconDone {
+  background: rgba(42, 157, 96, 0.15);
+}
+
+:global(:root[data-theme="dark"]) .activityIconError {
+  background: rgba(193, 39, 45, 0.15);
+}
+
+:global(:root[data-theme="dark"]) .activitySpinner {
+  border-color: rgba(74, 108, 247, 0.3);
+  border-top-color: var(--accent);
+}
+
+:global(:root[data-theme="dark"]) .activityDuration {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .subtaskHeader {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .subtaskStep {
+  border-left-color: rgba(74, 108, 247, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .activityFeed {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  }
+
+  :global(:root[data-theme="system"]) .activityHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(:root[data-theme="system"]) .activityStep:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  :global(:root[data-theme="system"]) .activityIconRunning {
+    background: rgba(74, 108, 247, 0.15);
+  }
+
+  :global(:root[data-theme="system"]) .activityIconDone {
+    background: rgba(42, 157, 96, 0.15);
+  }
+
+  :global(:root[data-theme="system"]) .activityIconError {
+    background: rgba(193, 39, 45, 0.15);
+  }
+
+  :global(:root[data-theme="system"]) .activitySpinner {
+    border-color: rgba(74, 108, 247, 0.3);
+    border-top-color: var(--accent);
+  }
+
+  :global(:root[data-theme="system"]) .activityDuration {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(:root[data-theme="system"]) .subtaskHeader {
+    border-top-color: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(:root[data-theme="system"]) .subtaskStep {
+    border-left-color: rgba(74, 108, 247, 0.2);
+  }
 }
 
 /* ── Utility ─────────────────────────────────────────────────── */

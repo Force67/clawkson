@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .title {
@@ -18,6 +18,20 @@
   text-transform: uppercase;
   letter-spacing: 2px;
   color: var(--text-tertiary);
+  position: relative;
+  display: inline-block;
+}
+
+.title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -6px;
+  width: 20px;
+  height: 2px;
+  background: var(--accent-gradient, var(--accent));
+  border-radius: 1px;
+  opacity: 0.5;
 }
 
 .headerRight {
@@ -36,12 +50,14 @@
   border: 1px solid var(--glass-border);
   border-radius: 12px;
   color: var(--text-tertiary);
-  min-width: 160px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  min-width: 180px;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .searchBox:focus-within {
   border-color: var(--accent);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, 0 0 0 3px var(--accent-muted);
 }
 
 .searchInput {
@@ -62,7 +78,7 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: var(--text-inverse);
   display: flex;
   align-items: center;
@@ -70,6 +86,7 @@
   font-size: 14px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Bento Grid ──────────────────────────────────────────────── */
@@ -94,12 +111,18 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  transition: border-color 0.2s;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-sm);
 }
 
 .cell:hover {
   border-color: var(--border-bright);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .cellLabel {
@@ -119,6 +142,16 @@
   grid-column: span 2;
   grid-row: span 2;
   background:
+    radial-gradient(
+      ellipse at 20% 80%,
+      rgba(74, 108, 247, 0.04) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse at 80% 20%,
+      rgba(168, 85, 247, 0.03) 0%,
+      transparent 50%
+    ),
     repeating-radial-gradient(
       circle at 30% 40%,
       transparent 0px,
@@ -128,6 +161,13 @@
     ),
     var(--glass-bg);
   justify-content: space-between;
+}
+
+.hero:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-lg);
 }
 
 .heroTop {
@@ -143,6 +183,10 @@
   letter-spacing: -4px;
   line-height: 1;
   color: var(--text-primary);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .heroStatSub {
@@ -262,24 +306,30 @@
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .topAgentRow:hover {
   background: var(--bg-hover);
+  transform: translateX(2px);
 }
 
 .topAgentAvatar {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--accent-gradient-subtle, rgba(0, 0, 0, 0.04));
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-tertiary);
   flex-shrink: 0;
   position: relative;
+  transition: background 0.2s;
+}
+
+.topAgentRow:hover .topAgentAvatar {
+  color: var(--accent-text);
 }
 
 .topAgentDot {
@@ -356,6 +406,11 @@
   letter-spacing: -2px;
   line-height: 1;
   color: var(--text-primary);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.metric:hover .metricValue {
+  transform: scale(1.02);
 }
 
 .metricSub {
@@ -369,9 +424,15 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
   border-radius: 0 0 16px 16px;
-  opacity: 0.5;
+  opacity: 0.6;
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
+}
+
+.metric:hover .metricAccent {
+  height: 3px;
+  opacity: 0.8;
 }
 
 /* ── Trends cell (2×1) ───────────────────────────────────────── */
@@ -425,10 +486,21 @@
 
 .bar {
   flex: 1;
-  border-radius: 3px 3px 1px 1px;
+  border-radius: 4px 4px 1px 1px;
   min-width: 0;
   transform-origin: bottom;
-  animation: barGrow 0.5s ease-out both;
+  animation: barGrow 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: opacity 0.2s, filter 0.2s;
+  opacity: 0.75;
+}
+
+.barsChart:hover .bar {
+  opacity: 0.5;
+}
+
+.barsChart .bar:hover {
+  opacity: 1;
+  filter: brightness(1.15);
 }
 
 @keyframes barGrow {
@@ -439,20 +511,26 @@
 /* ── CTA cell — the red tape ─────────────────────────────────── */
 
 .cta {
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
+  background-size: 200% 200%;
   border-color: transparent;
   cursor: pointer;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  transition: transform 0.15s, box-shadow 0.2s;
-  box-shadow: none;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s;
+  box-shadow: var(--shadow-accent);
+  animation: gradientShift 6s ease infinite;
 }
 
 .cta:hover {
-  transform: scale(1.02);
-  box-shadow: 0 8px 30px rgba(74, 108, 247, 0.2);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 12px 40px rgba(74, 108, 247, 0.3);
   border-color: transparent;
+}
+
+.cta:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .ctaIcon {
@@ -494,11 +572,12 @@
   padding: 7px 10px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .convoRow:hover {
   background: var(--bg-hover);
+  transform: translateX(2px);
 }
 
 .convoIcon {

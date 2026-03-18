@@ -25,12 +25,17 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-md);
-  background: rgba(74, 108, 247, 0.08);
-  color: #4a6cf7;
+  background: var(--accent-gradient-subtle, rgba(74, 108, 247, 0.08));
+  color: var(--accent-text, #4a6cf7);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*:hover > .kbHeader > .kbIcon {
+  transform: scale(1.05);
 }
 
 .kbMeta {
@@ -114,7 +119,7 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
-  color: #4a6cf7;
+  color: var(--accent-text);
   padding: 2px 8px;
   background: rgba(74, 108, 247, 0.07);
   border: 1px solid rgba(74, 108, 247, 0.15);
@@ -165,7 +170,7 @@
 }
 
 .detailIcon {
-  color: #4a6cf7;
+  color: var(--accent-text);
   flex-shrink: 0;
 }
 
@@ -272,7 +277,7 @@
 }
 
 .input:focus {
-  border-color: #4a6cf7;
+  border-color: var(--accent);
 }
 
 .textarea {
@@ -291,7 +296,7 @@
 }
 
 .textarea:focus {
-  border-color: #4a6cf7;
+  border-color: var(--accent);
 }
 
 .formActions {
@@ -381,7 +386,7 @@
   height: 28px;
   border-radius: 50%;
   background: rgba(74, 108, 247, 0.08);
-  color: #4a6cf7;
+  color: var(--accent-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -471,7 +476,7 @@
 
 .agentToggle:hover {
   background: rgba(74, 108, 247, 0.06);
-  color: #4a6cf7;
+  color: var(--accent-text);
   border-color: rgba(74, 108, 247, 0.2);
 }
 
@@ -501,12 +506,14 @@
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
-  transition: border-color 0.2s;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .entryCard:hover {
-  border-color: rgba(0, 0, 0, 0.1);
+  border-color: var(--border-bright);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .entryTop {
@@ -523,7 +530,7 @@
 }
 
 .entryIcon {
-  color: #4a6cf7;
+  color: var(--accent-text);
   flex-shrink: 0;
 }
 

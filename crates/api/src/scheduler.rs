@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::routes::conversations::{
     attach_workspace_outputs, enrich_history, expand_skill_references, load_agent_config,
-    load_history, load_llm_connector, resolve_connector_id, run_completion, AgentConfig,
+    load_history, load_llm_connector, resolve_connector_id, run_completion_for_task as run_completion, AgentConfig,
 };
 use crate::state::AppState;
 

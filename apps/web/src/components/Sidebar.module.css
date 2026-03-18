@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.3s var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 22px 20px 18px;
+  padding: 22px 20px 20px;
   min-height: 64px;
 }
 
@@ -33,9 +33,32 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: var(--text-inverse);
   border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle shine sweep on the logo */
+.logo::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  transition: left 0.5s ease;
+}
+
+.brand:hover .logo::after {
+  left: 200%;
 }
 
 .brandText {
@@ -54,7 +77,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 8px 10px;
+  padding: 4px 10px;
   overflow-y: auto;
 }
 
@@ -77,7 +100,7 @@
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.2s, background 0.2s, transform 0.15s;
   white-space: nowrap;
   overflow: hidden;
   border-radius: var(--radius-sm);
@@ -92,10 +115,15 @@
   color: var(--text-primary);
 }
 
+.navItem:active {
+  transform: scale(0.98);
+}
+
 /* Active state */
 .navItemActive {
   background: var(--sidebar-active-bg);
   color: var(--accent);
+  font-weight: 600;
 }
 
 .navItemActive svg {
@@ -114,26 +142,26 @@
   bottom: 4px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
 }
 
 .navGroup {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .navGroup + .navGroup {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .navGroupLabel {
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  padding: 6px 10px 4px;
+  padding: 8px 10px 4px;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -141,7 +169,7 @@
 .navGroupDivider {
   height: 1px;
   background: var(--sidebar-divider);
-  margin: 4px 8px;
+  margin: 6px 8px;
 }
 
 .navGroup:first-child .navGroupDivider {
@@ -159,7 +187,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 14px 14px;
   border-top: 1px solid var(--sidebar-divider);
 }
 
@@ -178,7 +206,7 @@
   padding: 4px 6px;
   margin: -4px -6px;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background 0.2s;
   text-align: left;
 }
 
@@ -193,7 +221,7 @@
 .avatar {
   width: 30px;
   height: 30px;
-  background: var(--accent);
+  background: var(--accent-gradient, var(--accent));
   color: var(--text-inverse);
   border-radius: var(--radius-sm);
   display: flex;
@@ -204,6 +232,11 @@
   font-family: var(--font-sans);
   flex-shrink: 0;
   overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.userInfoBtn:hover .avatar {
+  box-shadow: 0 0 0 2px var(--sidebar-bg), 0 0 0 4px var(--accent-muted);
 }
 
 .avatarImg {
@@ -229,6 +262,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  transition: color 0.2s;
 }
 
 .adminBadge {
@@ -255,7 +289,7 @@
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.2s, background 0.2s;
   flex-shrink: 0;
 }
 
@@ -277,7 +311,7 @@
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
 
 .toggle:hover {
@@ -290,11 +324,11 @@
 
 .collapsed .brand {
   justify-content: center;
-  padding: 22px 0 18px;
+  padding: 22px 0 20px;
 }
 
 .collapsed .nav {
-  padding: 8px 6px;
+  padding: 4px 6px;
 }
 
 .collapsed .navBottom {
@@ -308,7 +342,7 @@
 
 .collapsed .userSection {
   justify-content: center;
-  padding: 12px 8px;
+  padding: 14px 8px;
 }
 
 .collapsed .logoutBtn {

@@ -437,6 +437,8 @@ export interface ScheduledTask {
   next_run_at?: string | null
   created_at: string
   updated_at: string
+  created_by_agent_id?: string | null
+  created_by_conversation_id?: string | null
 }
 
 export interface TaskOutputFile {

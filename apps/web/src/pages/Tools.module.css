@@ -8,7 +8,7 @@
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid rgba(0, 0, 0, 0.07);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
   border-radius: 16px;
   margin-bottom: 20px;
   color: var(--text-secondary);
@@ -17,7 +17,7 @@
 }
 
 .syntaxHint svg {
-  color: #4a6cf7;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -25,7 +25,7 @@
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  color: #4a6cf7;
+  color: var(--accent);
   background: rgba(74, 108, 247, 0.08);
   padding: 1px 6px;
   border-radius: 4px;
@@ -41,15 +41,16 @@
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
   border-radius: 16px;
   margin-bottom: 20px;
   color: var(--text-tertiary);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .searchBar:focus-within {
   border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
 .searchInput {
@@ -82,13 +83,15 @@
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
   border-radius: 16px;
-  transition: border-color 0.2s;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .toolRow:hover {
   border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .toolIcon {
@@ -108,7 +111,7 @@
 .toolIcon[data-active='true'] {
   background: rgba(74, 108, 247, 0.08);
   border-color: rgba(74, 108, 247, 0.15);
-  color: #4a6cf7;
+  color: var(--accent);
 }
 
 .toolInfo {
@@ -185,7 +188,7 @@
   backdrop-filter: var(--glass-blur);
   border: 1px dashed rgba(0, 0, 0, 0.1);
   border-radius: 16px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
 }
 
 .emptyState svg {
