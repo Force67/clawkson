@@ -18,6 +18,7 @@ import {
   LogOut,
   ShieldCheck,
   KeyRound,
+  Activity,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import styles from './Sidebar.module.css'
@@ -63,6 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Infrastructure',
     items: [
       { path: '/containers', label: 'Containers', icon: Container },
+      { path: '/activity-log', label: 'Activity Log', icon: Activity },
     ],
   },
 ]

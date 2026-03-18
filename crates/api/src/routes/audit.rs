@@ -4,6 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +13,8 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/", get(list_all))
+        .route("/stats", get(user_stats))
         .route("/conversations/{conv_id}", get(list_by_conversation))
         .route("/agents/{agent_id}", get(list_by_agent))
         .route("/denied", get(list_denied))
@@ -28,6 +31,64 @@ pub struct PaginationParams {
 
 fn default_limit() -> i64 {
     50
+}
+
+/// Filters for the global audit log list.
+#[derive(Debug, Deserialize)]
+pub struct AuditListParams {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+    pub agent_id: Option<Uuid>,
+    pub tool_name: Option<String>,
+    pub decision: Option<String>,
+    /// ISO 8601 timestamp — only return entries created after this.
+    pub since: Option<DateTime<Utc>>,
+}
+
+/// Global audit log list for the current user, with optional filters.
+async fn list_all(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Query(params): Query<AuditListParams>,
+) -> Result<Json<Vec<clawkson_db::tool_audit::ToolAuditEnrichedRow>>, StatusCode> {
+    let rows = clawkson_db::tool_audit::list_for_user(
+        &state.db,
+        auth.id(),
+        params.agent_id,
+        params.tool_name.as_deref(),
+        params.decision.as_deref(),
+        params.since,
+        params.limit.min(200),
+        params.offset,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(rows))
+}
+
+/// Aggregate stats for the current user.
+#[derive(Debug, Deserialize)]
+pub struct StatsParams {
+    pub since: Option<DateTime<Utc>>,
+}
+
+async fn user_stats(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Query(params): Query<StatsParams>,
+) -> Result<Json<clawkson_db::tool_audit::UserAuditStats>, StatusCode> {
+    let stats = clawkson_db::tool_audit::stats_for_user(
+        &state.db,
+        auth.id(),
+        params.since,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(stats))
 }
 
 /// List audit entries for a conversation.

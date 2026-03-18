@@ -539,6 +539,38 @@ export interface PatchScheduledTaskRequest {
   enabled?: boolean
 }
 
+// ── Audit Log ─────────────────────────────────────────────────────
+
+export interface ToolAuditEntry {
+  id: string
+  conversation_id: string
+  agent_id: string
+  user_id: string
+  tool_name: string
+  http_method: string | null
+  target_path: string | null
+  connector_id: string | null
+  decision: 'allowed' | 'denied'
+  denial_reason: string | null
+  duration_ms: number | null
+  created_at: string
+  agent_name: string
+  conversation_title: string | null
+}
+
+export interface AuditBreakdown {
+  key: string
+  count: number
+}
+
+export interface UserAuditStats {
+  total: number
+  allowed: number
+  denied: number
+  by_tool: AuditBreakdown[]
+  by_agent: AuditBreakdown[]
+}
+
 // ── Create / patch request types ───────────────────────────────────
 
 export interface CreateAgentRequest {
@@ -831,6 +863,24 @@ export const api = {
 
   policyPresets: {
     list: () => request<PolicyPreset[]>('/api/policy-presets'),
+  },
+
+  auditLog: {
+    list: (params?: { limit?: number; offset?: number; agent_id?: string; tool_name?: string; decision?: string; since?: string }) => {
+      const qs = new URLSearchParams()
+      if (params?.limit) qs.set('limit', String(params.limit))
+      if (params?.offset) qs.set('offset', String(params.offset))
+      if (params?.agent_id) qs.set('agent_id', params.agent_id)
+      if (params?.tool_name) qs.set('tool_name', params.tool_name)
+      if (params?.decision) qs.set('decision', params.decision)
+      if (params?.since) qs.set('since', params.since)
+      const query = qs.toString()
+      return request<ToolAuditEntry[]>(`/api/audit-log${query ? `?${query}` : ''}`)
+    },
+    stats: (since?: string) => {
+      const qs = since ? `?since=${since}` : ''
+      return request<UserAuditStats>(`/api/audit-log/stats${qs}`)
+    },
   },
 
   connectors: {
