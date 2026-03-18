@@ -210,6 +210,72 @@
   -webkit-box-orient: vertical;
 }
 
+/* ── Inference display ──────────────────────────────────────── */
+
+.inferenceBlock {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.inferenceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-secondary);
+}
+
+.inferenceRow + .inferenceRow {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.inferenceIcon {
+  color: var(--accent-text);
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.inferenceModel {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.inferenceProvider {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.inferenceRowSub .inferenceIcon {
+  color: var(--text-tertiary);
+}
+
+.inferenceRowSub .inferenceModel {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.inferenceDefault {
+  color: var(--text-tertiary);
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* ── Config tags ───────────────────────────────────────────── */
+
 .agentConfig {
   display: flex;
   flex-wrap: wrap;
@@ -225,8 +291,8 @@
   font-family: var(--font-mono);
   padding: 2px 7px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -234,92 +300,106 @@
 
 .configTagMuted { opacity: 0.4; }
 
-.agentCardActions {
+/* ── Card footer — recessed control strip ──────────────────── */
+
+.cardFooter {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 10px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
   gap: 8px;
+  margin: 0 -20px -20px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0 0 15px 15px;
 }
+
+/* ── Status toggle — segmented pill control ────────────────── */
 
 .statusToggle {
   display: flex;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  overflow: hidden;
 }
 
 .statusBtn {
-  padding: 4px 10px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
   background: transparent;
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  font-family: var(--font-mono);
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--font-sans);
 }
 
-.statusBtn + .statusBtn {
-  border-left: 1px solid rgba(0, 0, 0, 0.06);
+.statusBtn:hover:not(.statusBtnActive) {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 
 .statusBtnActive {
-  background: var(--bg-active);
-  color: var(--text-primary);
-}
-
-.agentCardBtns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.configureBtn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
   font-weight: 600;
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.configureBtn:hover {
-  background: var(--accent-muted);
-  color: var(--accent-text);
-  border-color: rgba(74, 108, 247, 0.15);
+/* Online active — semantic green thumb */
+.statusBtnActive:first-child {
+  background: rgba(26, 154, 92, 0.13);
+  color: var(--success);
 }
 
-.deleteAgentBtn {
+/* ── Action toolbar ────────────────────────────────────────── */
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.actionBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.deleteAgentBtn:hover {
-  background: rgba(74, 108, 247, 0.08);
+.actionBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.actionBtn:active {
+  transform: scale(0.92);
+  background: var(--bg-active);
+}
+
+.actionBtnDanger:hover {
   color: var(--error);
+  background: rgba(193, 39, 45, 0.08);
+}
+
+.actionDivider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-subtle);
+  margin: 0 2px;
 }
 
 /* ── Config panel (slide-in) ─────────────────────────────────── */
@@ -340,7 +420,7 @@
   width: 440px;
   max-width: 100vw;
   background: var(--bg-primary);
-  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-left: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -353,7 +433,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   position: sticky;
   top: 0;
   background: var(--bg-primary);
@@ -455,8 +535,8 @@
 .input {
   width: 100%;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   color: var(--text-primary);
   font-size: 13px;
@@ -468,7 +548,7 @@
 .input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-muted);
-  background: rgba(0, 0, 0, 0.01);
+  background: var(--bg-tertiary);
 }
 
 .input::placeholder { color: var(--text-tertiary); }
@@ -519,8 +599,8 @@
 .select {
   width: 100%;
   padding: 8px 30px 8px 12px;
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   color: var(--text-primary);
   font-size: 13px;
@@ -532,6 +612,12 @@
 }
 
 .select:focus { border-color: var(--accent); }
+
+.select option,
+.select optgroup {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
 
 .selectChevron {
   position: absolute;

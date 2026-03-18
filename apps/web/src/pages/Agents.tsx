@@ -1195,6 +1195,7 @@ function CreateForm({ onSave, onCancel }: CreateFormProps) {
 interface AgentCardProps {
   agent: Agent
   connector?: LlmConnector
+  subtaskConnector?: LlmConnector
   canManage: boolean
   ownerLabel?: string
   onConfigure: () => void
@@ -1203,7 +1204,11 @@ interface AgentCardProps {
   onStatusChange: (status: AgentStatus) => void
 }
 
-function AgentCard({ agent, connector, canManage, ownerLabel, onConfigure, onPolicies, onDelete, onStatusChange }: AgentCardProps) {
+function formatModel(c: LlmConnector) {
+  return c.azure_deployment ? `${c.model} (${c.azure_deployment})` : c.model
+}
+
+function AgentCard({ agent, connector, subtaskConnector, canManage, ownerLabel, onConfigure, onPolicies, onDelete, onStatusChange }: AgentCardProps) {
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
@@ -1220,20 +1225,39 @@ function AgentCard({ agent, connector, canManage, ownerLabel, onConfigure, onPol
         <StatusBadge status={agent.status} />
       </div>
 
+      {/* Inference models */}
+      <div className={styles.inferenceBlock}>
+        <div className={styles.inferenceRow}>
+          <Cpu size={12} className={styles.inferenceIcon} />
+          <span className={`${styles.inferenceModel} ${!connector ? styles.inferenceDefault : ''}`}>
+            {connector ? formatModel(connector) : 'Default'}
+          </span>
+          {connector && (
+            <span className={styles.inferenceProvider}>
+              {LLM_PROVIDER_LABELS[connector.provider_type]}
+            </span>
+          )}
+        </div>
+        {subtaskConnector && (
+          <div className={`${styles.inferenceRow} ${styles.inferenceRowSub}`}>
+            <GitBranch size={11} className={styles.inferenceIcon} />
+            <span className={styles.inferenceModel}>{formatModel(subtaskConnector)}</span>
+            <span className={styles.inferenceProvider}>
+              {LLM_PROVIDER_LABELS[subtaskConnector.provider_type]}
+            </span>
+          </div>
+        )}
+      </div>
+
       <div className={styles.agentConfig}>
         {ownerLabel && <span className={styles.configTag}>{ownerLabel}</span>}
-        {connector ? (
-          <span className={styles.configTag}><Cpu size={10} /> {connector.name}</span>
-        ) : (
-          <span className={`${styles.configTag} ${styles.configTagMuted}`}><Cpu size={10} /> Default</span>
-        )}
         {agent.temperature != null && <span className={styles.configTag}><Thermometer size={10} /> {agent.temperature}</span>}
         {agent.max_tokens != null && <span className={styles.configTag}><Hash size={10} /> {agent.max_tokens}</span>}
         {agent.container_enabled && <span className={styles.configTag}><Container size={10} /> Sandbox</span>}
         {agent.shared && <span className={styles.configTag}><Share2 size={10} /> Shared</span>}
       </div>
 
-      <div className={styles.agentCardActions}>
+      <div className={styles.cardFooter}>
         <div className={styles.statusToggle}>
           {(['online', 'offline'] as AgentStatus[]).map(s => (
             <button
@@ -1246,15 +1270,16 @@ function AgentCard({ agent, connector, canManage, ownerLabel, onConfigure, onPol
           ))}
         </div>
         {canManage && (
-          <div className={styles.agentCardBtns}>
-            <button className={styles.configureBtn} onClick={onPolicies} title="Connector policies">
-              <Shield size={13} /> Policies
+          <div className={styles.cardActions}>
+            <button className={styles.actionBtn} onClick={onPolicies} title="Connector policies" aria-label="Connector policies">
+              <Shield size={14} />
             </button>
-            <button className={styles.configureBtn} onClick={onConfigure} title="Configure agent">
-              <Settings2 size={13} /> Config
+            <button className={styles.actionBtn} onClick={onConfigure} title="Configure" aria-label="Configure agent">
+              <Settings2 size={14} />
             </button>
-            <button className={styles.deleteAgentBtn} onClick={onDelete} title="Delete agent">
-              <Trash2 size={13} />
+            <div className={styles.actionDivider} />
+            <button className={`${styles.actionBtn} ${styles.actionBtnDanger}`} onClick={onDelete} title="Delete agent" aria-label="Delete agent">
+              <Trash2 size={14} />
             </button>
           </div>
         )}
@@ -1425,6 +1450,7 @@ export function AgentsPage() {
               key={agent.id}
               agent={agent}
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
+              subtaskConnector={connectors.find(c => c.id === agent.subtask_llm_connector_id)}
               canManage={isAdmin || agent.owner_id === user?.id}
               ownerLabel={ownerLabel(agent)}
               onConfigure={() => setConfiguring(agent)}

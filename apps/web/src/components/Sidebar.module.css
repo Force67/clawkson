@@ -345,6 +345,16 @@
   padding: 14px 8px;
 }
 
+.collapsed .userInfo {
+  flex: none;
+  justify-content: center;
+}
+
+.collapsed .userInfoBtn {
+  margin: 0;
+  padding: 0;
+}
+
 .collapsed .logoutBtn {
   display: none;
 }
