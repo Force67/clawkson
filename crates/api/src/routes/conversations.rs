@@ -1172,7 +1172,7 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
-            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root);
+            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
@@ -1180,6 +1180,21 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
             let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, conversation_id);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(preview_tool.into_dyn(), "start_preview".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
+
+            // Browser tool — interactive browser control (navigate, click, type, screenshot)
+            // Registered when agent has container + network so Chromium can fetch pages.
+            let net_enabled = agent_cfg.container_config.as_ref()
+                .map(|c| c.permissions.network.enabled || c.network_enabled)
+                .unwrap_or(false);
+            if net_enabled {
+                let browser_tool = crate::browser_tools::BrowserTool::new(
+                    agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root,
+                );
+                let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+                    browser_tool.into_dyn(), "browser".to_string(), guard_ctx.clone(),
+                );
+                registry.register(guarded.into_dyn());
+            }
         }
     }
 
@@ -1758,6 +1773,7 @@ async fn chat_stream(
     //   "\x00DONE:id"  = completion sentinel
     //   anything else  = message delta
     let (tx, mut rx) = mpsc::channel::<String>(64);
+    let cancel_token = tokio_util::sync::CancellationToken::new();
 
     // Register the delegation tool for sub-agent coordination (with streaming tx)
     {
@@ -1776,8 +1792,13 @@ async fn chat_stream(
 
     let state2 = state.clone();
     let owner_id = auth.id();
+    let task_cancel = cancel_token.clone();
 
     tokio::spawn(async move {
+        let workspace_path = state2.container_manager.as_ref().map(|cm|
+            cm.workspace_root().join(agent_id.to_string()).join(conv_id.to_string())
+        );
+
         let has_tools = !registry.definitions().is_empty();
         let result = if has_tools {
             crate::llm::complete_with_tools_streaming(
@@ -1791,6 +1812,8 @@ async fn chat_stream(
                 reasoning_effort.as_ref(),
                 timeout_secs,
                 &tx,
+                workspace_path,
+                task_cancel,
             )
             .await
         } else {
@@ -1870,6 +1893,9 @@ async fn chat_stream(
                 yield Ok::<Event, Infallible>(Event::default().data(data));
             }
         }
+        // Signal cancellation when the SSE stream ends — either the client
+        // disconnected (abort) or the stream completed normally.
+        cancel_token.cancel();
     };
 
     Sse::new(sse_stream).into_response()

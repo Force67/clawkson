@@ -358,6 +358,30 @@ fn tool_description(name: &str, args: &serde_json::Value) -> String {
             let count = args.get("tasks").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
             format!("Delegating {count} sub-task{}", if count != 1 { "s" } else { "" })
         }
+        "browser" => {
+            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("browse");
+            match action {
+                "navigate" => {
+                    let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    let short = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
+                    let end = short.char_indices().nth(40).map(|(i, _)| i).unwrap_or(short.len());
+                    format!("Navigating to {}", &short[..end])
+                }
+                "click" => {
+                    let sel = args.get("selector").and_then(|v| v.as_str()).unwrap_or("element");
+                    format!("Clicking {sel}")
+                }
+                "type" => "Typing text".into(),
+                "screenshot" => "Taking screenshot".into(),
+                "evaluate" => "Running JavaScript".into(),
+                "scroll" => {
+                    let dir = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+                    format!("Scrolling {dir}")
+                }
+                "back" => "Going back".into(),
+                _ => format!("Browser: {action}"),
+            }
+        }
         other => other.replace('_', " "),
     }
 }
@@ -398,6 +422,17 @@ fn tool_result_summary(name: &str, result_str: &str, ok: bool) -> String {
                 .unwrap_or_else(|| "done".into()),
             // Pass through full result for start_preview so the frontend gets the URL
             "start_preview" => result_str.to_string(),
+            "browser" => {
+                let title = v.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let url = v.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                if !title.is_empty() {
+                    format!("{} — {}", title.chars().take(40).collect::<String>(), url.chars().take(40).collect::<String>())
+                } else if !url.is_empty() {
+                    url.chars().take(60).collect()
+                } else {
+                    "done".into()
+                }
+            }
             "delegate_tasks" => {
                 let completed = v.get("completed").and_then(|v| v.as_u64()).unwrap_or(0);
                 let total = v.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -430,6 +465,8 @@ pub async fn complete_with_tools_streaming(
     reasoning_effort: Option<&ReasoningEffort>,
     timeout_secs: u64,
     tx: &tokio::sync::mpsc::Sender<String>,
+    workspace_path: Option<std::path::PathBuf>,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> Result<String> {
     let provider = build_provider(connector, timeout_secs)?;
 
@@ -449,6 +486,12 @@ pub async fn complete_with_tools_streaming(
     }
 
     for round in 0..max_rounds {
+        // Check cancellation between rounds
+        if cancel.is_cancelled() {
+            tracing::info!("tool loop cancelled by client at round {round}");
+            return Ok("[Response stopped by user]".to_string());
+        }
+
         let mut request = CompletionRequest::new(connector.model.clone(), messages.clone());
         request = request.with_function_registry(registry);
         if let Some(temp) = temperature {
@@ -489,6 +532,12 @@ pub async fn complete_with_tools_streaming(
 
         // Invoke each tool call and emit events
         for call in &response.message.tool_calls {
+            // Check cancellation before each tool invocation
+            if cancel.is_cancelled() {
+                tracing::info!("tool loop cancelled before invoking {}", call.function.name);
+                return Ok("[Response stopped by user]".to_string());
+            }
+
             let call_id = call
                 .id
                 .clone()
@@ -544,6 +593,13 @@ pub async fn complete_with_tools_streaming(
             });
             let _ = tx.try_send(format!("\x02{end_evt}"));
 
+            // Emit image_output events for screenshots produced by code_execution / browser
+            if (call.function.name == "code_execution" || call.function.name == "browser") && ok {
+                if let Some(ref ws_path) = workspace_path {
+                    emit_image_outputs(&result_str, ws_path, tx).await;
+                }
+            }
+
             messages.push(ChatMessage::tool(&call_id, result_str));
         }
     }
@@ -556,6 +612,81 @@ pub async fn complete_with_tools_streaming(
         let _ = tx.try_send(line.to_string());
     }
     Ok(text)
+}
+
+/// After a successful `code_execution` tool call, scan output_files for images
+/// and emit them as `image_output` events through the SSE channel so the frontend
+/// can display live previews before the stream completes.
+async fn emit_image_outputs(
+    result_str: &str,
+    workspace_path: &std::path::Path,
+    tx: &tokio::sync::mpsc::Sender<String>,
+) {
+    const MAX_IMAGE_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
+    const MAX_IMAGES_PER_ROUND: usize = 5;
+    const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
+
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(result_str) else {
+        return;
+    };
+    let Some(output_files) = val.get("output_files").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    let mut emitted = 0usize;
+    for file in output_files {
+        if emitted >= MAX_IMAGES_PER_ROUND {
+            break;
+        }
+        let Some(path_str) = file.get("path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let ext = path_str
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+            continue;
+        }
+
+        // Resolve full path on host filesystem
+        let full_path = workspace_path.join(
+            path_str.strip_prefix('/').unwrap_or(path_str),
+        );
+        let Ok(metadata) = tokio::fs::metadata(&full_path).await else {
+            continue;
+        };
+        if metadata.len() > MAX_IMAGE_SIZE {
+            continue;
+        }
+        let Ok(bytes) = tokio::fs::read(&full_path).await else {
+            continue;
+        };
+
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let mime = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "svg" => "image/svg+xml",
+            _ => "application/octet-stream",
+        };
+        let filename = std::path::Path::new(path_str)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("image");
+
+        let evt = serde_json::json!({
+            "type": "image_output",
+            "url": format!("data:{mime};base64,{b64}"),
+            "filename": filename,
+        });
+        let _ = tx.try_send(format!("\x02{evt}"));
+        emitted += 1;
+    }
 }
 
 /// Stream a chat completion, yielding text deltas via a callback.

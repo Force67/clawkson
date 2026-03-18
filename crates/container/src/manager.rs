@@ -163,11 +163,16 @@ impl ContainerManager {
 
         let perms = &config.permissions;
 
-        // Network: always attach to the internal proxy network so the host can
-        // reach container web servers.  If internet access is also requested,
-        // we connect to the default bridge after creation.
+        // Network: when internet access is requested, use the default bridge as
+        // the primary network (so DNS + default gateway work) and attach the
+        // internal proxy network as secondary.  Without internet, the container
+        // only sits on the isolated internal network.
         let net_enabled = perms.network.enabled || config.network_enabled;
-        let network_mode = Some(INTERNAL_NETWORK.to_string());
+        let network_mode = if net_enabled {
+            Some("bridge".to_string())
+        } else {
+            Some(INTERNAL_NETWORK.to_string())
+        };
 
         // Filesystem: bind mount mode from permissions
         let binds = match perms.filesystem.mode {
@@ -204,16 +209,18 @@ impl ContainerManager {
 
         // Environment: redirect pip/npm installs to the writable tmpfs and
         // make installed binaries available on PATH.
-        let pkg_env = if perms.resources.readonly_rootfs && storage_size > 0 {
-            vec![
+        let mut pkg_env = vec![
+            // Pre-installed Playwright browsers baked into the image
+            "PLAYWRIGHT_BROWSERS_PATH=/usr/lib/playwright".to_string(),
+        ];
+        if perms.resources.readonly_rootfs && storage_size > 0 {
+            pkg_env.extend([
                 "PIP_TARGET=/opt/sandbox-packages/pip".to_string(),
                 "PYTHONPATH=/opt/sandbox-packages/pip".to_string(),
                 "NPM_CONFIG_PREFIX=/opt/sandbox-packages/npm".to_string(),
                 "PATH=/opt/sandbox-packages/pip/bin:/opt/sandbox-packages/npm/bin:/usr/local/bin:/usr/bin:/bin".to_string(),
-            ]
-        } else {
-            vec![]
-        };
+            ]);
+        }
 
         let host_config = HostConfig {
             binds,
@@ -234,7 +241,7 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let env = if pkg_env.is_empty() { None } else { Some(pkg_env) };
+        let env = Some(pkg_env);
 
         let container_config = Config {
             image: Some(config.image.clone()),
@@ -268,7 +275,9 @@ impl ContainerManager {
             .start_container::<String>(&response.id, None)
             .await?;
 
-        // If internet access is requested, also connect to the default bridge.
+        // When internet is enabled the primary network is bridge (for DNS/routing).
+        // Also attach the internal proxy network so the host can reach container
+        // web servers for live preview.
         if net_enabled {
             use bollard::network::ConnectNetworkOptions;
             use bollard::models::EndpointSettings;
@@ -276,8 +285,8 @@ impl ContainerManager {
                 container: response.id.as_str(),
                 endpoint_config: EndpointSettings::default(),
             };
-            if let Err(e) = self.docker.connect_network("bridge", connect).await {
-                tracing::warn!("failed to connect container to bridge network: {e}");
+            if let Err(e) = self.docker.connect_network(INTERNAL_NETWORK, connect).await {
+                tracing::warn!("failed to connect container to internal network: {e} (preview proxy may be unavailable)");
             }
         }
 

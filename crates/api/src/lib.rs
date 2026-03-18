@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod browser_tools;
 pub mod embeddings;
 pub mod llm;
 pub mod memory;

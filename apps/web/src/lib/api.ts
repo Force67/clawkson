@@ -914,7 +914,7 @@ export const api = {
 // ── SSE streaming helper ───────────────────────────────────────────
 
 export interface ToolEvent {
-  type: 'tool_start' | 'tool_end' | 'subtask_start' | 'subtask_end'
+  type: 'tool_start' | 'tool_end' | 'subtask_start' | 'subtask_end' | 'image_output'
   name: string
   round: number
   description?: string
@@ -925,6 +925,9 @@ export interface ToolEvent {
   id?: string
   total?: number
   completed?: number
+  /** image_output fields */
+  url?: string
+  filename?: string
 }
 
 export interface PreviewInfo {

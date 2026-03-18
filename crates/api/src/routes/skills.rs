@@ -181,6 +181,7 @@ fn builtin_templates() -> Vec<SkillTemplate> {
         include_str!("../../../../skills/make-presentation.json"),
         include_str!("../../../../skills/make-document.json"),
         include_str!("../../../../skills/make-spreadsheet.json"),
+        include_str!("../../../../skills/browser-automation.json"),
     ];
 
     template_sources

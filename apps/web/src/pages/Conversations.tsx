@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -866,6 +866,7 @@ export function ConversationsPage() {
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
   const [livePreview, setLivePreview] = useState<PreviewInfo | null>(null)
+  const [streamImages, setStreamImages] = useState<{url: string, filename: string}[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -942,6 +943,7 @@ export function ConversationsPage() {
     setReasoningBuffer('')
     setActivitySteps([])
     setLivePreview(null)
+    setStreamImages([])
 
     // Upload pending files first
     let attachmentIds: string[] = []
@@ -996,6 +998,7 @@ export function ConversationsPage() {
           setStreamBuffer('')
           setReasoningBuffer('')
           setActivitySteps([])
+          setStreamImages([])
           setStreaming(false)
           // Refresh conversation list (updated_at changed)
           api.conversations.list().then(convos =>
@@ -1012,6 +1015,7 @@ export function ConversationsPage() {
         setStreamBuffer('')
         setReasoningBuffer('')
         setActivitySteps([])
+        setStreamImages([])
         api.conversations.chat(selectedId, content)
           .then(({ user_message, assistant_message }) => {
             setMessages(prev => {
@@ -1027,6 +1031,12 @@ export function ConversationsPage() {
       },
       options,
       (event: ToolEvent) => {
+        if (event.type === 'image_output') {
+          if (event.url) {
+            setStreamImages(prev => [...prev, { url: event.url!, filename: event.filename || 'image' }])
+          }
+          return
+        }
         if (event.type === 'tool_start') {
           setActivitySteps(prev => [...prev, {
             id: `step-${prev.length}`,
@@ -1087,6 +1097,37 @@ export function ConversationsPage() {
     )
     stopStreamRef.current = stop
   }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles])
+
+  const handleStopStream = useCallback(() => {
+    if (stopStreamRef.current) {
+      stopStreamRef.current()
+      stopStreamRef.current = null
+    }
+    // Keep whatever content has streamed so far — reload from server
+    if (selectedId) {
+      api.conversations.messages(selectedId).then(msgs => {
+        setMessages(msgs)
+        setStreamBuffer('')
+        setReasoningBuffer('')
+        setActivitySteps([])
+        setStreamImages([])
+        setStreaming(false)
+        // Refresh conversation list
+        api.conversations.list().then(convos =>
+          setConversations(convos.sort((a, b) => {
+            if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+            return b.updated_at.localeCompare(a.updated_at)
+          }))
+        )
+      })
+    } else {
+      setStreamBuffer('')
+      setReasoningBuffer('')
+      setActivitySteps([])
+      setStreamImages([])
+      setStreaming(false)
+    }
+  }, [selectedId])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
@@ -1209,8 +1250,16 @@ export function ConversationsPage() {
       }
     }
 
+    // Escape stops generation
+    if (e.key === 'Escape' && streaming) {
+      e.preventDefault()
+      handleStopStream()
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      if (streaming) return
       sendMessage()
     }
   }
@@ -1516,6 +1565,18 @@ export function ConversationsPage() {
                       )}
                       {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
                       {livePreview && <LivePreview preview={livePreview} />}
+                      {streamImages.length > 0 && (
+                        <div className={styles.msgImages}>
+                          {streamImages.map((img, i) => (
+                            <a key={i} href={img.url} target="_blank" className={styles.msgImageLink}>
+                              <img src={img.url} alt={img.filename} className={styles.msgImage} />
+                              <span className={styles.msgImageCaption}>
+                                <Monitor size={10} /> {img.filename}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant}`}>
                         <div className={`${styles.markdown} ${styles.markdownStreaming}`}>
                           <MarkdownContent content={streamBuffer} />
@@ -1537,7 +1598,19 @@ export function ConversationsPage() {
                       )}
                       {activitySteps.length > 0 && <ActivityFeed steps={activitySteps} />}
                       {livePreview && <LivePreview preview={livePreview} />}
-                      {!reasoningBuffer && activitySteps.length === 0 && (
+                      {streamImages.length > 0 && (
+                        <div className={styles.msgImages}>
+                          {streamImages.map((img, i) => (
+                            <a key={i} href={img.url} target="_blank" className={styles.msgImageLink}>
+                              <img src={img.url} alt={img.filename} className={styles.msgImage} />
+                              <span className={styles.msgImageCaption}>
+                                <Monitor size={10} /> {img.filename}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {!reasoningBuffer && activitySteps.length === 0 && streamImages.length === 0 && (
                         <div className={`${styles.bubbleContent} ${styles.bubbleContentAssistant} ${styles.thinking}`}>
                           <span className={styles.dot} /><span className={styles.dot} /><span className={styles.dot} />
                         </div>
@@ -1698,9 +1771,8 @@ export function ConversationsPage() {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={streaming ? 'Waiting for response...' : agentSkills.length > 0 ? 'Type a message or / for skills...' : 'Type your message here...'}
+                    placeholder={streaming ? 'Press Esc to stop generating...' : agentSkills.length > 0 ? 'Type a message or / for skills...' : 'Type your message here...'}
                     rows={1}
-                    disabled={streaming}
                   />
                   <div className={styles.inputFooter}>
                     <div className={styles.inputTools}>
@@ -1759,15 +1831,26 @@ export function ConversationsPage() {
                         Folder
                       </button>
                     </div>
-                    <button
-                      className={styles.sendBtn}
-                      onClick={sendMessage}
-                      disabled={!input.trim() || streaming || uploading}
-                      title="Send (Enter)"
-                      type="button"
-                    >
-                      {streaming || uploading ? <Loader2 size={16} className={styles.spinning} /> : <Send size={16} />}
-                    </button>
+                    {streaming ? (
+                      <button
+                        className={`${styles.sendBtn} ${styles.stopBtn}`}
+                        onClick={handleStopStream}
+                        title="Stop generating (Esc)"
+                        type="button"
+                      >
+                        <Square size={12} fill="currentColor" />
+                      </button>
+                    ) : (
+                      <button
+                        className={styles.sendBtn}
+                        onClick={sendMessage}
+                        disabled={!input.trim() || uploading}
+                        title="Send (Enter)"
+                        type="button"
+                      >
+                        {uploading ? <Loader2 size={16} className={styles.spinning} /> : <Send size={16} />}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

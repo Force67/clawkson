@@ -1226,6 +1226,25 @@
   box-shadow: none;
 }
 
+/* Stop generating button — replaces send during streaming */
+.stopBtn {
+  background: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 18%, transparent);
+  animation: stopPulse 2s ease-in-out infinite;
+}
+
+.stopBtn:hover {
+  background: color-mix(in srgb, var(--error) 85%, #000) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 28%, transparent),
+              0 2px 12px color-mix(in srgb, var(--error) 35%, transparent) !important;
+}
+
+@keyframes stopPulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 18%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--error) 28%, transparent); }
+}
+
 /* ── Dialog (new conversation) ───────────────────────────────── */
 
 .dialogOverlay {
