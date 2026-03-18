@@ -189,6 +189,7 @@ pub(crate) async fn execute_task(
         container_config: None,
         connector_policies: vec![],
         subtask_llm_connector_id: None,
+        skill_names: vec![],
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 

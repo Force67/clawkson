@@ -692,6 +692,8 @@ pub(crate) struct AgentConfig {
     /// Optional LLM connector for sub-task execution. When set, sub-agents use this
     /// (potentially cheaper/faster) model instead of the agent's primary connector.
     pub(crate) subtask_llm_connector_id: Option<Uuid>,
+    /// Names of skills linked to this agent (used to conditionally register skill-specific tools).
+    pub(crate) skill_names: Vec<String>,
 }
 
 pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Option<AgentConfig> {
@@ -780,6 +782,8 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
     let connector_policies: Vec<clawkson_core::ConnectorPolicy> =
         serde_json::from_value(row.connector_policies.clone()).unwrap_or_default();
 
+    let skill_names: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+
     Some(AgentConfig {
         agent_id: row.id,
         system_prompt,
@@ -789,6 +793,7 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         container_config: container_config,
         connector_policies,
         subtask_llm_connector_id: row.subtask_llm_connector_id,
+        skill_names,
     })
 }
 
@@ -1229,6 +1234,13 @@ pub(crate) async fn build_tool_registry(state: &AppState, agent_cfg: &AgentConfi
         }
     }
 
+    // Skill-creator tool — only available when the agent has the `skill-creator` skill linked
+    if agent_cfg.skill_names.iter().any(|n| n == "skill-creator") {
+        let tool = crate::tools::CreateSkillTool::new(state.db.clone(), agent_cfg.agent_id);
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(tool.into_dyn(), "create_skill".to_string(), guard_ctx.clone());
+        registry.register(guarded.into_dyn());
+    }
+
     // Connector-derived tools
     if let Ok(connectors) = clawkson_db::connector::list_for_user(&state.db, user_id).await {
         let mut http_connectors: Vec<crate::tools::http_tool::ConnectorAuth> = Vec::new();
@@ -1537,6 +1549,7 @@ async fn chat(
         container_config: None,
         connector_policies: vec![],
         subtask_llm_connector_id: None,
+        skill_names: vec![],
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
 
@@ -1754,6 +1767,7 @@ async fn chat_stream(
         container_config: None,
         connector_policies: vec![],
         subtask_llm_connector_id: None,
+        skill_names: vec![],
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);
     let mut registry = build_tool_registry(&state, &cfg, conv_id, auth.id(), req.search_enabled).await;

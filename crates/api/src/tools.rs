@@ -1231,3 +1231,166 @@ pub mod http_tool {
         }
     }
 }
+
+// ── Create Skill Tool ────────────────────────────────────────────
+
+/// A tool that lets agents create new skills directly in the database.
+/// Only registered when the agent has the `skill-creator` skill linked.
+pub struct CreateSkillTool {
+    db: clawkson_db::Db,
+    agent_id: Uuid,
+}
+
+impl CreateSkillTool {
+    pub fn new(db: clawkson_db::Db, agent_id: Uuid) -> Self {
+        Self { db, agent_id }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateSkillArgs {
+    name: String,
+    description: String,
+    instructions: String,
+    #[serde(default)]
+    link_to_this_agent: bool,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for CreateSkillTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("create_skill")
+            .with_description(
+                "Create a new reusable skill and save it to the skills database. \
+                 A skill teaches agents how to perform a specific task consistently. \
+                 Only call this after the user has reviewed and approved the skill definition.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "name",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description(
+                "Lowercase, alphanumeric name with hyphens only, max 64 chars (e.g. 'meeting-notes', 'data-analyzer'). \
+                 This becomes the /skill-name invocation command.",
+            ),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "description",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description(
+                "A concise one-line description (under 200 chars) of what the skill does. \
+                 Used for routing — determines when the skill activates.",
+            ),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "instructions",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description(
+                "The full markdown instructions loaded when the skill is invoked. \
+                 Should include workflow steps, output format, and guidelines.",
+            ),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "link_to_this_agent",
+                serde_json::json!({ "type": "boolean" }),
+            )
+            .with_description(
+                "If true, automatically link the newly created skill to this agent so it becomes \
+                 available immediately. Default: false.",
+            )
+            .optional(),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: CreateSkillArgs = serde_json::from_value(arguments.clone())
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "create_skill".to_string(),
+                message: format!("Invalid arguments: {e}"),
+            })?;
+
+        // Validate name format
+        let name = args.name.trim().to_lowercase();
+        if name.is_empty() || name.len() > 64 {
+            return Ok(serde_json::json!({
+                "error": "Name must be between 1 and 64 characters.",
+            }));
+        }
+        if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+            return Ok(serde_json::json!({
+                "error": "Name must contain only lowercase letters, numbers, and hyphens.",
+            }));
+        }
+
+        let description = args.description.trim().to_string();
+        let instructions = args.instructions.trim().to_string();
+
+        if description.is_empty() {
+            return Ok(serde_json::json!({
+                "error": "Description cannot be empty.",
+            }));
+        }
+        if instructions.is_empty() {
+            return Ok(serde_json::json!({
+                "error": "Instructions cannot be empty.",
+            }));
+        }
+
+        // Check if a skill with this name already exists
+        match clawkson_db::skill::get_by_name(&self.db, &name).await {
+            Ok(Some(_)) => {
+                return Ok(serde_json::json!({
+                    "error": format!("A skill named '{name}' already exists. Choose a different name or ask the user if they want to update the existing skill."),
+                }));
+            }
+            Ok(None) => {} // good, name is available
+            Err(e) => {
+                return Err(denkwerk::LLMError::FunctionExecution {
+                    function: "create_skill".to_string(),
+                    message: format!("Failed to check existing skills: {e}"),
+                });
+            }
+        }
+
+        let row = clawkson_db::skill::create(&self.db, &name, &description, &instructions)
+            .await
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "create_skill".to_string(),
+                message: format!("Failed to create skill: {e}"),
+            })?;
+
+        // Optionally link to this agent
+        if args.link_to_this_agent {
+            if let Err(e) = clawkson_db::skill::agent_link(self.db.pool(), self.agent_id, row.id).await {
+                tracing::warn!(skill = %name, "failed to auto-link new skill to agent: {e}");
+            }
+        }
+
+        Ok(serde_json::json!({
+            "success": true,
+            "skill": {
+                "id": row.id.to_string(),
+                "name": row.name,
+                "description": row.description,
+            },
+            "linked_to_agent": args.link_to_this_agent,
+            "hint": "The skill can now be linked to any agent from the agent's settings page.",
+        }))
+    }
+}
