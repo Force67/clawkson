@@ -395,6 +395,7 @@ async fn run_subtask(
             timeout_secs,
         )
         .await
+        .map(|cr| cr.text)
         .map_err(|e| format!("Sub-task LLM error: {e}"))
     } else {
         crate::llm::complete(
@@ -407,6 +408,7 @@ async fn run_subtask(
             timeout_secs,
         )
         .await
+        .map(|cr| cr.text)
         .map_err(|e| format!("Sub-task LLM error: {e}"))
     }
 }

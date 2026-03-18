@@ -949,6 +949,7 @@ fn row_to_llm_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> Llm
         model: row.model,
         azure_deployment: row.azure_deployment,
         azure_api_version: row.azure_api_version,
+        shared_with_all: row.shared_with_all,
         created_at: row.created_at,
     }
 }
@@ -1388,7 +1389,7 @@ pub(crate) async fn run_completion(
     user_id: Uuid,
     search_enabled: bool,
     timeout_secs: u64,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<crate::llm::CompletionResult> {
     let history = truncate_history(history, HISTORY_TOKEN_BUDGET);
 
     let mut registry = build_tool_registry(state, agent_cfg, conversation_id, user_id, search_enabled).await;
@@ -1445,7 +1446,7 @@ pub(crate) async fn run_completion_for_task(
     user_id: Uuid,
     search_enabled: bool,
     timeout_secs: u64,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<crate::llm::CompletionResult> {
     let history = truncate_history(history, HISTORY_TOKEN_BUDGET);
 
     let mut registry = build_tool_registry_for_task(state, agent_cfg, conversation_id, user_id, search_enabled).await;
@@ -1610,6 +1611,20 @@ async fn chat(
         return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
     };
 
+    // 4b. Check LLM connector access
+    if !auth.is_admin() {
+        match clawkson_db::llm_connector::has_access(&state.db, connector_id, auth.id()).await {
+            Ok(true) => {}
+            Ok(false) => {
+                let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
+                    "You do not have access to the LLM connector configured for this agent. Please contact an administrator."
+                ).await.unwrap_or(user_msg.clone());
+                return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
+            }
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "access check failed"}))).into_response(),
+        }
+    }
+
     // 5. Load history from DB and enrich with attachment data
     let raw_history = match load_history(&state, conv_id).await {
         Ok(h) => h,
@@ -1641,13 +1656,30 @@ async fn chat(
         .map(|s| s.llm_request_timeout_secs as u64)
         .unwrap_or(120);
 
-    let assistant_content = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), conv_id, auth.id(), req.search_enabled, timeout_secs).await {
-        Ok(text) => text,
+    let (assistant_content, llm_usage) = match run_completion(&state, &connector, cfg, &history, req.reasoning_effort.as_ref(), conv_id, auth.id(), req.search_enabled, timeout_secs).await {
+        Ok(result) => (result.text, result.usage),
         Err(e) => {
             tracing::error!("LLM completion failed: {e}");
-            format!("Error calling LLM: {e}")
+            (format!("Error calling LLM: {e}"), None)
         }
     };
+
+    // Record token usage in background
+    if let Some(usage) = llm_usage {
+        let db = state.db.clone();
+        let uid = auth.id();
+        let cid = connector.id;
+        let model = connector.model.clone();
+        tokio::spawn(async move {
+            if let Err(e) = clawkson_db::token_usage::record(
+                &db, uid, Some(cid), &model,
+                usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+                Some(conv_id),
+            ).await {
+                tracing::warn!("failed to record token usage: {e}");
+            }
+        });
+    }
 
     // 7. Save assistant message + touch conversation
     let mut assistant_msg = save_message(&state, conv_id, MessageRole::Assistant, &assistant_content)
@@ -1822,6 +1854,20 @@ async fn chat_stream(
         });
         return Sse::new(s).into_response();
     };
+
+    // Check LLM connector access
+    if !auth.is_admin() {
+        match clawkson_db::llm_connector::has_access(&state.db, connector_id, auth.id()).await {
+            Ok(true) => {}
+            _ => {
+                let s = stream::once(async {
+                    Ok::<Event, Infallible>(Event::default().data(r#"{"error":"no access to LLM connector"}"#))
+                });
+                return Sse::new(s).into_response();
+            }
+        }
+    }
+
     let raw_history = match load_history(&state, conv_id).await {
         Ok(h) => h,
         Err(_) => {
@@ -1928,13 +1974,29 @@ async fn chat_stream(
             .await
         };
 
-        let assistant_content = match result {
-            Ok(text) => text,
+        let (assistant_content, llm_usage) = match result {
+            Ok(cr) => (cr.text, cr.usage),
             Err(e) => {
                 tracing::error!("LLM streaming failed: {e}");
-                format!("Error: {e}")
+                (format!("Error: {e}"), None)
             }
         };
+
+        // Record token usage in background
+        if let Some(usage) = llm_usage {
+            let db = state2.db.clone();
+            let cid = connector.id;
+            let model = connector.model.clone();
+            tokio::spawn(async move {
+                if let Err(e) = clawkson_db::token_usage::record(
+                    &db, owner_id, Some(cid), &model,
+                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+                    Some(conv_id),
+                ).await {
+                    tracing::warn!("failed to record token usage: {e}");
+                }
+            });
+        }
 
         // Save assistant message to DB
         let msg_id = match clawkson_db::message::create(

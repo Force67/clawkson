@@ -23,6 +23,7 @@ pub struct LlmConnectorRow {
     pub model: String,
     pub azure_deployment: Option<String>,
     pub azure_api_version: Option<String>,
+    pub shared_with_all: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -122,4 +123,101 @@ pub async fn delete(db: &Db, id: Uuid) -> Result<bool, DbError> {
         .execute(db.pool())
         .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// List connectors visible to a specific user: shared_with_all=true OR user has explicit access.
+pub async fn list_for_user(db: &Db, user_id: Uuid) -> Result<Vec<LlmConnectorRow>, DbError> {
+    let rows = sqlx::query_as::<_, LlmConnectorRow>(
+        "SELECT c.* FROM llm_connectors c
+         WHERE c.shared_with_all = true
+            OR EXISTS (
+                SELECT 1 FROM user_llm_access a
+                WHERE a.connector_id = c.id AND a.user_id = $1
+            )
+         ORDER BY c.created_at",
+    )
+    .bind(user_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows)
+}
+
+/// Check if a user has access to a specific connector.
+pub async fn has_access(db: &Db, connector_id: Uuid, user_id: Uuid) -> Result<bool, DbError> {
+    let row = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1 FROM llm_connectors c
+            WHERE c.id = $1
+              AND (c.shared_with_all = true
+                   OR EXISTS (SELECT 1 FROM user_llm_access a WHERE a.connector_id = $1 AND a.user_id = $2))
+        )",
+    )
+    .bind(connector_id)
+    .bind(user_id)
+    .fetch_one(db.pool())
+    .await?;
+    Ok(row)
+}
+
+pub async fn set_shared_with_all(db: &Db, connector_id: Uuid, shared: bool) -> Result<bool, DbError> {
+    let result = sqlx::query(
+        "UPDATE llm_connectors SET shared_with_all = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(connector_id)
+    .bind(shared)
+    .execute(db.pool())
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn grant_access(db: &Db, connector_id: Uuid, user_id: Uuid) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO user_llm_access (connector_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(connector_id)
+    .bind(user_id)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+pub async fn revoke_access(db: &Db, connector_id: Uuid, user_id: Uuid) -> Result<(), DbError> {
+    sqlx::query(
+        "DELETE FROM user_llm_access WHERE connector_id = $1 AND user_id = $2",
+    )
+    .bind(connector_id)
+    .bind(user_id)
+    .execute(db.pool())
+    .await?;
+    Ok(())
+}
+
+/// List user IDs that have explicit access to a connector.
+pub async fn list_access(db: &Db, connector_id: Uuid) -> Result<Vec<Uuid>, DbError> {
+    let ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM user_llm_access WHERE connector_id = $1 ORDER BY granted_at",
+    )
+    .bind(connector_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(ids)
+}
+
+/// Replace the full access list for a connector (delete existing, insert new).
+pub async fn set_access(db: &Db, connector_id: Uuid, user_ids: &[Uuid]) -> Result<(), DbError> {
+    sqlx::query("DELETE FROM user_llm_access WHERE connector_id = $1")
+        .bind(connector_id)
+        .execute(db.pool())
+        .await?;
+
+    for uid in user_ids {
+        sqlx::query(
+            "INSERT INTO user_llm_access (connector_id, user_id) VALUES ($1, $2)",
+        )
+        .bind(connector_id)
+        .bind(uid)
+        .execute(db.pool())
+        .await?;
+    }
+    Ok(())
 }

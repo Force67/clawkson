@@ -223,7 +223,7 @@ pub(crate) async fn execute_task(
     )
     .await
     {
-        Ok(text) => text,
+        Ok(cr) => cr.text,
         Err(e) => {
             tracing::error!(task_id = %task.id, "LLM completion failed: {e}");
             finish_execution(

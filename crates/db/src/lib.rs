@@ -20,6 +20,7 @@ pub mod settings;
 pub mod skill;
 pub mod telegram_chat;
 pub mod scheduled_task;
+pub mod token_usage;
 pub mod tool_audit;
 
 pub use bootstrap::{

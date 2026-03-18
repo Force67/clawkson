@@ -478,6 +478,7 @@ fn db_connector_row_to_core(row: clawkson_db::llm_connector::LlmConnectorRow) ->
         model: row.model,
         azure_deployment: row.azure_deployment,
         azure_api_version: row.azure_api_version,
+        shared_with_all: row.shared_with_all,
         created_at: row.created_at,
     }
 }
@@ -599,8 +600,8 @@ async fn llm_find_split(connector: &clawkson_core::LlmConnector, window: &str) -
 
     let history = vec![(MessageRole::User, user_msg, vec![])];
     match crate::llm::complete(connector, Some(system), &history, Some(0.0), Some(16), None, 60).await {
-        Ok(response) => {
-            let trimmed = response.trim();
+        Ok(cr) => {
+            let trimmed = cr.text.trim();
             trimmed.parse::<usize>().ok().filter(|&pos| pos > 0 && pos < window.len())
         }
         Err(e) => {

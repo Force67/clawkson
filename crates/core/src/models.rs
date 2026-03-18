@@ -572,7 +572,36 @@ pub struct LlmConnector {
     pub azure_deployment: Option<String>,
     /// Azure-specific: API version string (e.g. `2024-02-01`).
     pub azure_api_version: Option<String>,
+    /// When true (default), all users can use this connector.
+    /// When false, only users with explicit access grants can use it.
+    #[serde(default = "default_true")]
+    pub shared_with_all: bool,
     pub created_at: DateTime<Utc>,
+}
+
+// ── Token Usage ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenUsageSummary {
+    pub model: String,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserTokenUsage {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub models: Vec<TokenUsageSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmAccessEntry {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
 }
 
 // ── User ──────────────────────────────────────────────────────────

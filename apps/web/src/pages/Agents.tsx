@@ -14,9 +14,11 @@ import {
   api,
   type Agent,
   type LlmConnector,
+  type LlmProviderType,
   type KnowledgeBase,
   type Skill,
   type Connector,
+  type User,
   type AgentStatus,
   type AgentPermissions,
   type FilesystemMode,
@@ -27,6 +29,31 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import styles from './Agents.module.css'
+
+// ── LLM Provider labels for grouped selects ─────────────────────
+
+const LLM_PROVIDER_LABELS: Record<LlmProviderType, string> = {
+  open_router: 'OpenRouter',
+  azure: 'Azure OpenAI',
+  open_ai: 'OpenAI',
+  custom: 'Custom / Ollama',
+}
+
+function groupConnectorsForSelect(connectors: LlmConnector[]): { label: string; items: LlmConnector[] }[] {
+  const map = new Map<string, { label: string; items: LlmConnector[] }>()
+  for (const c of connectors) {
+    const key = c.provider_type === 'open_router' || c.provider_type === 'open_ai'
+      ? c.provider_type
+      : `${c.provider_type}:${c.api_base_url}`
+    let group = map.get(key)
+    if (!group) {
+      group = { label: LLM_PROVIDER_LABELS[c.provider_type] ?? c.provider_type, items: [] }
+      map.set(key, group)
+    }
+    group.items.push(c)
+  }
+  return Array.from(map.values())
+}
 
 const DEFAULT_PERMISSIONS: AgentPermissions = {
   network: { enabled: false, internet: false, local_network: false, allowed_domains: [] },
@@ -657,8 +684,12 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                   onChange={e => setConnectorId(e.target.value)}
                 >
                   <option value="">Use default connector</option>
-                  {connectors.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.model})</option>
+                  {groupConnectorsForSelect(connectors).map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.items.map(c => (
+                        <option key={c.id} value={c.id}>{c.model}{c.azure_deployment ? ` (${c.azure_deployment})` : ''}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <ChevronDown size={13} className={styles.selectChevron} />
@@ -675,8 +706,12 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
                   onChange={e => setSubtaskConnectorId(e.target.value)}
                 >
                   <option value="">Same as primary</option>
-                  {connectors.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.model})</option>
+                  {groupConnectorsForSelect(connectors).map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.items.map(c => (
+                        <option key={c.id} value={c.id}>{c.model}{c.azure_deployment ? ` (${c.azure_deployment})` : ''}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
                 <ChevronDown size={13} className={styles.selectChevron} />
@@ -1161,13 +1196,14 @@ interface AgentCardProps {
   agent: Agent
   connector?: LlmConnector
   canManage: boolean
+  ownerLabel?: string
   onConfigure: () => void
   onPolicies: () => void
   onDelete: () => void
   onStatusChange: (status: AgentStatus) => void
 }
 
-function AgentCard({ agent, connector, canManage, onConfigure, onPolicies, onDelete, onStatusChange }: AgentCardProps) {
+function AgentCard({ agent, connector, canManage, ownerLabel, onConfigure, onPolicies, onDelete, onStatusChange }: AgentCardProps) {
   return (
     <div className={styles.agentCard}>
       <div className={styles.agentCardTop}>
@@ -1185,6 +1221,7 @@ function AgentCard({ agent, connector, canManage, onConfigure, onPolicies, onDel
       </div>
 
       <div className={styles.agentConfig}>
+        {ownerLabel && <span className={styles.configTag}>{ownerLabel}</span>}
         {connector ? (
           <span className={styles.configTag}><Cpu size={10} /> {connector.name}</span>
         ) : (
@@ -1237,6 +1274,7 @@ export function AgentsPage() {
   const [policyPresets, setPolicyPresets] = useState<PolicyPreset[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
+  const [allUsers, setAllUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [configuring, setConfiguring] = useState<Agent | null>(null)
@@ -1245,21 +1283,26 @@ export function AgentsPage() {
   const [statusFilter, setStatusFilter] = useState<AgentStatus | 'all'>('all')
 
   useEffect(() => {
-    Promise.all([
+    const promises: Promise<unknown>[] = [
       api.agents.list(),
       api.llmConnectors.list(),
       api.knowledge.listBases(),
       api.skills.list(),
       api.connectors.list(),
       api.policyPresets.list(),
-    ])
-      .then(([agts, conns, kbs, sks, platConns, presets]) => {
-        setAgents(agts)
-        setConnectors(conns)
-        setKnowledgeBases(kbs)
-        setSkills(sks)
-        setPlatformConnectors(platConns)
-        setPolicyPresets(presets)
+    ]
+    // Admins load user list to show creator names
+    if (isAdmin) promises.push(api.admin.listUsers())
+
+    Promise.all(promises)
+      .then(([agts, conns, kbs, sks, platConns, presets, users]) => {
+        setAgents(agts as Agent[])
+        setConnectors(conns as LlmConnector[])
+        setKnowledgeBases(kbs as KnowledgeBase[])
+        setSkills(sks as Skill[])
+        setPlatformConnectors(platConns as Connector[])
+        setPolicyPresets(presets as PolicyPreset[])
+        if (users) setAllUsers(users as User[])
       })
       .finally(() => setLoading(false))
   }, [])
@@ -1287,6 +1330,18 @@ export function AgentsPage() {
   const handleStatusChange = async (id: string, status: AgentStatus) => {
     const updated = await api.agents.patch(id, { status })
     setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
+  }
+
+  const ownerLabel = (agent: Agent): string | undefined => {
+    if (!agent.owner_id) return undefined
+    if (agent.owner_id === user?.id) return agent.shared ? 'You (shared)' : 'You'
+    if (agent.shared) {
+      const owner = allUsers.find(u => u.id === agent.owner_id)
+      return owner ? `by ${owner.display_name}` : 'Shared'
+    }
+    // Admin seeing a non-shared agent from another user
+    const owner = allUsers.find(u => u.id === agent.owner_id)
+    return owner ? `by ${owner.display_name}` : undefined
   }
 
   const filtered = agents.filter(a => {
@@ -1371,6 +1426,7 @@ export function AgentsPage() {
               agent={agent}
               connector={connectors.find(c => c.id === agent.llm_connector_id)}
               canManage={isAdmin || agent.owner_id === user?.id}
+              ownerLabel={ownerLabel(agent)}
               onConfigure={() => setConfiguring(agent)}
               onPolicies={() => setPolicyAgent(agent)}
               onDelete={() => handleDelete(agent.id)}

@@ -330,7 +330,7 @@ async fn handle_message(
     let assistant_content = match run_completion(
         state, &connector, cfg, &history, None, conv_id, user_id, true, timeout_secs,
     ).await {
-        Ok(text) => text,
+        Ok(cr) => cr.text,
         Err(e) => {
             tracing::error!("LLM completion failed for telegram: {e}");
             format!("Error: {e}")

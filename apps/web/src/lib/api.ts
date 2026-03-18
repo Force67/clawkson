@@ -325,7 +325,30 @@ export interface LlmConnector {
   model: string
   azure_deployment: string | null
   azure_api_version: string | null
+  shared_with_all: boolean
   created_at: string
+}
+
+// ── Token Usage & Access ──────────────────────────────────────────
+
+export interface TokenUsageSummary {
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface UserTokenUsage {
+  user_id: string
+  email: string
+  display_name: string
+  models: TokenUsageSummary[]
+}
+
+export interface LlmAccessEntry {
+  user_id: string
+  email: string
+  display_name: string
 }
 
 export interface Settings {
@@ -519,6 +542,7 @@ export interface CreateLlmConnectorRequest {
   model: string
   azure_deployment?: string
   azure_api_version?: string
+  shared_with_all?: boolean
 }
 
 export interface PatchLlmConnectorRequest {
@@ -529,6 +553,7 @@ export interface PatchLlmConnectorRequest {
   model?: string
   azure_deployment?: string
   azure_api_version?: string
+  shared_with_all?: boolean
 }
 
 export interface CreateConnectorRequest {
@@ -588,6 +613,16 @@ export const api = {
       request<User>(`/api/admin/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
     deleteUser: (id: string) =>
       request<void>(`/api/admin/users/${id}`, { method: 'DELETE' }),
+    getConnectorAccess: (id: string) =>
+      request<LlmAccessEntry[]>(`/api/admin/llm-connectors/${id}/access`),
+    setConnectorAccess: (id: string, user_ids: string[]) =>
+      request<void>(`/api/admin/llm-connectors/${id}/access`, {
+        method: 'PUT', body: JSON.stringify({ user_ids }),
+      }),
+    getUsage: (since?: string) =>
+      request<UserTokenUsage[]>(`/api/admin/usage${since ? `?since=${since}` : ''}`),
+    getUserUsage: (userId: string, since?: string) =>
+      request<TokenUsageSummary[]>(`/api/admin/usage/${userId}${since ? `?since=${since}` : ''}`),
   },
 
   shares: {

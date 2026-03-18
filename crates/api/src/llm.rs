@@ -9,10 +9,17 @@ use denkwerk::{
     },
     ChatMessage, CompletionRequest, FunctionRegistry, LLMProvider,
     MessageRole as DenkMessageRole, ReasoningEffort as DenkReasoningEffort, StreamEvent,
+    TokenUsage,
 };
 use futures::StreamExt;
 
 use crate::routes::conversations::ReasoningEffort;
+
+/// Result of an LLM completion, carrying both the text and optional token usage.
+pub struct CompletionResult {
+    pub text: String,
+    pub usage: Option<TokenUsage>,
+}
 
 /// Strip tool-call metadata artifacts that some models leak into text content.
 /// Some models (especially via Azure) emit tool calls as text rather than structured
@@ -214,12 +221,15 @@ pub async fn complete(
     max_tokens: Option<u32>,
     reasoning_effort: Option<&ReasoningEffort>,
     timeout_secs: u64,
-) -> Result<String> {
+) -> Result<CompletionResult> {
     let provider = build_provider(connector, timeout_secs)?;
     let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let response = provider.complete(request).await?;
 
-    Ok(response.message.content.unwrap_or_default())
+    Ok(CompletionResult {
+        text: response.message.content.unwrap_or_default(),
+        usage: response.usage,
+    })
 }
 
 /// Perform a completion with tool-calling loop.
@@ -234,7 +244,7 @@ pub async fn complete_with_tools(
     max_rounds: usize,
     reasoning_effort: Option<&ReasoningEffort>,
     timeout_secs: u64,
-) -> Result<String> {
+) -> Result<CompletionResult> {
     let provider = build_provider(connector, timeout_secs)?;
 
     // Build initial messages
@@ -253,6 +263,9 @@ pub async fn complete_with_tools(
         messages.push(msg);
     }
 
+    // Accumulate usage across all rounds
+    let mut total_usage = TokenUsage { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
     for _round in 0..max_rounds {
         let mut request = CompletionRequest::new(connector.model.clone(), messages.clone());
         request = request.with_function_registry(registry);
@@ -268,6 +281,12 @@ pub async fn complete_with_tools(
 
         let response = provider.complete(request).await?;
 
+        if let Some(u) = &response.usage {
+            total_usage.prompt_tokens += u.prompt_tokens;
+            total_usage.completion_tokens += u.completion_tokens;
+            total_usage.total_tokens += u.total_tokens;
+        }
+
         tracing::debug!(
             "LLM round {}: tool_calls={}, content_len={}",
             _round,
@@ -277,7 +296,10 @@ pub async fn complete_with_tools(
 
         if response.message.tool_calls.is_empty() {
             // No tool calls — return the text response
-            return Ok(sanitize_tool_artifacts(&response.message.content.unwrap_or_default()));
+            return Ok(CompletionResult {
+                text: sanitize_tool_artifacts(&response.message.content.unwrap_or_default()),
+                usage: Some(total_usage),
+            });
         }
 
         // Add the assistant message with tool calls
@@ -318,7 +340,15 @@ pub async fn complete_with_tools(
     // If we exhausted rounds, do one final completion without tools
     let request = CompletionRequest::new(connector.model.clone(), messages);
     let response = provider.complete(request).await?;
-    Ok(sanitize_tool_artifacts(&response.message.content.unwrap_or_default()))
+    if let Some(u) = &response.usage {
+        total_usage.prompt_tokens += u.prompt_tokens;
+        total_usage.completion_tokens += u.completion_tokens;
+        total_usage.total_tokens += u.total_tokens;
+    }
+    Ok(CompletionResult {
+        text: sanitize_tool_artifacts(&response.message.content.unwrap_or_default()),
+        usage: Some(total_usage),
+    })
 }
 
 // ── Tool-event helpers ──────────────────────────────────────────────
@@ -467,7 +497,7 @@ pub async fn complete_with_tools_streaming(
     tx: &tokio::sync::mpsc::Sender<String>,
     workspace_path: Option<std::path::PathBuf>,
     cancel: tokio_util::sync::CancellationToken,
-) -> Result<String> {
+) -> Result<CompletionResult> {
     let provider = build_provider(connector, timeout_secs)?;
 
     let mut messages = Vec::new();
@@ -485,11 +515,13 @@ pub async fn complete_with_tools_streaming(
         messages.push(msg);
     }
 
+    let mut total_usage = TokenUsage { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
     for round in 0..max_rounds {
         // Check cancellation between rounds
         if cancel.is_cancelled() {
             tracing::info!("tool loop cancelled by client at round {round}");
-            return Ok("[Response stopped by user]".to_string());
+            return Ok(CompletionResult { text: "[Response stopped by user]".to_string(), usage: Some(total_usage) });
         }
 
         let mut request = CompletionRequest::new(connector.model.clone(), messages.clone());
@@ -510,9 +542,15 @@ pub async fn complete_with_tools_streaming(
             res = provider.complete(request) => res?,
             _ = cancel.cancelled() => {
                 tracing::info!("LLM call cancelled by client during round {round}");
-                return Ok("[Response stopped by user]".to_string());
+                return Ok(CompletionResult { text: "[Response stopped by user]".to_string(), usage: Some(total_usage) });
             }
         };
+
+        if let Some(u) = &response.usage {
+            total_usage.prompt_tokens += u.prompt_tokens;
+            total_usage.completion_tokens += u.completion_tokens;
+            total_usage.total_tokens += u.total_tokens;
+        }
 
         tracing::debug!(
             "LLM round {}: tool_calls={}, content_len={}",
@@ -528,7 +566,7 @@ pub async fn complete_with_tools_streaming(
                 let _ = tx.try_send(line.to_string());
             }
             // If text doesn't end with newline, the last chunk was already sent
-            return Ok(text);
+            return Ok(CompletionResult { text, usage: Some(total_usage) });
         }
 
         // Add the assistant message with tool calls
@@ -543,7 +581,7 @@ pub async fn complete_with_tools_streaming(
             // Check cancellation before each tool invocation
             if cancel.is_cancelled() {
                 tracing::info!("tool loop cancelled before invoking {}", call.function.name);
-                return Ok("[Response stopped by user]".to_string());
+                return Ok(CompletionResult { text: "[Response stopped by user]".to_string(), usage: Some(total_usage) });
             }
 
             let call_id = call
@@ -614,20 +652,25 @@ pub async fn complete_with_tools_streaming(
 
     // Exhausted rounds — final completion without tools
     if cancel.is_cancelled() {
-        return Ok("[Response stopped by user]".to_string());
+        return Ok(CompletionResult { text: "[Response stopped by user]".to_string(), usage: Some(total_usage) });
     }
     let request = CompletionRequest::new(connector.model.clone(), messages);
     let response = tokio::select! {
         res = provider.complete(request) => res?,
         _ = cancel.cancelled() => {
-            return Ok("[Response stopped by user]".to_string());
+            return Ok(CompletionResult { text: "[Response stopped by user]".to_string(), usage: Some(total_usage) });
         }
     };
+    if let Some(u) = &response.usage {
+        total_usage.prompt_tokens += u.prompt_tokens;
+        total_usage.completion_tokens += u.completion_tokens;
+        total_usage.total_tokens += u.total_tokens;
+    }
     let text = sanitize_tool_artifacts(&response.message.content.unwrap_or_default());
     for line in text.split_inclusive('\n') {
         let _ = tx.try_send(line.to_string());
     }
-    Ok(text)
+    Ok(CompletionResult { text, usage: Some(total_usage) })
 }
 
 /// After a successful `code_execution` tool call, scan output_files for images
@@ -717,12 +760,13 @@ pub async fn stream_complete(
     timeout_secs: u64,
     mut on_chunk: impl FnMut(String),
     mut on_reasoning: impl FnMut(String),
-) -> Result<String> {
+) -> Result<CompletionResult> {
     let provider = build_provider(connector, timeout_secs)?;
     let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
     let mut stream = provider.stream_completion(request).await?;
     let mut full_text = String::new();
     let mut completed_text: Option<String> = None;
+    let mut usage: Option<TokenUsage> = None;
 
     while let Some(event) = stream.next().await {
         match event? {
@@ -735,14 +779,16 @@ pub async fn stream_complete(
             }
             StreamEvent::Completed(response) => {
                 completed_text = response.message.content;
+                usage = response.usage;
             }
             StreamEvent::ToolCallDelta { .. } => {}
         }
     }
 
-    if full_text.is_empty() {
-        Ok(completed_text.unwrap_or_default())
+    let text = if full_text.is_empty() {
+        completed_text.unwrap_or_default()
     } else {
-        Ok(full_text)
-    }
+        full_text
+    };
+    Ok(CompletionResult { text, usage })
 }

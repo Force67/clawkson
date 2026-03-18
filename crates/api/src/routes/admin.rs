@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
 };
-use clawkson_core::{User, UserRole};
+use chrono::{Duration, Utc};
+use clawkson_core::{LlmAccessEntry, TokenUsageSummary, User, UserRole, UserTokenUsage};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -16,6 +17,12 @@ pub fn router() -> Router<AppState> {
         .route("/users", get(list_users))
         .route("/users/{id}/role", axum::routing::patch(update_user_role))
         .route("/users/{id}", axum::routing::delete(delete_user))
+        .route(
+            "/llm-connectors/{id}/access",
+            get(get_connector_access).put(set_connector_access),
+        )
+        .route("/usage", get(get_usage))
+        .route("/usage/{user_id}", get(get_user_usage))
 }
 
 /// GET /api/admin/users — list all users (admin only)
@@ -92,6 +99,156 @@ async fn delete_user(
         Ok(false) => StatusCode::NOT_FOUND,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
+}
+
+// ── LLM Connector Access ────────────────────────────────────────
+
+/// GET /api/admin/llm-connectors/{id}/access — list users with access
+async fn get_connector_access(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<LlmAccessEntry>>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let user_ids = clawkson_db::llm_connector::list_access(&state.db, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let pool = state.db.pool();
+    let mut entries = Vec::with_capacity(user_ids.len());
+    for uid in user_ids {
+        if let Ok(Some(row)) = clawkson_db::user::get_by_id(pool, uid).await {
+            entries.push(LlmAccessEntry {
+                user_id: row.id,
+                email: row.email,
+                display_name: row.display_name,
+            });
+        }
+    }
+
+    Ok(Json(entries))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAccessRequest {
+    pub user_ids: Vec<Uuid>,
+}
+
+/// PUT /api/admin/llm-connectors/{id}/access — replace access list
+async fn set_connector_access(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetAccessRequest>,
+) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    // Verify connector exists
+    match clawkson_db::llm_connector::get_by_id(&state.db, id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    }
+
+    match clawkson_db::llm_connector::set_access(&state.db, id, &req.user_ids).await {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+// ── Token Usage ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct UsageQuery {
+    /// Time range filter: "24h", "7d", "30d", or omit for all time.
+    pub since: Option<String>,
+}
+
+fn parse_since(s: &str) -> Option<chrono::DateTime<Utc>> {
+    let now = Utc::now();
+    match s {
+        "24h" => Some(now - Duration::hours(24)),
+        "7d" => Some(now - Duration::days(7)),
+        "30d" => Some(now - Duration::days(30)),
+        _ => None,
+    }
+}
+
+/// GET /api/admin/usage — per-user, per-model token usage summary
+async fn get_usage(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Query(q): Query<UsageQuery>,
+) -> Result<Json<Vec<UserTokenUsage>>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let since = q.since.as_deref().and_then(parse_since);
+    let rows = clawkson_db::token_usage::get_all_users_summary(&state.db, since)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Group by user_id
+    let mut map: std::collections::HashMap<Uuid, UserTokenUsage> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let entry = map.entry(row.user_id).or_insert_with(|| UserTokenUsage {
+            user_id: row.user_id,
+            email: row.email.clone(),
+            display_name: row.display_name.clone(),
+            models: Vec::new(),
+        });
+        entry.models.push(TokenUsageSummary {
+            model: row.model,
+            prompt_tokens: row.prompt_tokens,
+            completion_tokens: row.completion_tokens,
+            total_tokens: row.total_tokens,
+        });
+    }
+
+    let mut result: Vec<UserTokenUsage> = map.into_values().collect();
+    result.sort_by(|a, b| {
+        let a_total: i64 = a.models.iter().map(|m| m.total_tokens).sum();
+        let b_total: i64 = b.models.iter().map(|m| m.total_tokens).sum();
+        b_total.cmp(&a_total)
+    });
+
+    Ok(Json(result))
+}
+
+/// GET /api/admin/usage/{user_id} — single user's usage breakdown
+async fn get_user_usage(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<Uuid>,
+    Query(q): Query<UsageQuery>,
+) -> Result<Json<Vec<TokenUsageSummary>>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let since = q.since.as_deref().and_then(parse_since);
+    let rows = clawkson_db::token_usage::get_user_summary(&state.db, user_id, since)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let summaries: Vec<TokenUsageSummary> = rows
+        .into_iter()
+        .map(|r| TokenUsageSummary {
+            model: r.model,
+            prompt_tokens: r.prompt_tokens,
+            completion_tokens: r.completion_tokens,
+            total_tokens: r.total_tokens,
+        })
+        .collect();
+
+    Ok(Json(summaries))
 }
 
 fn row_to_user(row: &clawkson_db::user::UserRow) -> User {

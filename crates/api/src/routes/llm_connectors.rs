@@ -28,6 +28,7 @@ pub struct CreateLlmConnectorRequest {
     pub model: String,
     pub azure_deployment: Option<String>,
     pub azure_api_version: Option<String>,
+    pub shared_with_all: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +40,7 @@ pub struct PatchLlmConnectorRequest {
     pub model: Option<String>,
     pub azure_deployment: Option<String>,
     pub azure_api_version: Option<String>,
+    pub shared_with_all: Option<bool>,
 }
 
 fn row_to_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> LlmConnector {
@@ -56,6 +58,7 @@ fn row_to_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> LlmConn
         model: row.model,
         azure_deployment: row.azure_deployment,
         azure_api_version: row.azure_api_version,
+        shared_with_all: row.shared_with_all,
         created_at: row.created_at,
     }
 }
@@ -69,10 +72,13 @@ fn provider_to_db(p: &LlmProviderType) -> clawkson_db::llm_connector::LlmProvide
     }
 }
 
-async fn list(_auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<LlmConnector>>, StatusCode> {
-    let rows = clawkson_db::llm_connector::list_all(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn list(auth: AuthUser, State(state): State<AppState>) -> Result<Json<Vec<LlmConnector>>, StatusCode> {
+    let rows = if auth.is_admin() {
+        clawkson_db::llm_connector::list_all(&state.db).await
+    } else {
+        clawkson_db::llm_connector::list_for_user(&state.db, auth.id()).await
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let connectors: Vec<LlmConnector> = rows
         .into_iter()
         .map(row_to_connector)
@@ -150,6 +156,13 @@ async fn patch(
 ) -> Result<Json<LlmConnector>, StatusCode> {
     if !auth.is_admin() {
         return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Handle shared_with_all separately since it's a new column
+    if let Some(shared) = req.shared_with_all {
+        clawkson_db::llm_connector::set_shared_with_all(&state.db, id, shared)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     let row = clawkson_db::llm_connector::update(
@@ -240,6 +253,7 @@ async fn test_connection(
         model: req.model,
         azure_deployment: req.azure_deployment,
         azure_api_version: req.azure_api_version,
+        shared_with_all: true,
         created_at: Utc::now(),
     };
 
