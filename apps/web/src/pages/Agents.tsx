@@ -3,7 +3,7 @@ import {
   Bot, Plus, Settings2, Trash2, Check, ChevronDown, ChevronRight,
   Loader2, Cpu, Thermometer, Hash, Container, RotateCw,
   BookOpen, Zap, Search, Filter, Share2,
-  Shield, HardDrive, Terminal, Database, Globe, X, GitBranch,
+  Shield, HardDrive, Terminal, Database, Globe, X, GitBranch, KeyRound,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -17,6 +17,7 @@ import {
   type LlmProviderType,
   type KnowledgeBase,
   type Skill,
+  type Credential,
   type Connector,
   type User,
   type AgentStatus,
@@ -420,11 +421,12 @@ interface ConfigPanelProps {
   connectors: LlmConnector[]
   knowledgeBases: KnowledgeBase[]
   skills: Skill[]
+  credentials: Credential[]
   onSave: (updated: Agent) => void
   onClose: () => void
 }
 
-function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClose }: ConfigPanelProps) {
+function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, onSave, onClose }: ConfigPanelProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [name, setName] = useState(agent.name)
@@ -457,6 +459,8 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
   const [kbLoading, setKbLoading] = useState(true)
   const [linkedSkillIds, setLinkedSkillIds] = useState<Set<string>>(new Set())
   const [skillLoading, setSkillLoading] = useState(true)
+  const [linkedCredentialIds, setLinkedCredentialIds] = useState<Set<string>>(new Set())
+  const [credentialLoading, setCredentialLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -492,8 +496,9 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
     const fetchLinked = async () => {
       setKbLoading(true)
       setSkillLoading(true)
+      setCredentialLoading(true)
       try {
-        const [kbLinked, skillLinked] = await Promise.all([
+        const [kbLinked, skillLinked, credLinked] = await Promise.all([
           (async () => {
             const linked = new Set<string>()
             await Promise.all(
@@ -505,21 +510,24 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
             return linked
           })(),
           api.agentSkills.list(agent.id).then(ids => new Set(ids)),
+          api.agentCredentials.list(agent.id).then(creds => new Set(creds.map(c => c.id))),
         ])
         if (!cancelled) {
           setLinkedKbIds(kbLinked)
           setLinkedSkillIds(skillLinked)
+          setLinkedCredentialIds(credLinked)
         }
       } finally {
         if (!cancelled) {
           setKbLoading(false)
           setSkillLoading(false)
+          setCredentialLoading(false)
         }
       }
     }
     fetchLinked()
     return () => { cancelled = true }
-  }, [agent.id, knowledgeBases, skills])
+  }, [agent.id, knowledgeBases, skills, credentials])
 
   const handleKbToggle = async (kbId: string) => {
     const isLinked = linkedKbIds.has(kbId)
@@ -548,6 +556,21 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
       }
     } catch (err) {
       console.error('Failed to toggle skill:', err)
+    }
+  }
+
+  const handleCredentialToggle = async (credentialId: string) => {
+    const isLinked = linkedCredentialIds.has(credentialId)
+    try {
+      if (isLinked) {
+        await api.agentCredentials.unlink(agent.id, credentialId)
+        setLinkedCredentialIds(prev => { const next = new Set(prev); next.delete(credentialId); return next })
+      } else {
+        await api.agentCredentials.link(agent.id, credentialId)
+        setLinkedCredentialIds(prev => new Set(prev).add(credentialId))
+      }
+    } catch (err) {
+      console.error('Failed to toggle credential:', err)
     }
   }
 
@@ -1166,6 +1189,28 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, onSave, onClos
             <p className={styles.fieldHint}>Linked skills can be activated with /skill-name in chat.</p>
           </div>
 
+          <div className={styles.fieldSection}>
+            <h4 className={styles.fieldSectionTitle}>Credentials</h4>
+            {credentials.length === 0 ? (
+              <p className={styles.fieldHint}>No credentials available. Create one in the Credentials page.</p>
+            ) : credentialLoading ? (
+              <div className={styles.linkedLoading}><Loader2 size={13} className={styles.spinning} /><span>Loading...</span></div>
+            ) : (
+              <div className={styles.linkedList}>
+                {credentials.map(cred => (
+                  <label key={cred.id} className={styles.linkedItem}>
+                    <input type="checkbox" className={styles.checkbox} checked={linkedCredentialIds.has(cred.id)} onChange={() => handleCredentialToggle(cred.id)} />
+                    <div className={styles.linkedItemInfo}>
+                      <span className={styles.linkedItemName}><KeyRound size={11} /> {cred.name}</span>
+                      <span className={styles.linkedItemMeta}>{cred.credential_type}{cred.description ? ` — ${cred.description}` : ''}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className={styles.fieldHint}>Linked credentials are available as $CREDENTIAL_NAME env vars in containers and via authenticated_http.</p>
+          </div>
+
           {error && <p className={styles.errorMsg}>{error}</p>}
 
           <div className={styles.panelActions}>
@@ -1342,6 +1387,7 @@ export function AgentsPage() {
   const [policyPresets, setPolicyPresets] = useState<PolicyPreset[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
+  const [credentials, setCredentials] = useState<Credential[]>([])
   const [allUsers, setAllUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -1358,18 +1404,20 @@ export function AgentsPage() {
       api.skills.list(),
       api.connectors.list(),
       api.policyPresets.list(),
+      api.credentials.list(),
     ]
     // Admins load user list to show creator names
     if (isAdmin) promises.push(api.admin.listUsers())
 
     Promise.all(promises)
-      .then(([agts, conns, kbs, sks, platConns, presets, users]) => {
+      .then(([agts, conns, kbs, sks, platConns, presets, creds, users]) => {
         setAgents(agts as Agent[])
         setConnectors(conns as LlmConnector[])
         setKnowledgeBases(kbs as KnowledgeBase[])
         setSkills(sks as Skill[])
         setPlatformConnectors(platConns as Connector[])
         setPolicyPresets(presets as PolicyPreset[])
+        setCredentials(creds as Credential[])
         if (users) setAllUsers(users as User[])
       })
       .finally(() => setLoading(false))
@@ -1511,6 +1559,7 @@ export function AgentsPage() {
           connectors={connectors}
           knowledgeBases={knowledgeBases}
           skills={skills}
+          credentials={credentials}
           onSave={handleUpdate}
           onClose={() => setConfiguring(null)}
         />

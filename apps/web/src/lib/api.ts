@@ -317,6 +317,44 @@ export interface AgentSkillInfo {
   description: string
 }
 
+// ── Credentials ───────────────────────────────────────────────────
+
+export type CredentialType = 'api_key' | 'password' | 'token' | 'secret' | 'header'
+
+export interface Credential {
+  id: string
+  owner_id: string
+  name: string
+  description: string
+  credential_type: CredentialType
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCredentialRequest {
+  name: string
+  description?: string
+  credential_type?: CredentialType
+  value: string
+  metadata?: Record<string, unknown>
+}
+
+export interface PatchCredentialRequest {
+  name?: string
+  description?: string
+  credential_type?: CredentialType
+  value?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface AgentCredentialInfo {
+  id: string
+  name: string
+  description: string
+  credential_type: string
+}
+
 export type LlmProviderType = 'azure' | 'open_router' | 'open_ai' | 'custom'
 
 export interface LlmConnector {
@@ -765,6 +803,26 @@ export const api = {
     unlink: (agentId: string, skillId: string) =>
       request<void>(`/api/agents/${agentId}/skills/${skillId}`, { method: 'DELETE' }),
     full: (agentId: string) => request<AgentSkillInfo[]>(`/api/agents/${agentId}/skills/full`),
+  },
+
+  credentials: {
+    list: () => request<Credential[]>('/api/credentials'),
+    get: (id: string) => request<Credential>(`/api/credentials/${id}`),
+    create: (body: CreateCredentialRequest) =>
+      request<Credential>('/api/credentials', { method: 'POST', body: JSON.stringify(body) }),
+    patch: (id: string, body: PatchCredentialRequest) =>
+      request<Credential>(`/api/credentials/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/credentials/${id}`, { method: 'DELETE' }),
+    listAgents: (id: string) => request<string[]>(`/api/credentials/${id}/agents`),
+  },
+
+  agentCredentials: {
+    list: (agentId: string) => request<AgentCredentialInfo[]>(`/api/agents/${agentId}/credentials`),
+    link: (agentId: string, credentialId: string) =>
+      request<void>(`/api/agents/${agentId}/credentials`, { method: 'POST', body: JSON.stringify({ credential_id: credentialId }) }),
+    unlink: (agentId: string, credentialId: string) =>
+      request<void>(`/api/agents/${agentId}/credentials/${credentialId}`, { method: 'DELETE' }),
   },
 
   tools: {

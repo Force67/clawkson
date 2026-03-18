@@ -8,6 +8,7 @@ pub mod calendar_share;
 pub mod chat_attachment;
 pub mod connector;
 pub mod conversation;
+pub mod credential;
 pub mod message;
 pub mod user;
 pub mod session;

@@ -12,6 +12,7 @@ use clawkson_core::{Conversation, LlmConnector, LlmProviderType, Message, Messag
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::AuthUser;
@@ -711,7 +712,12 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         .map(|s| s.agent_base_prompt.as_str())
         .unwrap_or("");
 
-    let mut system_prompt = build_system_prompt_with_skills(base_prompt, row.system_prompt.as_deref(), &skills);
+    // Load linked credentials (summaries only — no values)
+    let credentials = clawkson_db::credential::agent_list_credentials(state.db.pool(), row.id)
+        .await
+        .unwrap_or_default();
+
+    let mut system_prompt = build_system_prompt_with_skills(base_prompt, row.system_prompt.as_deref(), &skills, &credentials);
 
     // Append container/sandbox awareness instructions when the agent has a container
     let container_config: Option<clawkson_core::AgentContainerConfig> =
@@ -821,6 +827,7 @@ fn build_system_prompt_with_skills(
     base_prompt: &str,
     agent_prompt: Option<&str>,
     skills: &[clawkson_db::skill::SkillRow],
+    credentials: &[clawkson_db::credential::CredentialSummary],
 ) -> Option<String> {
     let mut parts: Vec<&str> = Vec::new();
 
@@ -833,8 +840,8 @@ fn build_system_prompt_with_skills(
         }
     }
 
-    // If no base or agent prompt and no skills, return None (no system message at all)
-    if parts.is_empty() && skills.is_empty() {
+    // If no base or agent prompt, no skills, and no credentials, return None
+    if parts.is_empty() && skills.is_empty() && credentials.is_empty() {
         return None;
     }
 
@@ -854,6 +861,25 @@ fn build_system_prompt_with_skills(
             ));
         }
         prompt.push_str("</available-skills>");
+    }
+
+    if !credentials.is_empty() {
+        if !prompt.is_empty() {
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str("<available-credentials>\n");
+        prompt.push_str("You have access to the following credentials. NEVER ask the user for these values — they are injected automatically.\n");
+        prompt.push_str("To use a credential in code, read the environment variable $CREDENTIAL_{name} (with hyphens replaced by underscores, uppercased).\n");
+        prompt.push_str("To use a credential with authenticated_http, pass the credential_name parameter.\n\n");
+        for cred in credentials {
+            let desc = if cred.description.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", cred.description)
+            };
+            prompt.push_str(&format!("- {} ({}){}\n", cred.name, cred.credential_type, desc));
+        }
+        prompt.push_str("</available-credentials>");
     }
 
     Some(prompt)
@@ -1201,8 +1227,21 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
             }
             let workspace_root = cm.workspace_root().to_path_buf();
 
+            // Resolve credential values for env var injection into the container.
+            // These are the actual secret values — they never appear in LLM context.
+            let credential_env: std::collections::HashMap<String, String> = {
+                let creds = clawkson_db::credential::agent_resolve_all_credentials(state.db.pool(), agent_cfg.agent_id)
+                    .await
+                    .unwrap_or_default();
+                creds.into_iter().map(|c| {
+                    let env_name = format!("CREDENTIAL_{}", c.name.replace('-', "_").to_uppercase());
+                    (env_name, c.encrypted_value)
+                }).collect()
+            };
+
             let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone())
-                .with_persistent(is_persistent);
+                .with_persistent(is_persistent)
+                .with_credentials(credential_env);
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
 
@@ -1343,14 +1382,45 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
             }
         }
 
-        if !http_connectors.is_empty() {
-            let tool = crate::tools::AuthenticatedHttpTool::new(http_connectors);
+        // Check if agent has any linked credentials — if so, build a resolver
+        let has_credentials = clawkson_db::credential::agent_list_credentials(state.db.pool(), agent_cfg.agent_id)
+            .await
+            .map(|c| !c.is_empty())
+            .unwrap_or(false);
+
+        if !http_connectors.is_empty() || has_credentials {
+            let mut tool = crate::tools::AuthenticatedHttpTool::new(http_connectors);
+
+            if has_credentials {
+                let resolver = AgentCredentialResolver {
+                    pool: state.db.pool().clone(),
+                    agent_id: agent_cfg.agent_id,
+                };
+                tool = tool.with_credential_resolver(Arc::new(resolver));
+            }
+
             let guarded = crate::permission_guard::GuardedHttpTool::new(tool.into_dyn(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
         }
     }
 
     registry
+}
+
+/// Resolves credential values for a given agent from the database.
+struct AgentCredentialResolver {
+    pool: clawkson_db::PgPool,
+    agent_id: Uuid,
+}
+
+#[async_trait::async_trait]
+impl crate::tools::http_tool::CredentialResolver for AgentCredentialResolver {
+    async fn resolve(&self, credential_name: &str) -> Option<clawkson_db::credential::CredentialRow> {
+        clawkson_db::credential::agent_resolve_credential(&self.pool, self.agent_id, credential_name)
+            .await
+            .ok()
+            .flatten()
+    }
 }
 
 /// Rough token estimate: ~4 chars per token for English text.

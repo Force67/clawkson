@@ -18,6 +18,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/skills", get(list_agent_skills).post(link_agent_skill))
         .route("/{id}/skills/full", get(list_agent_skills_full))
         .route("/{id}/skills/{skill_id}", axum::routing::delete(unlink_agent_skill))
+        .route("/{id}/credentials", get(list_agent_credentials).post(link_agent_credential))
+        .route("/{id}/credentials/{credential_id}", axum::routing::delete(unlink_agent_credential))
 }
 
 #[derive(Debug, Deserialize)]
@@ -332,6 +334,78 @@ async fn unlink_agent_skill(
     }
 
     match clawkson_db::skill::agent_unlink(state.db.pool(), id, skill_id).await {
+        Ok(_) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+// ── Agent ↔ Credential linking ──────────────────────────────────
+
+#[derive(Serialize)]
+struct AgentCredentialInfo {
+    id: Uuid,
+    name: String,
+    description: String,
+    credential_type: String,
+}
+
+async fn list_agent_credentials(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<AgentCredentialInfo>>, StatusCode> {
+    let creds = clawkson_db::credential::agent_list_credentials(state.db.pool(), id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(creds.into_iter().map(|c| AgentCredentialInfo {
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        credential_type: c.credential_type,
+    }).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkCredentialRequest {
+    pub credential_id: Uuid,
+}
+
+async fn link_agent_credential(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<LinkCredentialRequest>,
+) -> StatusCode {
+    let existing = match clawkson_db::agent::get_by_id(&state.db, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
+        return StatusCode::FORBIDDEN;
+    }
+
+    match clawkson_db::credential::agent_link(state.db.pool(), id, req.credential_id).await {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+async fn unlink_agent_credential(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path((id, credential_id)): Path<(Uuid, Uuid)>,
+) -> StatusCode {
+    let existing = match clawkson_db::agent::get_by_id(&state.db, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    if !can_manage_agent(&existing, auth.id(), auth.is_admin()) {
+        return StatusCode::FORBIDDEN;
+    }
+
+    match clawkson_db::credential::agent_unlink(state.db.pool(), id, credential_id).await {
         Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }

@@ -17,6 +17,7 @@ import {
   Disc3,
   LogOut,
   ShieldCheck,
+  KeyRound,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import styles from './Sidebar.module.css'
@@ -55,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/skills', label: 'Skills', icon: Sparkles },
       { path: '/tools', label: 'Tools', icon: Cog },
       { path: '/connectors', label: 'Connectors', icon: Cable },
+      { path: '/credentials', label: 'Credentials', icon: KeyRound },
     ],
   },
   {

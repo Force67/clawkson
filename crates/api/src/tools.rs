@@ -26,6 +26,8 @@ pub struct CodeExecutionTool {
     container_manager: Arc<ContainerManager>,
     workspace_root: std::path::PathBuf,
     persistent: bool,
+    /// Credential env vars injected into exec commands (CREDENTIAL_NAME=value).
+    credential_env: std::collections::HashMap<String, String>,
 }
 
 impl CodeExecutionTool {
@@ -36,11 +38,17 @@ impl CodeExecutionTool {
             container_manager,
             workspace_root,
             persistent: false,
+            credential_env: std::collections::HashMap::new(),
         }
     }
 
     pub fn with_persistent(mut self, persistent: bool) -> Self {
         self.persistent = persistent;
+        self
+    }
+
+    pub fn with_credentials(mut self, env: std::collections::HashMap<String, String>) -> Self {
+        self.credential_env = env;
         self
     }
 
@@ -125,6 +133,16 @@ impl KernelFunction for CodeExecutionTool {
                     "error": format!("Unsupported language: {other}. Use 'python' or 'bash'.")
                 }));
             }
+        };
+
+        // Inject credential env vars as exports prepended to the command
+        let command = if self.credential_env.is_empty() {
+            command
+        } else {
+            let exports: Vec<String> = self.credential_env.iter()
+                .map(|(k, v)| format!("export {}={}", k, shell_escape(v)))
+                .collect();
+            format!("{}; {}", exports.join("; "), command)
         };
 
         let request = ExecRequest {
@@ -1065,14 +1083,26 @@ pub mod http_tool {
         pub config: serde_json::Value,
     }
 
+    /// Trait for resolving credential values at invocation time.
+    #[async_trait::async_trait]
+    pub trait CredentialResolver: Send + Sync {
+        async fn resolve(&self, credential_name: &str) -> Option<clawkson_db::credential::CredentialRow>;
+    }
+
     /// A tool that makes authenticated HTTP requests using connector credentials.
     pub struct AuthenticatedHttpTool {
         connectors: Vec<ConnectorAuth>,
+        credential_resolver: Option<Arc<dyn CredentialResolver>>,
     }
 
     impl AuthenticatedHttpTool {
         pub fn new(connectors: Vec<ConnectorAuth>) -> Self {
-            Self { connectors }
+            Self { connectors, credential_resolver: None }
+        }
+
+        pub fn with_credential_resolver(mut self, resolver: Arc<dyn CredentialResolver>) -> Self {
+            self.credential_resolver = Some(resolver);
+            self
         }
 
         pub fn into_dyn(self) -> DynKernelFunction {
@@ -1123,6 +1153,9 @@ pub mod http_tool {
         headers: Option<serde_json::Map<String, Value>>,
         #[serde(default)]
         body: Option<Value>,
+        /// Optional credential name to use for auth instead of/in addition to connector.
+        #[serde(default)]
+        credential_name: Option<String>,
     }
 
     #[async_trait::async_trait]
@@ -1184,6 +1217,15 @@ pub mod http_tool {
                     .optional(),
             );
 
+            def.add_parameter(
+                FunctionParameter::new(
+                    "credential_name",
+                    serde_json::json!({ "type": "string" }),
+                )
+                .with_description("Optional: name of a credential from <available-credentials> to use for authentication instead of connector auth. The credential value is injected automatically as a Bearer token.")
+                .optional(),
+            );
+
             def
         }
 
@@ -1232,8 +1274,37 @@ pub mod http_tool {
 
             let mut builder = client.request(method, &args.url);
 
-            // Apply connector auth
-            builder = self.apply_auth(auth, builder);
+            // Apply credential-based auth if credential_name is provided
+            let mut credential_applied = false;
+            if let Some(ref cred_name) = args.credential_name {
+                if let Some(ref resolver) = self.credential_resolver {
+                    if let Some(cred) = resolver.resolve(cred_name).await {
+                        match cred.credential_type.as_str() {
+                            "header" => {
+                                // Header type: use metadata for header_name + value
+                                let header_name = cred.metadata.get("header_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Authorization");
+                                builder = builder.header(header_name, &cred.encrypted_value);
+                            }
+                            _ => {
+                                // api_key, token, password, secret — use as Bearer token
+                                builder = builder.bearer_auth(&cred.encrypted_value);
+                            }
+                        }
+                        credential_applied = true;
+                    } else {
+                        return Ok(serde_json::json!({
+                            "error": format!("Credential '{}' not found or not linked to this agent", cred_name)
+                        }));
+                    }
+                }
+            }
+
+            // Apply connector auth (fallback if no credential was applied)
+            if !credential_applied {
+                builder = self.apply_auth(auth, builder);
+            }
 
             // Apply custom headers
             if let Some(headers) = &args.headers {

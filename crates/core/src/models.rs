@@ -514,6 +514,21 @@ pub struct Skill {
     pub updated_at: DateTime<Utc>,
 }
 
+// ── Credential ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Credential {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub credential_type: String,
+    // NOTE: value is NEVER included in the API-facing model
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 // ── Connector ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

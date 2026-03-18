@@ -17,6 +17,7 @@ import { DocsPage } from './pages/Docs'
 import { CalendarPage } from './pages/Calendar'
 import { ProfilePage } from './pages/Profile'
 import { ScheduledTasksPage } from './pages/ScheduledTasks'
+import { CredentialsPage } from './pages/Credentials'
 
 function ThemeLoader() {
   useEffect(() => {
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="/tools" element={<ToolsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="/containers" element={<ContainersPage />} />
+        <Route path="/credentials" element={<CredentialsPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
         <Route path="/settings" element={<SettingsPage />} />
