@@ -24,7 +24,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", get(get_conversation).patch(patch_conversation).delete(delete_conversation))
         .route("/{id}/messages", get(list_messages).post(send_message).delete(clear_messages))
         .route("/{id}/chat", axum::routing::post(chat))
-        .route("/{id}/chat/stream", axum::routing::post(chat_stream))
+        .route("/{id}/chat/stream", axum::routing::post(chat_stream).get(subscribe_stream))
+        .route("/{id}/chat/stop", axum::routing::post(stop_generation))
 }
 
 // ── Request / Response types ───────────────────────────────────────
@@ -2014,12 +2015,34 @@ async fn chat_stream(
         .map(|s| s.llm_request_timeout_secs as u64)
         .unwrap_or(120);
 
-    // Stream via channel — messages are prefixed to distinguish type:
-    //   "\x01" + text  = reasoning delta
-    //   "\x00DONE:id"  = completion sentinel
-    //   anything else  = message delta
-    let (tx, mut rx) = mpsc::channel::<String>(64);
-    let cancel_token = tokio_util::sync::CancellationToken::new();
+    // ── Generation registry: decouple LLM work from SSE connection ──
+    //
+    // 1. Register this generation in the shared registry (gets broadcast tx + buffer + cancel token).
+    // 2. Spawn a task that does the LLM work, sends chunks via mpsc → forwarder → broadcast + buffer.
+    // 3. The SSE stream subscribes to the broadcast — disconnection no longer cancels the generation.
+    // 4. Clients can reconnect via GET /{id}/chat/stream and stop via POST /{id}/chat/stop.
+
+    let (bcast_tx, bcast_buffer, cancel_token) = state.generations.start(conv_id);
+
+    // Internal mpsc for the spawned task (convenient for try_send with backpressure)
+    let (tx, mut fwd_rx) = mpsc::channel::<String>(64);
+
+    // Forwarder: mpsc → broadcast + buffer
+    {
+        let bcast_tx = bcast_tx.clone();
+        let bcast_buffer = bcast_buffer.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = fwd_rx.recv().await {
+                // Append to catchup buffer
+                {
+                    let mut buf = bcast_buffer.lock().unwrap();
+                    buf.push(msg.clone());
+                }
+                // Send to all broadcast subscribers (ignore errors — no receivers is OK)
+                let _ = bcast_tx.send(msg);
+            }
+        });
+    }
 
     // Register the delegation tool for sub-agent coordination (with streaming tx)
     {
@@ -2063,6 +2086,7 @@ async fn chat_stream(
             )
             .await
         } else {
+            let cancel_for_stream = cancel_token.clone();
             crate::llm::stream_complete(
                 &connector,
                 system_prompt.as_deref(),
@@ -2073,6 +2097,7 @@ async fn chat_stream(
                 timeout_secs,
                 |chunk| { let _ = tx.try_send(chunk); },
                 |reasoning| { let _ = tx.try_send(format!("\x01{reasoning}")); },
+                cancel_for_stream,
             )
             .await
         };
@@ -2133,39 +2158,119 @@ async fn chat_stream(
         }
 
         let _ = tx.try_send(format!("\x00DONE:{msg_id}"));
+
+        // Remove from active generations registry now that we're done
+        state2.generations.finish(conv_id);
     });
 
-    // The drop guard cancels the token when the stream is dropped — this fires
-    // whether the stream completes normally OR Axum drops it because the client
-    // disconnected.  The explicit cancel() at the end of the loop would never
-    // run on disconnect because the generator is killed mid-yield.
-    let cancel_guard = cancel_token.drop_guard();
+    // Subscribe to the broadcast for this SSE connection
+    let mut bcast_rx = bcast_tx.subscribe();
 
     let sse_stream = async_stream::stream! {
-        // Move the guard into the generator so it lives (and dies) with it.
-        let _guard = cancel_guard;
-
-        while let Some(msg) = rx.recv().await {
-            if let Some(id) = msg.strip_prefix("\x00DONE:") {
-                let data = format!(r#"{{"done":true,"id":"{id}"}}"#);
-                yield Ok::<Event, Infallible>(Event::default().data(data));
-                break;
-            } else if let Some(reasoning) = msg.strip_prefix("\x01") {
-                let escaped = reasoning.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-                let data = format!(r#"{{"reasoning_delta":"{escaped}"}}"#);
-                yield Ok::<Event, Infallible>(Event::default().data(data));
-            } else if let Some(tool_json) = msg.strip_prefix("\x02") {
-                // Tool-call event — already valid JSON from serde_json::json!()
-                let data = format!(r#"{{"tool_event":{tool_json}}}"#);
-                yield Ok::<Event, Infallible>(Event::default().data(data));
-            } else {
-                let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-                let data = format!(r#"{{"delta":"{escaped}"}}"#);
-                yield Ok::<Event, Infallible>(Event::default().data(data));
+        while let Ok(msg) = bcast_rx.recv().await {
+            if let Some(evt) = format_sse_event(&msg) {
+                yield Ok::<Event, Infallible>(evt);
+                if msg.starts_with("\x00DONE:") {
+                    break;
+                }
             }
         }
     };
 
     Sse::new(sse_stream).into_response()
+}
+
+/// Format a raw channel message into an SSE Event.
+fn format_sse_event(msg: &str) -> Option<Event> {
+    if let Some(id) = msg.strip_prefix("\x00DONE:") {
+        let data = format!(r#"{{"done":true,"id":"{id}"}}"#);
+        Some(Event::default().data(data))
+    } else if let Some(reasoning) = msg.strip_prefix("\x01") {
+        let escaped = reasoning.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        let data = format!(r#"{{"reasoning_delta":"{escaped}"}}"#);
+        Some(Event::default().data(data))
+    } else if let Some(tool_json) = msg.strip_prefix("\x02") {
+        let data = format!(r#"{{"tool_event":{tool_json}}}"#);
+        Some(Event::default().data(data))
+    } else {
+        let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        let data = format!(r#"{{"delta":"{escaped}"}}"#);
+        Some(Event::default().data(data))
+    }
+}
+
+/// GET /api/conversations/{id}/chat/stream — reconnect to an in-progress generation.
+/// If no active generation exists, sends a single `{"done":true}` event.
+async fn subscribe_stream(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+) -> impl IntoResponse {
+    // Check read access
+    match can_access(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) | Err(_) => {
+            let s = stream::once(async {
+                Ok::<Event, Infallible>(Event::default().data(r#"{"error":"forbidden"}"#))
+            });
+            return Sse::new(s).into_response();
+        }
+    }
+
+    // Try to subscribe to an active generation
+    let sub = state.generations.subscribe(conv_id);
+
+    match sub {
+        Some((mut rx, catchup, _cancel)) => {
+            let sse_stream = async_stream::stream! {
+                // Send catchup buffer first
+                for msg in &catchup {
+                    if let Some(evt) = format_sse_event(msg) {
+                        yield Ok::<Event, Infallible>(evt);
+                        if msg.starts_with("\x00DONE:") {
+                            return;
+                        }
+                    }
+                }
+                // Then stream new chunks
+                while let Ok(msg) = rx.recv().await {
+                    if let Some(evt) = format_sse_event(&msg) {
+                        yield Ok::<Event, Infallible>(evt);
+                        if msg.starts_with("\x00DONE:") {
+                            break;
+                        }
+                    }
+                }
+            };
+            Sse::new(sse_stream).into_response()
+        }
+        None => {
+            // No active generation — tell client to just load messages
+            let s = stream::once(async {
+                Ok::<Event, Infallible>(Event::default().data(r#"{"done":true}"#))
+            });
+            Sse::new(s).into_response()
+        }
+    }
+}
+
+/// POST /api/conversations/{id}/chat/stop — cancel an in-progress generation server-side.
+async fn stop_generation(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+) -> StatusCode {
+    // Check write access
+    match can_write(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return StatusCode::FORBIDDEN,
+        Err(status) => return status,
+    }
+
+    if state.generations.stop(conv_id) {
+        StatusCode::OK
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }
 

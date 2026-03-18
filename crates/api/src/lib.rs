@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod browser_tools;
 pub mod embeddings;
+pub mod generations;
 pub mod llm;
 pub mod memory;
 pub mod pdf;

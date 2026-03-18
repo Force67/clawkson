@@ -3,6 +3,7 @@ use std::sync::Arc;
 use clawkson_container::ContainerManager;
 use clawkson_db::Db;
 
+use crate::generations::ActiveGenerations;
 use crate::memory::MemoryEmbedder;
 use crate::s3::S3Storage;
 use crate::scheduler::SchedulerManager;
@@ -22,6 +23,8 @@ pub struct AppState {
     pub telegram: TelegramManager,
     /// Manages the background scheduled-task runner.
     pub scheduler: SchedulerManager,
+    /// Registry of in-progress LLM generations (keyed by conversation ID).
+    pub generations: ActiveGenerations,
 }
 
 impl AppState {
@@ -38,6 +41,7 @@ impl AppState {
             memory,
             telegram: TelegramManager::new(),
             scheduler: SchedulerManager::new(),
+            generations: ActiveGenerations::new(),
         }
     }
 }

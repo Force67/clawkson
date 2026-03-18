@@ -122,6 +122,18 @@ async fn main() -> Result<()> {
     state.scheduler.start(state.clone());
     tracing::info!("scheduled task runner started");
 
+    // ── Stale generation cleanup ────────────────────────────────────
+    {
+        let gens = state.generations.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                gens.cleanup_stale(std::time::Duration::from_secs(1800));
+            }
+        });
+    }
+
     let frontend_origin = std::env::var("FRONTEND_ORIGIN")
         .unwrap_or_else(|_| "http://localhost:5173".to_string());
     let cors = CorsLayer::new()

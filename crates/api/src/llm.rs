@@ -750,6 +750,7 @@ async fn emit_image_outputs(
 
 /// Stream a chat completion, yielding text deltas via a callback.
 /// When reasoning is enabled, reasoning tokens are forwarded via `on_reasoning`.
+/// The `cancel` token allows aborting mid-stream.
 pub async fn stream_complete(
     connector: &LlmConnector,
     system_prompt: Option<&str>,
@@ -760,6 +761,7 @@ pub async fn stream_complete(
     timeout_secs: u64,
     mut on_chunk: impl FnMut(String),
     mut on_reasoning: impl FnMut(String),
+    cancel: tokio_util::sync::CancellationToken,
 ) -> Result<CompletionResult> {
     let provider = build_provider(connector, timeout_secs)?;
     let request = build_request(connector, system_prompt, history, temperature, max_tokens, reasoning_effort);
@@ -768,20 +770,36 @@ pub async fn stream_complete(
     let mut completed_text: Option<String> = None;
     let mut usage: Option<TokenUsage> = None;
 
-    while let Some(event) = stream.next().await {
-        match event? {
-            StreamEvent::MessageDelta(text) => {
-                full_text.push_str(&text);
-                on_chunk(text);
+    loop {
+        tokio::select! {
+            event = stream.next() => {
+                let Some(event) = event else { break };
+                match event? {
+                    StreamEvent::MessageDelta(text) => {
+                        full_text.push_str(&text);
+                        on_chunk(text);
+                    }
+                    StreamEvent::ReasoningDelta(text) => {
+                        on_reasoning(text);
+                    }
+                    StreamEvent::Completed(response) => {
+                        completed_text = response.message.content;
+                        usage = response.usage;
+                    }
+                    StreamEvent::ToolCallDelta { .. } => {}
+                }
             }
-            StreamEvent::ReasoningDelta(text) => {
-                on_reasoning(text);
+            _ = cancel.cancelled() => {
+                tracing::info!("stream_complete cancelled by client");
+                return Ok(CompletionResult {
+                    text: if full_text.is_empty() {
+                        "[Response stopped by user]".to_string()
+                    } else {
+                        full_text
+                    },
+                    usage,
+                });
             }
-            StreamEvent::Completed(response) => {
-                completed_text = response.message.content;
-                usage = response.usage;
-            }
-            StreamEvent::ToolCallDelta { .. } => {}
         }
     }
 

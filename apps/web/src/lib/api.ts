@@ -740,6 +740,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ content }),
       }),
+    stopGeneration: (id: string) =>
+      request<void>(`/api/conversations/${id}/chat/stop`, { method: 'POST' }),
   },
 
   llmConnectors: {
@@ -1145,6 +1147,64 @@ export function streamChat(
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('data:')) continue
+          const data = trimmed.slice(5).trim()
+          try {
+            const chunk: StreamChunk = JSON.parse(data)
+            if (chunk.error) { onError(chunk.error); return }
+            if (chunk.done) { onDone(chunk.id ?? ''); return }
+            if (chunk.tool_event && onToolEvent) onToolEvent(chunk.tool_event)
+            if (chunk.reasoning_delta && onReasoning) onReasoning(chunk.reasoning_delta)
+            if (chunk.delta) onChunk(chunk.delta)
+          } catch {
+            // ignore malformed lines
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError') onError(String(err))
+    })
+
+  return () => controller.abort()
+}
+
+/**
+ * Subscribe to an in-progress generation via GET SSE.
+ * Used to reconnect after page refresh / tab switch.
+ * Returns an abort function, or null if no active generation (onDone fires immediately).
+ */
+export function subscribeChatStream(
+  conversationId: string,
+  onChunk: (text: string) => void,
+  onDone: (msgId: string) => void,
+  onError: (err: string) => void,
+  onReasoning?: (text: string) => void,
+  onToolEvent?: (event: ToolEvent) => void,
+): () => void {
+  const controller = new AbortController()
+
+  fetch(`${BASE}/api/conversations/${conversationId}/chat/stream`, {
+    method: 'GET',
+    credentials: 'include',
     signal: controller.signal,
   })
     .then(async (res) => {

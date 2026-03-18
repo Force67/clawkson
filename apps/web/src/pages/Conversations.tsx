@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool } from '../lib/api'
+import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── Folder drag-and-drop traversal ──────────────────────────────
@@ -899,11 +899,110 @@ export function ConversationsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Load messages when conversation changes
+  // Load messages when conversation changes + reconnect to active generation
   useEffect(() => {
     if (!selectedId) return
     setMessages([])
-    api.conversations.messages(selectedId).then(setMessages)
+    api.conversations.messages(selectedId).then(msgs => {
+      setMessages(msgs)
+      // Try to reconnect to an in-progress generation
+      const stop = subscribeChatStream(
+        selectedId,
+        (delta) => {
+          setStreamBuffer(prev => prev + delta)
+        },
+        () => {
+          // Generation finished (or none was active) — reload messages
+          api.conversations.messages(selectedId).then(freshMsgs => {
+            setMessages(freshMsgs)
+            setStreamBuffer('')
+            setReasoningBuffer('')
+            setActivitySteps([])
+            setStreamImages([])
+            setStreaming(false)
+            stopStreamRef.current = null
+            api.conversations.list().then(convos =>
+              setConversations(convos.sort((a, b) => {
+                if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+                return b.updated_at.localeCompare(a.updated_at)
+              }))
+            )
+          })
+        },
+        () => {
+          // Error subscribing — just ignore, no active generation
+          setStreaming(false)
+        },
+        (reasoning) => {
+          setReasoningBuffer(prev => prev + reasoning)
+        },
+        (event: ToolEvent) => {
+          if (event.type === 'image_output') {
+            if (event.url) setStreamImages(prev => [...prev, { url: event.url!, filename: event.filename || 'image' }])
+            return
+          }
+          if (event.type === 'tool_start') {
+            setActivitySteps(prev => [...prev, {
+              id: `step-${prev.length}`,
+              name: event.name,
+              round: event.round,
+              status: 'running',
+              description: event.description || event.name,
+            }])
+          } else if (event.type === 'tool_end') {
+            setActivitySteps(prev => {
+              const reversed = [...prev].reverse()
+              const idx = reversed.findIndex(s => s.name === event.name && s.status === 'running')
+              if (idx === -1) return prev
+              const realIdx = prev.length - 1 - idx
+              return prev.map((s, i) => i === realIdx ? {
+                ...s,
+                status: (event.ok ? 'done' : 'error') as ActivityStep['status'],
+                result: event.result,
+                durationMs: event.duration_ms,
+              } : s)
+            })
+          } else if (event.type === 'subtask_start') {
+            setActivitySteps(prev => [...prev, {
+              id: `subtask-${event.id}`,
+              name: event.name || 'subtask',
+              round: event.round || 0,
+              status: 'running',
+              description: event.description || event.id || 'Sub-task',
+              isSubtask: true,
+            }])
+          } else if (event.type === 'subtask_end') {
+            setActivitySteps(prev => {
+              const idx = prev.findIndex(s => s.id === `subtask-${event.id}`)
+              if (idx === -1) return prev
+              return prev.map((s, i) => i === idx ? {
+                ...s,
+                status: (event.ok ? 'done' : 'error') as ActivityStep['status'],
+                result: event.result,
+                durationMs: event.duration_ms,
+              } : s)
+            })
+          }
+        },
+      )
+      // If the subscribe returns actual streaming data, mark as streaming
+      // We detect this by checking if setStreamBuffer gets called — but simpler:
+      // set streaming true, the onDone handler will set it false immediately if no active gen
+      setStreaming(true)
+      stopStreamRef.current = stop
+    })
+    return () => {
+      // Abort the subscribe SSE on cleanup (conversation switch)
+      if (stopStreamRef.current) {
+        stopStreamRef.current()
+        stopStreamRef.current = null
+      }
+      setStreaming(false)
+      setStreamBuffer('')
+      setReasoningBuffer('')
+      setActivitySteps([])
+      setStreamImages([])
+    }
   }, [selectedId])
 
   // Load agent skills when the selected agent changes
@@ -1099,27 +1198,34 @@ export function ConversationsPage() {
   }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles])
 
   const handleStopStream = useCallback(() => {
+    // Cancel the generation server-side so the LLM stops even if we disconnect
+    if (selectedId) {
+      api.conversations.stopGeneration(selectedId).catch(() => {})
+    }
     if (stopStreamRef.current) {
       stopStreamRef.current()
       stopStreamRef.current = null
     }
     // Keep whatever content has streamed so far — reload from server
     if (selectedId) {
-      api.conversations.messages(selectedId).then(msgs => {
-        setMessages(msgs)
-        setStreamBuffer('')
-        setReasoningBuffer('')
-        setActivitySteps([])
-        setStreamImages([])
-        setStreaming(false)
-        // Refresh conversation list
-        api.conversations.list().then(convos =>
-          setConversations(convos.sort((a, b) => {
-            if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
-            return b.updated_at.localeCompare(a.updated_at)
-          }))
-        )
-      })
+      // Small delay to let the server persist the partial response
+      setTimeout(() => {
+        api.conversations.messages(selectedId).then(msgs => {
+          setMessages(msgs)
+          setStreamBuffer('')
+          setReasoningBuffer('')
+          setActivitySteps([])
+          setStreamImages([])
+          setStreaming(false)
+          // Refresh conversation list
+          api.conversations.list().then(convos =>
+            setConversations(convos.sort((a, b) => {
+              if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
+              return b.updated_at.localeCompare(a.updated_at)
+            }))
+          )
+        })
+      }, 500)
     } else {
       setStreamBuffer('')
       setReasoningBuffer('')
