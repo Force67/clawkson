@@ -25,4 +25,7 @@ pub enum ContainerError {
 
     #[error("Path escapes workspace: {0}")]
     PathEscape(String),
+
+    #[error("Runtime unavailable: {0}")]
+    RuntimeUnavailable(String),
 }

@@ -50,28 +50,54 @@ async fn main() -> Result<()> {
     // ── Sync built-in skills ─────────────────────────────────────
     clawkson_api::routes::skills::sync_builtin_skills(&db).await;
 
-    // ── Container manager ────────────────────────────────────────
+    // ── Container runtime + manager ─────────────────────────────
     let workspace_root = std::env::var("CLAWKSON_WORKSPACE_ROOT")
         .unwrap_or_else(|_| "/tmp/clawkson-workspaces".to_string());
 
-    let container_manager = match clawkson_container::ContainerManager::new(
-        std::path::PathBuf::from(&workspace_root),
-    )
-    .await
-    {
-        Ok(cm) => {
-            // Clean up orphans from previous runs
-            if let Err(e) = cm.cleanup_orphans().await {
-                tracing::warn!("failed to clean up orphan containers: {e}");
+    // Select runtime: try Docker first, fall back to bwrap.
+    let runtime: Option<std::sync::Arc<dyn clawkson_container::ContainerRuntime>> =
+        match clawkson_container::docker::DockerRuntime::new().await {
+            Ok(rt) => {
+                tracing::info!("using Docker container runtime");
+                Some(std::sync::Arc::new(rt))
             }
-            tracing::info!(%workspace_root, "container manager ready");
-            Some(std::sync::Arc::new(cm))
+            Err(e) => {
+                tracing::warn!("Docker not available: {e}, trying bwrap");
+                match clawkson_container::bwrap::BwrapRuntime::new() {
+                    Ok(rt) => {
+                        tracing::info!("using bwrap container runtime");
+                        Some(std::sync::Arc::new(rt))
+                    }
+                    Err(e2) => {
+                        tracing::warn!("bwrap not available: {e2}, containers disabled");
+                        None
+                    }
+                }
+            }
+        };
+
+    let container_manager = runtime.and_then(|rt| {
+        match clawkson_container::ContainerManager::new(
+            rt,
+            std::path::PathBuf::from(&workspace_root),
+        ) {
+            Ok(cm) => {
+                tracing::info!(%workspace_root, runtime = cm.runtime_name(), "container manager ready");
+                Some(std::sync::Arc::new(cm))
+            }
+            Err(e) => {
+                tracing::warn!("container manager init failed: {e}");
+                None
+            }
         }
-        Err(e) => {
-            tracing::warn!("Docker not available, containers disabled: {e}");
-            None
+    });
+
+    // Clean up orphans from previous runs
+    if let Some(cm) = &container_manager {
+        if let Err(e) = cm.cleanup_orphans().await {
+            tracing::warn!("failed to clean up orphan containers: {e}");
         }
-    };
+    }
 
     // ── S3 storage ─────────────────────────────────────────────────
     let s3 = clawkson_api::s3::S3Storage::try_connect().await;

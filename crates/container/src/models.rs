@@ -3,10 +3,10 @@ use uuid::Uuid;
 
 use crate::workspace::OutputFile;
 
-/// Configuration for creating a container.
+/// Configuration for creating a container/sandbox.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerConfig {
-    /// Docker image to use.
+    /// Docker image to use (ignored by non-Docker runtimes).
     #[serde(default = "default_image")]
     pub image: String,
     /// CPU limit in cores (e.g. 1.0).
@@ -22,6 +22,10 @@ pub struct ContainerConfig {
     /// Whether this is a persistent (agent-level) container.
     #[serde(default)]
     pub persistent: bool,
+    /// Opaque key-value labels for the runtime (Docker labels, etc.).
+    /// The manager populates these with agent_id, conversation_id, etc.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub labels: std::collections::HashMap<String, String>,
 }
 
 fn default_image() -> String {
@@ -37,18 +41,22 @@ impl Default for ContainerConfig {
             network_enabled: false,
             permissions: clawkson_core::AgentPermissions::default(),
             persistent: false,
+            labels: std::collections::HashMap::new(),
         }
     }
 }
 
-/// Runtime information about a managed container.
+/// Runtime information about a managed container/sandbox.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerInfo {
     pub agent_id: Uuid,
     /// The conversation this container is scoped to.
     /// For persistent containers this is `Uuid::nil()` (sentinel).
     pub conversation_id: Uuid,
-    pub docker_id: String,
+    /// Runtime-specific identifier (Docker container ID, bwrap encoded ID, etc.).
+    pub runtime_id: String,
+    /// Which runtime backend manages this container.
+    pub runtime_name: String,
     pub state: ContainerState,
     pub image: String,
     pub workspace_path: String,

@@ -1186,6 +1186,7 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
                     network_enabled: ac.network_enabled,
                     permissions: ac.permissions.clone(),
                     persistent: is_persistent,
+                    ..Default::default()
                 })
                 .unwrap_or_default();
 

@@ -988,6 +988,7 @@ dependencies = [
 name = "clawkson-container"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bollard",
  "chrono",
  "clawkson-core",

@@ -4,27 +4,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use bollard::container::{
-    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
-    StopContainerOptions,
-};
-use bollard::image::CreateImageOptions;
-use bollard::models::HostConfig;
-use bollard::Docker;
-use futures::StreamExt;
-
 use crate::error::ContainerError;
-use crate::executor::exec_in_container;
 use crate::models::*;
+use crate::runtime::{ContainerRuntime, RuntimeCapabilities};
 use crate::workspace;
 
-const DEFAULT_TIMEOUT: u64 = 30;
-const MAX_TIMEOUT: u64 = 300;
-const LABEL_PREFIX: &str = "clawkson";
 /// Default output directory scanned after exec (relative to workspace root).
 const DEFAULT_OUTPUT_DIR: &str = "outputs";
-/// Internal Docker network for proxy access (no internet, host-reachable).
-const INTERNAL_NETWORK: &str = "clawkson-internal";
+const LABEL_PREFIX: &str = "clawkson";
 
 /// Composite key for per-conversation container isolation.
 /// For persistent containers, `conversation_id` is `Uuid::nil()`.
@@ -33,88 +20,44 @@ type ContainerKey = (Uuid, Uuid); // (agent_id, conversation_id)
 /// Sentinel conversation_id used as the key for persistent (agent-level) containers.
 pub const PERSISTENT_SENTINEL: Uuid = Uuid::nil();
 
+/// Orchestrates container/sandbox lifecycle across one or more runtime backends.
+///
+/// Business logic (container map, persistent sentinel, workspace paths, output
+/// file collection) lives here. The actual runtime operations are delegated to
+/// [`ContainerRuntime`] implementations.
 pub struct ContainerManager {
-    docker: Docker,
+    runtime: Arc<dyn ContainerRuntime>,
     containers: Arc<RwLock<HashMap<ContainerKey, ContainerInfo>>>,
     workspace_root: PathBuf,
 }
 
 impl ContainerManager {
-    /// Connect to Docker and create a new manager.
-    pub async fn new(workspace_root: PathBuf) -> Result<Self, ContainerError> {
-        let docker = Docker::connect_with_local_defaults()?;
-
-        // Verify Docker connection
-        docker.ping().await?;
-        tracing::info!("connected to Docker daemon");
-
-        // Ensure the internal proxy network exists.
-        // This network has no internet access but is reachable from the host,
-        // enabling the reverse proxy to route requests to container web servers.
-        if docker
-            .inspect_network::<&str>(INTERNAL_NETWORK, None)
-            .await
-            .is_err()
-        {
-            use bollard::network::CreateNetworkOptions;
-            let net_config = CreateNetworkOptions {
-                name: INTERNAL_NETWORK,
-                internal: true,
-                driver: "bridge",
-                ..Default::default()
-            };
-            match docker.create_network(net_config).await {
-                Ok(_) => tracing::info!("created internal Docker network '{INTERNAL_NETWORK}'"),
-                Err(e) => tracing::warn!("failed to create internal network: {e} (proxy preview will be unavailable)"),
-            }
-        }
-
+    /// Create a new manager backed by the given runtime.
+    pub fn new(
+        runtime: Arc<dyn ContainerRuntime>,
+        workspace_root: PathBuf,
+    ) -> Result<Self, ContainerError> {
         std::fs::create_dir_all(&workspace_root)?;
-
         Ok(Self {
-            docker,
+            runtime,
             containers: Arc::new(RwLock::new(HashMap::new())),
             workspace_root,
         })
     }
 
-    /// Ensure the base image is available locally.
-    pub async fn ensure_image(&self, image: &str) -> Result<(), ContainerError> {
-        // Check if image exists
-        if self.docker.inspect_image(image).await.is_ok() {
-            return Ok(());
-        }
-
-        tracing::info!(image, "pulling container image");
-        let mut stream = self.docker.create_image(
-            Some(CreateImageOptions {
-                from_image: image,
-                ..Default::default()
-            }),
-            None,
-            None,
-        );
-
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(info) => {
-                    if let Some(status) = info.status {
-                        tracing::debug!(status, "image pull progress");
-                    }
-                }
-                Err(e) => return Err(ContainerError::ImagePull(e.to_string())),
-            }
-        }
-
-        tracing::info!(image, "image pulled successfully");
-        Ok(())
+    /// Name of the active runtime backend.
+    pub fn runtime_name(&self) -> &str {
+        self.runtime.name()
     }
 
+    /// Capabilities of the active runtime.
+    pub fn capabilities(&self) -> RuntimeCapabilities {
+        self.runtime.capabilities()
+    }
+
+    // ── Container lifecycle ──────────────────────────────────────
+
     /// Create and start a container for an agent+conversation pair.
-    /// Each conversation gets its own isolated container and workspace directory.
-    ///
-    /// When `config.persistent` is true, a single shared container is used for
-    /// all conversations of this agent, keyed by `PERSISTENT_SENTINEL`.
     pub async fn start_container(
         &self,
         agent_id: Uuid,
@@ -130,20 +73,14 @@ impl ContainerManager {
             self.stop_container(agent_id, effective_conv_id).await.ok();
         }
 
-        // Ensure image is available
-        self.ensure_image(&config.image).await?;
+        // Ensure image is available (no-op for non-Docker runtimes)
+        self.runtime.ensure_image(&config.image).await?;
 
-        // Create workspace directory.
-        // Persistent: {workspace_root}/{agent_id}/shared/
-        // Temporal:   {workspace_root}/{agent_id}/{conversation_id}/
+        // Create workspace directory
         let workspace = if is_persistent {
-            self.workspace_root
-                .join(agent_id.to_string())
-                .join("shared")
+            self.workspace_root.join(agent_id.to_string()).join("shared")
         } else {
-            self.workspace_root
-                .join(agent_id.to_string())
-                .join(conversation_id.to_string())
+            self.workspace_root.join(agent_id.to_string()).join(conversation_id.to_string())
         };
         for dir in [&workspace, &workspace.join("inputs"), &workspace.join("outputs")] {
             std::fs::create_dir_all(dir)?;
@@ -154,130 +91,9 @@ impl ContainerManager {
             }
         }
 
-        let workspace_str = workspace
-            .canonicalize()
-            .unwrap_or(workspace.clone())
-            .to_string_lossy()
-            .to_string();
-
-        // Build container labels
-        let mut labels = HashMap::new();
-        labels.insert(
-            format!("{LABEL_PREFIX}.agent_id"),
-            agent_id.to_string(),
-        );
-        labels.insert(
-            format!("{LABEL_PREFIX}.conversation_id"),
-            effective_conv_id.to_string(),
-        );
-        labels.insert(format!("{LABEL_PREFIX}.managed"), "true".to_string());
-        if is_persistent {
-            labels.insert(format!("{LABEL_PREFIX}.persistent"), "true".to_string());
-        }
-
-        let nano_cpus = config.cpu_limit.map(|c| (c * 1e9) as i64);
-        let memory = config.memory_limit_mb.map(|m| (m * 1024 * 1024) as i64);
-
-        let perms = &config.permissions;
-
-        // Network: when internet access is requested, use the default bridge as
-        // the primary network (so DNS + default gateway work) and attach the
-        // internal proxy network as secondary.  Without internet, the container
-        // only sits on the isolated internal network.
-        let net_enabled = perms.network.enabled || config.network_enabled;
-        let network_mode = if net_enabled {
-            Some("bridge".to_string())
-        } else {
-            Some(INTERNAL_NETWORK.to_string())
-        };
-
-        // Filesystem: bind mount mode from permissions
-        let binds = match perms.filesystem.mode {
-            clawkson_core::FilesystemMode::ReadWrite => {
-                Some(vec![format!("{workspace_str}:/workspace")])
-            }
-            clawkson_core::FilesystemMode::ReadOnly => {
-                Some(vec![format!("{workspace_str}:/workspace:ro")])
-            }
-            clawkson_core::FilesystemMode::None => None,
-        };
-
-        // Resource limits
-        // Persistent containers always get a writable rootfs so packages survive restarts.
-        let pids_limit = perms.resources.max_processes;
-        let effective_readonly = if is_persistent { false } else { perms.resources.readonly_rootfs };
-        let readonly_rootfs = Some(effective_readonly);
-        let tmp_size = perms.resources.max_tmp_size_mb.unwrap_or(256);
-        let storage_size = perms.resources.max_storage_size_mb.unwrap_or(512);
-
-        // Build tmpfs mounts for writable areas the runtime needs.
-        // For persistent containers, skip the /opt/sandbox-packages tmpfs —
-        // packages install directly onto the writable rootfs and survive restarts.
-        let mut tmpfs_mounts = HashMap::from([
-            ("/tmp".to_string(), format!("size={tmp_size}m")),
-            ("/var/tmp".to_string(), "size=32m".to_string()),
-            ("/root".to_string(), "size=64m".to_string()),
-        ]);
-        if effective_readonly && storage_size > 0 {
-            tmpfs_mounts.insert(
-                "/opt/sandbox-packages".to_string(),
-                format!("size={storage_size}m"),
-            );
-        }
-
-        // Environment: redirect pip/npm installs to the writable tmpfs and
-        // make installed binaries available on PATH.
-        let mut pkg_env = vec![
-            // Pre-installed Playwright browsers baked into the image
-            "PLAYWRIGHT_BROWSERS_PATH=/usr/lib/playwright".to_string(),
-        ];
-        if effective_readonly && storage_size > 0 {
-            pkg_env.extend([
-                "PIP_TARGET=/opt/sandbox-packages/pip".to_string(),
-                "PYTHONPATH=/opt/sandbox-packages/pip".to_string(),
-                "NPM_CONFIG_PREFIX=/opt/sandbox-packages/npm".to_string(),
-                "PATH=/opt/sandbox-packages/pip/bin:/opt/sandbox-packages/npm/bin:/usr/local/bin:/usr/bin:/bin".to_string(),
-            ]);
-        }
-
-        let host_config = HostConfig {
-            binds,
-            nano_cpus,
-            memory,
-            pids_limit,
-            network_mode,
-            cap_drop: Some(vec![
-                "ALL".to_string(),
-            ]),
-            cap_add: Some(vec![
-                "CHOWN".to_string(),
-                "SETUID".to_string(),
-                "SETGID".to_string(),
-            ]),
-            readonly_rootfs,
-            tmpfs: Some(tmpfs_mounts),
-            ..Default::default()
-        };
-
-        let env = Some(pkg_env);
-
-        let container_config = Config {
-            image: Some(config.image.clone()),
-            labels: Some(labels),
-            host_config: Some(host_config),
-            working_dir: Some("/workspace".to_string()),
-            cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
-            env,
-            ..Default::default()
-        };
-
-        // Create container — name includes both agent and conversation for uniqueness.
-        // Persistent containers get a stable name so they can be re-adopted after restart.
+        // Build container name hint
         let name = if is_persistent {
-            format!(
-                "clawkson-{}-persistent",
-                &agent_id.as_simple().to_string()[..8],
-            )
+            format!("clawkson-{}-persistent", &agent_id.as_simple().to_string()[..8])
         } else {
             format!(
                 "clawkson-{}-{}",
@@ -285,72 +101,44 @@ impl ContainerManager {
                 &conversation_id.as_simple().to_string()[..8],
             )
         };
-        let response = self
-            .docker
-            .create_container(
-                Some(CreateContainerOptions {
-                    name: name.as_str(),
-                    platform: None,
-                }),
-                container_config,
-            )
-            .await?;
 
-        // Start container
-        self.docker
-            .start_container::<String>(&response.id, None)
-            .await?;
+        // Populate labels for the runtime (Docker uses these for orphan cleanup)
+        let mut config = config.clone();
+        config.labels.insert(format!("{LABEL_PREFIX}.agent_id"), agent_id.to_string());
+        config.labels.insert(format!("{LABEL_PREFIX}.conversation_id"), effective_conv_id.to_string());
 
-        // When internet is enabled the primary network is bridge (for DNS/routing).
-        // Also attach the internal proxy network so the host can reach container
-        // web servers for live preview.
-        if net_enabled {
-            use bollard::network::ConnectNetworkOptions;
-            use bollard::models::EndpointSettings;
-            let connect = ConnectNetworkOptions {
-                container: response.id.as_str(),
-                endpoint_config: EndpointSettings::default(),
-            };
-            if let Err(e) = self.docker.connect_network(INTERNAL_NETWORK, connect).await {
-                tracing::warn!("failed to connect container to internal network: {e} (preview proxy may be unavailable)");
-            }
-        }
+        let rt = self.runtime.create_and_start(&config, &workspace, &name).await?;
 
-        // Retrieve the container IP on the internal proxy network.
-        let ip_address = self
-            .docker
-            .inspect_container(&response.id, None)
-            .await
-            .ok()
-            .and_then(|inspect| inspect.network_settings)
-            .and_then(|ns| ns.networks)
-            .and_then(|nets| nets.get(INTERNAL_NETWORK).cloned())
-            .and_then(|ep| ep.ip_address)
-            .filter(|ip| !ip.is_empty());
-
-        if let Some(ref ip) = ip_address {
-            tracing::info!(%agent_id, %effective_conv_id, ip, "container reachable on internal network");
-        }
+        let workspace_str = workspace
+            .canonicalize()
+            .unwrap_or(workspace.clone())
+            .to_string_lossy()
+            .to_string();
 
         let info = ContainerInfo {
             agent_id,
             conversation_id: effective_conv_id,
-            docker_id: response.id,
+            runtime_id: rt.runtime_id,
+            runtime_name: self.runtime.name().to_string(),
             state: ContainerState::Running,
             image: config.image.clone(),
             workspace_path: workspace_str,
-            ip_address,
+            ip_address: rt.ip_address,
             persistent: is_persistent,
         };
 
         self.containers.write().await.insert(key, info.clone());
-        tracing::info!(%agent_id, %effective_conv_id, persistent = is_persistent, "container started");
+        tracing::info!(
+            %agent_id, %effective_conv_id,
+            persistent = is_persistent,
+            runtime = self.runtime.name(),
+            "container started",
+        );
 
         Ok(info)
     }
 
-    /// Get a running persistent container for an agent, or start one if none exists.
-    /// Checks in-memory map first, then tries to re-adopt from Docker, then starts fresh.
+    /// Get a running persistent container, or start one.
     pub async fn get_or_start_persistent(
         &self,
         agent_id: Uuid,
@@ -365,7 +153,7 @@ impl ContainerManager {
             }
         }
 
-        // 2. Try to re-adopt an existing Docker container by name
+        // 2. Try to re-adopt (Docker: inspect by name; bwrap: check workspace exists)
         if let Some(info) = self.try_readopt_persistent(agent_id).await {
             return Ok(info);
         }
@@ -374,62 +162,42 @@ impl ContainerManager {
         self.start_container(agent_id, PERSISTENT_SENTINEL, config).await
     }
 
-    /// Try to re-adopt a persistent container that is still running in Docker
-    /// (e.g. after a server restart). Returns `Some(info)` if found and reinserted.
+    /// Try to re-adopt a persistent container after a server restart.
     async fn try_readopt_persistent(&self, agent_id: Uuid) -> Option<ContainerInfo> {
         let name = format!(
             "clawkson-{}-persistent",
             &agent_id.as_simple().to_string()[..8],
         );
 
-        let inspect = self.docker.inspect_container(&name, None).await.ok()?;
+        let state = self.runtime.inspect(&name).await.ok()??;
 
-        let running = inspect.state.as_ref()
-            .and_then(|s| s.running)
-            .unwrap_or(false);
-        if !running {
+        if !state.running {
             return None;
         }
 
-        let docker_id = inspect.id?.clone();
-
-        let ip_address = inspect.network_settings
-            .and_then(|ns| ns.networks)
-            .and_then(|nets| nets.get(INTERNAL_NETWORK).cloned())
-            .and_then(|ep| ep.ip_address)
-            .filter(|ip| !ip.is_empty());
-
-        // Resolve workspace path from the bind mount
-        let workspace_path = inspect.host_config
-            .and_then(|hc| hc.binds)
-            .and_then(|binds| binds.into_iter().next())
-            .and_then(|b| b.split(':').next().map(String::from))
-            .unwrap_or_else(|| {
-                self.workspace_root
-                    .join(agent_id.to_string())
-                    .join("shared")
-                    .to_string_lossy()
-                    .to_string()
-            });
-
-        let image = inspect.config
-            .and_then(|c| c.image)
-            .unwrap_or_else(|| "unknown".to_string());
+        let workspace_path = state.workspace_bind.unwrap_or_else(|| {
+            self.workspace_root
+                .join(agent_id.to_string())
+                .join("shared")
+                .to_string_lossy()
+                .to_string()
+        });
 
         let info = ContainerInfo {
             agent_id,
             conversation_id: PERSISTENT_SENTINEL,
-            docker_id,
+            runtime_id: name.clone(),
+            runtime_name: self.runtime.name().to_string(),
             state: ContainerState::Running,
-            image,
+            image: state.image.unwrap_or_else(|| "unknown".to_string()),
             workspace_path,
-            ip_address,
+            ip_address: state.ip_address,
             persistent: true,
         };
 
         let key = (agent_id, PERSISTENT_SENTINEL);
         self.containers.write().await.insert(key, info.clone());
-        tracing::info!(%agent_id, "re-adopted persistent container");
+        tracing::info!(%agent_id, runtime = self.runtime.name(), "re-adopted persistent container");
 
         Some(info)
     }
@@ -439,19 +207,10 @@ impl ContainerManager {
         let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
-            containers
-                .get(&key)
-                .cloned()
-                .ok_or(ContainerError::NotFound(agent_id))?
+            containers.get(&key).cloned().ok_or(ContainerError::NotFound(agent_id))?
         };
 
-        self.docker
-            .stop_container(
-                &info.docker_id,
-                Some(StopContainerOptions { t: 10 }),
-            )
-            .await
-            .ok(); // Ignore errors from already-stopped containers
+        self.runtime.stop(&info.runtime_id).await.ok();
 
         if let Some(c) = self.containers.write().await.get_mut(&key) {
             c.state = ContainerState::Stopped;
@@ -472,17 +231,7 @@ impl ContainerManager {
         let info = self.containers.write().await.remove(&key);
 
         if let Some(info) = &info {
-            // Force remove (stops if running)
-            self.docker
-                .remove_container(
-                    &info.docker_id,
-                    Some(RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await
-                .ok();
+            self.runtime.remove(&info.runtime_id).await.ok();
 
             if remove_workspace {
                 let workspace = PathBuf::from(&info.workspace_path);
@@ -497,12 +246,14 @@ impl ContainerManager {
         Ok(())
     }
 
+    // ── Query ────────────────────────────────────────────────────
+
     /// Get container status for a specific conversation.
     pub async fn get_container(&self, agent_id: Uuid, conversation_id: Uuid) -> Option<ContainerInfo> {
         self.containers.read().await.get(&(agent_id, conversation_id)).cloned()
     }
 
-    /// List all containers for a given agent (across all conversations).
+    /// List all containers for a given agent.
     pub async fn list_agent_containers(&self, agent_id: Uuid) -> Vec<ContainerInfo> {
         self.containers.read().await.values()
             .filter(|info| info.agent_id == agent_id)
@@ -510,10 +261,12 @@ impl ContainerManager {
             .collect()
     }
 
-    /// List all managed containers across all agents and conversations.
+    /// List all managed containers.
     pub async fn list_all_containers(&self) -> Vec<ContainerInfo> {
         self.containers.read().await.values().cloned().collect()
     }
+
+    // ── Execution ────────────────────────────────────────────────
 
     /// Execute a command in the container.
     pub async fn exec(
@@ -525,47 +278,46 @@ impl ContainerManager {
         let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
-            containers
-                .get(&key)
-                .cloned()
-                .ok_or(ContainerError::NotFound(agent_id))?
+            containers.get(&key).cloned().ok_or(ContainerError::NotFound(agent_id))?
         };
 
         if info.state != ContainerState::Running {
             return Err(ContainerError::NotRunning(agent_id));
         }
 
-        let timeout = request
-            .timeout
-            .unwrap_or(DEFAULT_TIMEOUT)
-            .min(MAX_TIMEOUT);
-
-        let cmd = vec!["sh", "-c", &request.command];
-        let mut result = match exec_in_container(&self.docker, &info.docker_id, cmd, timeout).await {
+        let mut result = match self.runtime.exec(&info.runtime_id, request).await {
             Ok(r) => r,
-            Err(ContainerError::Docker(ref e)) if e.to_string().contains("404") => {
-                // Container was removed externally (e.g. Docker prune). Clean up stale entry.
-                tracing::warn!(%agent_id, %conversation_id, "container gone from Docker (404), removing stale entry");
-                self.containers.write().await.remove(&key);
-                return Err(ContainerError::NotFound(agent_id));
+            Err(e) => {
+                // If the runtime reports the container is gone, clean up our map
+                let is_gone = matches!(&e, ContainerError::Docker(de) if de.to_string().contains("404"))
+                    || matches!(&e, ContainerError::NotFound(_));
+                if is_gone {
+                    tracing::warn!(%agent_id, %conversation_id, "container gone, removing stale entry");
+                    self.containers.write().await.remove(&key);
+                    return Err(ContainerError::NotFound(agent_id));
+                }
+                return Err(e);
             }
-            Err(e) => return Err(e),
         };
 
-        // Collect output files if requested (default: scan "outputs/" dir).
-        let output_dir = request.output_dir.as_deref().unwrap_or(DEFAULT_OUTPUT_DIR);
-        if !output_dir.is_empty() {
-            let workspace = PathBuf::from(&info.workspace_path);
-            match workspace::collect_output_files(&workspace, output_dir) {
-                Ok(files) if !files.is_empty() => {
-                    result.output_files = Some(files);
+        // Collect output files if requested (runtime-agnostic, reads from host workspace).
+        if result.output_files.is_none() {
+            let output_dir = request.output_dir.as_deref().unwrap_or(DEFAULT_OUTPUT_DIR);
+            if !output_dir.is_empty() {
+                let workspace = PathBuf::from(&info.workspace_path);
+                match workspace::collect_output_files(&workspace, output_dir) {
+                    Ok(files) if !files.is_empty() => {
+                        result.output_files = Some(files);
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
         Ok(result)
     }
+
+    // ── Workspace ────────────────────────────────────────────────
 
     /// List files in a workspace directory.
     pub async fn workspace_list(
@@ -578,20 +330,16 @@ impl ContainerManager {
         workspace::list_workspace(&workspace, rel)
     }
 
-    /// Resolve the workspace path for a conversation (container need not be running).
-    /// For persistent agents, also checks the sentinel key.
+    /// Resolve the workspace path for a conversation.
     pub async fn conversation_workspace(&self, agent_id: Uuid, conversation_id: Uuid) -> Result<PathBuf, ContainerError> {
         let key = (agent_id, conversation_id);
-        // Check if we have a running/stopped container first.
         if let Some(info) = self.containers.read().await.get(&key) {
             return Ok(PathBuf::from(&info.workspace_path));
         }
-        // Check if there's a persistent container for this agent.
         let persistent_key = (agent_id, PERSISTENT_SENTINEL);
         if let Some(info) = self.containers.read().await.get(&persistent_key) {
             return Ok(PathBuf::from(&info.workspace_path));
         }
-        // Fall back to the on-disk workspace directory.
         let workspace = self.workspace_root
             .join(agent_id.to_string())
             .join(conversation_id.to_string());
@@ -603,6 +351,8 @@ impl ContainerManager {
         &self.workspace_root
     }
 
+    // ── Logs ─────────────────────────────────────────────────────
+
     /// Get container logs.
     pub async fn logs(
         &self,
@@ -613,89 +363,35 @@ impl ContainerManager {
         let key = (agent_id, conversation_id);
         let info = {
             let containers = self.containers.read().await;
-            containers
-                .get(&key)
-                .cloned()
-                .ok_or(ContainerError::NotFound(agent_id))?
+            containers.get(&key).cloned().ok_or(ContainerError::NotFound(agent_id))?
         };
 
-        let tail_str = tail.unwrap_or(100).to_string();
-        let mut stream = self.docker.logs(
-            &info.docker_id,
-            Some(LogsOptions::<String> {
-                stdout: true,
-                stderr: true,
-                tail: tail_str,
-                ..Default::default()
-            }),
-        );
-
-        let mut output = String::new();
-        while let Some(msg) = stream.next().await {
-            if let Ok(log) = msg {
-                output.push_str(&log.to_string());
-            }
-        }
-
-        Ok(output)
+        self.runtime.logs(&info.runtime_id, tail).await
     }
 
-    /// Clean up orphan containers from previous runs (label-based).
-    /// Persistent containers (label `clawkson.persistent=true`) are re-adopted
-    /// into the in-memory map instead of being removed.
-    pub async fn cleanup_orphans(&self) -> Result<usize, ContainerError> {
-        let mut filters = HashMap::new();
-        filters.insert(
-            "label".to_string(),
-            vec![format!("{LABEL_PREFIX}.managed=true")],
-        );
+    // ── Lifecycle ────────────────────────────────────────────────
 
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                filters,
-                ..Default::default()
-            }))
-            .await?;
+    /// Clean up orphan containers from previous runs.
+    pub async fn cleanup_orphans(&self) -> Result<usize, ContainerError> {
+        let managed = self.runtime.list_managed().await?;
 
         let mut removed = 0usize;
         let mut readopted = 0usize;
 
-        for container in &containers {
-            let Some(id) = &container.id else { continue };
-
-            // Check if this container is persistent
-            let is_persistent = container.labels.as_ref()
-                .and_then(|l| l.get(&format!("{LABEL_PREFIX}.persistent")))
-                .map(|v| v == "true")
-                .unwrap_or(false);
-
-            if is_persistent {
-                // Re-adopt: parse the agent_id from labels and reinsert
-                let agent_id = container.labels.as_ref()
-                    .and_then(|l| l.get(&format!("{LABEL_PREFIX}.agent_id")))
-                    .and_then(|v| Uuid::parse_str(v).ok());
-
-                if let Some(agent_id) = agent_id {
-                    if self.try_readopt_persistent(agent_id).await.is_some() {
-                        readopted += 1;
-                        continue;
+        for mc in &managed {
+            if mc.persistent {
+                if let Some(agent_id) = mc.agent_id {
+                    if mc.running {
+                        if self.try_readopt_persistent(agent_id).await.is_some() {
+                            readopted += 1;
+                            continue;
+                        }
                     }
                 }
-                // If re-adopt failed (container stopped, bad labels, etc.), fall through to remove
             }
 
-            self.docker
-                .remove_container(
-                    id,
-                    Some(RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await
-                .ok();
+            // Remove non-persistent or failed-to-readopt containers
+            self.runtime.remove(&mc.runtime_id).await.ok();
             removed += 1;
         }
 
@@ -709,8 +405,7 @@ impl ContainerManager {
         Ok(removed)
     }
 
-    /// Stop all managed containers (for graceful shutdown).
-    /// Persistent containers are left running so they survive restarts.
+    /// Graceful shutdown — stop temporal containers, leave persistent ones running.
     pub async fn shutdown(&self) {
         let containers: Vec<ContainerInfo> =
             self.containers.read().await.values().cloned().collect();
@@ -720,14 +415,10 @@ impl ContainerManager {
                 tracing::info!(agent_id = %info.agent_id, "shutdown: leaving persistent container running");
                 continue;
             }
-            self.docker
-                .stop_container(
-                    &info.docker_id,
-                    Some(StopContainerOptions { t: 5 }),
-                )
-                .await
-                .ok();
+            self.runtime.stop(&info.runtime_id).await.ok();
             tracing::info!(agent_id = %info.agent_id, "shutdown: stopped container");
         }
+
+        self.runtime.shutdown().await;
     }
 }

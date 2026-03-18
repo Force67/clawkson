@@ -128,6 +128,7 @@ async fn start_container(
                 network_enabled: ac.network_enabled,
                 permissions: ac.permissions,
                 persistent,
+                ..Default::default()
             })
             .unwrap_or_default();
         (cfg, persistent)
