@@ -126,8 +126,10 @@ impl KernelFunction for DelegateTasksTool {
                  data, and expected output format in each task description. Tell each \
                  sub-agent to keep output concise (bullet points, key facts, data). \
                  \
-                 Only skip delegation for: simple knowledge answers, single quick tool \
-                 calls (one schedule, one calendar event), or conversational responses. \
+                 Only skip delegation for: simple knowledge answers, single tool \
+                 calls, conversational responses, or tasks that don't split into \
+                 independent parts. NEVER delegate a single task to a single sub-agent — \
+                 that adds overhead with no benefit. Minimum 2 sub-tasks per call. \
                  Max 5 parallel sub-tasks.",
             );
 
@@ -157,7 +159,7 @@ impl KernelFunction for DelegateTasksTool {
                         },
                         "required": ["id", "description"]
                     },
-                    "minItems": 1,
+                    "minItems": 2,
                     "maxItems": 5
                 }),
             )
@@ -176,6 +178,15 @@ impl KernelFunction for DelegateTasksTool {
 
         if args.tasks.is_empty() {
             return Ok(serde_json::json!({ "error": "No tasks provided" }));
+        }
+
+        // Reject single-task delegation — it's wasteful overhead
+        if args.tasks.len() == 1 {
+            return Ok(serde_json::json!({
+                "error": "Delegation requires at least 2 parallel sub-tasks. \
+                          For a single task, use your tools directly instead of delegating. \
+                          Only delegate when work can be parallelized.",
+            }));
         }
 
         let tasks = if args.tasks.len() > MAX_SUBTASKS {
