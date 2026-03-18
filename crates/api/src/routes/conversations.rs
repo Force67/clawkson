@@ -1873,7 +1873,16 @@ async fn chat_stream(
         let _ = tx.try_send(format!("\x00DONE:{msg_id}"));
     });
 
+    // The drop guard cancels the token when the stream is dropped — this fires
+    // whether the stream completes normally OR Axum drops it because the client
+    // disconnected.  The explicit cancel() at the end of the loop would never
+    // run on disconnect because the generator is killed mid-yield.
+    let cancel_guard = cancel_token.drop_guard();
+
     let sse_stream = async_stream::stream! {
+        // Move the guard into the generator so it lives (and dies) with it.
+        let _guard = cancel_guard;
+
         while let Some(msg) = rx.recv().await {
             if let Some(id) = msg.strip_prefix("\x00DONE:") {
                 let data = format!(r#"{{"done":true,"id":"{id}"}}"#);
@@ -1893,9 +1902,6 @@ async fn chat_stream(
                 yield Ok::<Event, Infallible>(Event::default().data(data));
             }
         }
-        // Signal cancellation when the SSE stream ends — either the client
-        // disconnected (abort) or the stream completed normally.
-        cancel_token.cancel();
     };
 
     Sse::new(sse_stream).into_response()

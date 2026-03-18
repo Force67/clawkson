@@ -504,7 +504,15 @@ pub async fn complete_with_tools_streaming(
             request = request.with_reasoning_effort(map_reasoning_effort(effort));
         }
 
-        let response = provider.complete(request).await?;
+        // Race the LLM call against cancellation so we don't wait up to
+        // timeout_secs for a response the user no longer wants.
+        let response = tokio::select! {
+            res = provider.complete(request) => res?,
+            _ = cancel.cancelled() => {
+                tracing::info!("LLM call cancelled by client during round {round}");
+                return Ok("[Response stopped by user]".to_string());
+            }
+        };
 
         tracing::debug!(
             "LLM round {}: tool_calls={}, content_len={}",
@@ -605,8 +613,16 @@ pub async fn complete_with_tools_streaming(
     }
 
     // Exhausted rounds — final completion without tools
+    if cancel.is_cancelled() {
+        return Ok("[Response stopped by user]".to_string());
+    }
     let request = CompletionRequest::new(connector.model.clone(), messages);
-    let response = provider.complete(request).await?;
+    let response = tokio::select! {
+        res = provider.complete(request) => res?,
+        _ = cancel.cancelled() => {
+            return Ok("[Response stopped by user]".to_string());
+        }
+    };
     let text = sanitize_tool_artifacts(&response.message.content.unwrap_or_default());
     for line in text.split_inclusive('\n') {
         let _ = tx.try_send(line.to_string());
