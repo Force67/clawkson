@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container, Maximize, Copy, CheckCheck, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container, Maximize, Copy, CheckCheck, ZoomIn, ZoomOut, RotateCcw, ArrowDown, RotateCw, Clipboard } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -305,15 +305,18 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
 
   return (
     <code className={className} {...props}>
-      <button
-        type="button"
-        className={styles.codeCopyBtn}
-        onClick={handleCopy}
-        title="Copy code"
-      >
-        {copied ? <CheckCheck size={12} /> : <Copy size={12} />}
-        {copied ? 'Copied' : 'Copy'}
-      </button>
+      <div className={styles.codeHeader}>
+        {lang && <span className={styles.codeLang}>{lang}</span>}
+        <button
+          type="button"
+          className={`${styles.codeCopyBtn} ${copied ? styles.codeCopyBtnSuccess : ''}`}
+          onClick={handleCopy}
+          title="Copy code"
+        >
+          {copied ? <CheckCheck size={11} /> : <Clipboard size={11} />}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
       {children}
     </code>
   )
@@ -424,6 +427,7 @@ function NewConvoDialog({ agents, onClose, onCreate }: NewConvoDialogProps) {
 interface MsgBubbleProps {
   msg: Message
   agentName?: string
+  onRetry?: (content: string) => void
 }
 
 const OFFICE_TYPES = {
@@ -543,8 +547,9 @@ function ArtifactPreview({ id, filename }: { id: string; filename: string }) {
   )
 }
 
-function MsgBubble({ msg, agentName }: MsgBubbleProps) {
+function MsgBubble({ msg, agentName, onRetry }: MsgBubbleProps) {
   const isUser = msg.role === 'user'
+  const [copied, setCopied] = useState(false)
   const attachments = msg.attachments ?? []
   const imageAttachments = attachments.filter(a => a.content_type.startsWith('image/'))
   const htmlAttachments = isUser ? [] : attachments.filter(a =>
@@ -555,6 +560,13 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
   const officeIds = new Set(officeAttachments.map(a => a.id))
   const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/') && !htmlIds.has(a.id) && !officeIds.has(a.id))
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg.content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }
+
   return (
     <div className={`${styles.messageRow} ${isUser ? styles.messageRowUser : styles.messageRowAssistant}`}>
       <div className={`${styles.bubble} ${isUser ? styles.bubbleUser : styles.bubbleAssistant}`}>
@@ -564,23 +576,57 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
             <span className={styles.bubbleAuthor}>{agentName ?? 'Assistant'}</span>
           </div>
         )}
-        <div className={`${styles.bubbleContent} ${isUser ? styles.bubbleContentUser : styles.bubbleContentAssistant}`}>
-          {isUser ? msg.content : (
-            <div className={styles.markdown}>
-              <MarkdownContent content={msg.content} />
-            </div>
-          )}
-        </div>
-        {imageAttachments.length > 0 && (
+
+        {/* Image attachments above content for user messages */}
+        {isUser && imageAttachments.length > 0 && (
           <div className={styles.msgImages}>
             {imageAttachments.map(att => (
               <a key={att.id} href={api.uploads.downloadUrl(att.id)} target="_blank" rel="noopener noreferrer" className={styles.msgImageLink}>
-                <img
-                  src={api.uploads.downloadUrl(att.id)}
-                  alt={att.filename}
-                  className={styles.msgImage}
-                  loading="lazy"
-                />
+                <img src={api.uploads.downloadUrl(att.id)} alt={att.filename} className={styles.msgImage} loading="lazy" />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Hide content bubble entirely for image-only user messages */}
+        {(!isUser || msg.content) && (
+          <div className={`${styles.bubbleContent} ${isUser ? styles.bubbleContentUser : styles.bubbleContentAssistant}`}>
+            {isUser ? msg.content : (
+              <div className={styles.markdown}>
+                <MarkdownContent content={msg.content} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Hover actions toolbar */}
+        <div className={`${styles.msgActions} ${isUser ? styles.msgActionsUser : styles.msgActionsAssistant}`}>
+          <button
+            type="button"
+            className={`${styles.msgActionBtn} ${copied ? styles.msgActionBtnSuccess : ''}`}
+            onClick={handleCopy}
+            title={copied ? 'Copied!' : 'Copy message'}
+          >
+            {copied ? <CheckCheck size={13} /> : <Copy size={13} />}
+          </button>
+          {isUser && onRetry && (
+            <button
+              type="button"
+              className={styles.msgActionBtn}
+              onClick={() => onRetry(msg.content)}
+              title="Retry this message"
+            >
+              <RotateCw size={13} />
+            </button>
+          )}
+        </div>
+
+        {/* Image attachments below content for assistant */}
+        {!isUser && imageAttachments.length > 0 && (
+          <div className={styles.msgImages}>
+            {imageAttachments.map(att => (
+              <a key={att.id} href={api.uploads.downloadUrl(att.id)} target="_blank" rel="noopener noreferrer" className={styles.msgImageLink}>
+                <img src={api.uploads.downloadUrl(att.id)} alt={att.filename} className={styles.msgImage} loading="lazy" />
                 <span className={styles.msgImageCaption}>
                   <Download size={10} />
                   {att.filename}
@@ -620,9 +666,6 @@ function MsgBubble({ msg, agentName }: MsgBubbleProps) {
             ))}
           </div>
         )}
-        <span className={styles.bubbleTime}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
       </div>
     </div>
   )
@@ -1138,12 +1181,14 @@ export function ConversationsPage() {
   const [streamImages, setStreamImages] = useState<{url: string, filename: string}[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const stopStreamRef = useRef<(() => void) | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const inputDockRef = useRef<HTMLDivElement>(null)
   const dragCounterRef = useRef(0)
+  const [showScrollBtn, setShowScrollBtn] = useState(false)
 
   const selectedConvo = conversations.find(c => c.id === selectedId)
   const selectedAgent = agents.find(a => a.id === selectedConvo?.agent_id)
@@ -1289,9 +1334,26 @@ export function ConversationsPage() {
       .catch(() => setUserTools([]))
   }, [])
 
-  // Scroll to bottom on new messages or stream buffer changes
-  useEffect(() => {
+  // Track scroll position to show/hide scroll-to-bottom button
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setShowScrollBtn(distanceFromBottom > 200)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  // Auto-scroll on new messages or stream buffer changes (only if near bottom)
+  useEffect(() => {
+    const el = messagesContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 300) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, streamBuffer, reasoningBuffer, activitySteps])
 
   useEffect(() => {
@@ -1303,7 +1365,7 @@ export function ConversationsPage() {
 
   const sendMessage = useCallback(async () => {
     const content = input.trim()
-    if (!content || !selectedId || streaming || uploading) return
+    if ((!content && pendingFiles.length === 0) || !selectedId || streaming || uploading) return
 
     setInput('')
     setStreaming(true)
@@ -1504,6 +1566,13 @@ export function ConversationsPage() {
     }
   }, [selectedId])
 
+  const handleRetry = useCallback((content: string) => {
+    if (streaming || !selectedId) return
+    setInput(content)
+    // Focus input so user can edit before resending
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }, [streaming, selectedId])
+
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setInput(val)
@@ -1661,6 +1730,26 @@ export function ConversationsPage() {
     // Reset so the same file can be re-selected
     e.target.value = ''
   }
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items)
+    const imageFiles: File[] = []
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          // Give pasted images a readable name with timestamp
+          const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
+          const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type })
+          imageFiles.push(named)
+        }
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      setPendingFiles(prev => [...prev, ...imageFiles])
+    }
+  }, [])
 
   const handleFolderPick = () => {
     folderInputRef.current?.click()
@@ -1904,19 +1993,28 @@ export function ConversationsPage() {
                 </div>
               </div>
 
-              <div className={styles.messages}>
+              <div className={styles.messages} ref={messagesContainerRef} onScroll={handleMessagesScroll}>
                 {messages.length === 0 && !streaming && (
                   <div className={styles.emptyChat}>
-                    <div className={styles.assistantTag}>
-                      <Bot size={13} />
-                      {selectedAgent?.name ?? 'Assistant'}
+                    <div className={styles.emptyChatIcon}>
+                      <Bot size={22} />
                     </div>
-                    <p className={styles.emptyChatTitle}>How can I help you?</p>
+                    <p className={styles.emptyChatTitle}>{selectedAgent?.name ?? 'Assistant'}</p>
                     <p className={styles.emptyChatText}>
-                      {selectedAgent
-                        ? `${selectedAgent.name} is ready for research, writing, or tool calls.`
-                        : 'Send a message to begin.'}
+                      {selectedAgent?.system_prompt
+                        ? selectedAgent.system_prompt.slice(0, 120) + (selectedAgent.system_prompt.length > 120 ? '...' : '')
+                        : 'Send a message, paste an image, or drop files to get started.'}
                     </p>
+                    <div className={styles.emptyChatHints}>
+                      <span className={styles.emptyChatHint}>
+                        <Paperclip size={11} />
+                        Drag files or paste images
+                      </span>
+                      <span className={styles.emptyChatHint}>
+                        <Terminal size={11} />
+                        Use @tools and /skills
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -1925,6 +2023,7 @@ export function ConversationsPage() {
                     key={msg.id}
                     msg={msg}
                     agentName={selectedAgent?.name}
+                    onRetry={msg.role === 'user' ? handleRetry : undefined}
                   />
                 ))}
 
@@ -1995,6 +2094,16 @@ export function ConversationsPage() {
                 )}
 
                 <div ref={messagesEndRef} />
+                {showScrollBtn && (
+                  <button
+                    type="button"
+                    className={styles.scrollFab}
+                    onClick={scrollToBottom}
+                    title="Scroll to bottom"
+                  >
+                    <ArrowDown size={16} />
+                  </button>
+                )}
               </div>
 
               <div
@@ -2045,10 +2154,6 @@ export function ConversationsPage() {
                     </span>
                   </div>
                 )}
-                <div className={styles.inputNotice}>
-                  Use <span>@toolname</span> for tools{agentSkills.length > 0 ? <> or <span>/skill</span> to invoke skills</> : null}.
-                </div>
-
                 {showSkillDropdown && (
                   <SkillDropdown
                     skills={agentSkills}
@@ -2130,19 +2235,39 @@ export function ConversationsPage() {
                       </>
                     ) : (
                       pendingFiles.map((file, i) => (
-                        <div key={`${file.name}-${i}`} className={styles.attachmentChip}>
-                          {file.type.startsWith('image/') ? <ImageIcon size={12} /> : file.type === 'application/pdf' ? <FileText size={12} /> : <FileIcon size={12} />}
-                          <span className={styles.attachmentName}>{file.name}</span>
-                          <span className={styles.attachmentSize}>{formatFileSize(file.size)}</span>
-                          <button
-                            className={styles.attachmentRemove}
-                            onClick={() => removePendingFile(i)}
-                            type="button"
-                            title="Remove"
-                          >
-                            <X size={10} />
-                          </button>
-                        </div>
+                        file.type.startsWith('image/') ? (
+                          <div key={`${file.name}-${i}`} className={styles.imageThumb}>
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={file.name}
+                              className={styles.imageThumbImg}
+                              onLoad={e => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                            />
+                            <button
+                              className={styles.imageThumbRemove}
+                              onClick={() => removePendingFile(i)}
+                              type="button"
+                              title="Remove"
+                            >
+                              <X size={10} />
+                            </button>
+                            <span className={styles.imageThumbName}>{file.name}</span>
+                          </div>
+                        ) : (
+                          <div key={`${file.name}-${i}`} className={styles.attachmentChip}>
+                            {file.type === 'application/pdf' ? <FileText size={12} /> : <FileIcon size={12} />}
+                            <span className={styles.attachmentName}>{file.name}</span>
+                            <span className={styles.attachmentSize}>{formatFileSize(file.size)}</span>
+                            <button
+                              className={styles.attachmentRemove}
+                              onClick={() => removePendingFile(i)}
+                              type="button"
+                              title="Remove"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        )
                       ))
                     )}
                   </div>
@@ -2155,7 +2280,8 @@ export function ConversationsPage() {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={streaming ? 'Press Esc to stop generating...' : agentSkills.length > 0 ? 'Type a message or / for skills...' : 'Type your message here...'}
+                    onPaste={handlePaste}
+                    placeholder={streaming ? 'Generating... press Esc to stop' : 'Message' + (agentSkills.length > 0 ? '  \u00b7  / for skills' : '') + '  \u00b7  Shift+Enter for newline'}
                     rows={1}
                   />
                   <div className={styles.inputFooter}>
@@ -2228,7 +2354,7 @@ export function ConversationsPage() {
                       <button
                         className={styles.sendBtn}
                         onClick={sendMessage}
-                        disabled={!input.trim() || uploading}
+                        disabled={(!input.trim() && pendingFiles.length === 0) || uploading}
                         title="Send (Enter)"
                         type="button"
                       >

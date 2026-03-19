@@ -403,7 +403,38 @@
   padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+/* ── Scroll to bottom FAB ──────────────────────────────────── */
+
+.scrollFab {
+  position: sticky;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, color 0.15s ease;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.scrollFab:hover {
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  color: var(--accent);
+  border-color: rgba(74, 108, 247, 0.2);
 }
 
 .emptyChat {
@@ -417,30 +448,24 @@
   max-width: 440px;
 }
 
-.assistantTag {
-  display: inline-flex;
+.emptyChatIcon {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  width: fit-content;
-  padding: 5px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 999px;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(74, 108, 247, 0.06);
+  border: 1px solid rgba(74, 108, 247, 0.1);
+  color: var(--accent);
 }
 
 .emptyChatTitle {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: -0.3px;
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .emptyChatText {
@@ -450,11 +475,28 @@
   color: var(--text-tertiary);
 }
 
+.emptyChatHints {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.emptyChatHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+
 /* ── Message bubbles ─────────────────────────────────────────── */
 
 .messageRow {
   display: flex;
   width: 100%;
+  position: relative;
 }
 
 .messageRowAssistant {
@@ -468,15 +510,16 @@
 .bubble {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: min(70%, 680px);
-  animation: bubbleIn 0.2s ease-out;
+  gap: 4px;
+  max-width: min(72%, 720px);
+  position: relative;
+  animation: bubbleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes bubbleIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -518,6 +561,7 @@
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
+  transition: box-shadow 0.2s ease;
 }
 
 .bubbleContentAssistant {
@@ -537,13 +581,6 @@
   border-top-right-radius: 4px;
 }
 
-.bubbleTime {
-  padding: 0 4px;
-  font-size: 10.5px;
-  font-family: var(--font-mono);
-  color: var(--text-tertiary);
-}
-
 .bubbleUser {
   align-items: flex-end;
 }
@@ -552,13 +589,64 @@
   align-items: flex-start;
 }
 
+/* ── Message hover actions ──────────────────────────────────── */
+
+.msgActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 0 2px;
+}
+
+.bubble:hover .msgActions {
+  opacity: 1;
+}
+
+.msgActionsUser {
+  flex-direction: row-reverse;
+}
+
+.msgActionsAssistant {
+  flex-direction: row;
+}
+
+.msgActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.msgActionBtn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-secondary);
+}
+
+.msgActionBtnSuccess {
+  color: #2a9d60;
+}
+
+.msgActionBtnSuccess:hover {
+  color: #2a9d60;
+  background: rgba(42, 157, 96, 0.08);
+}
+
 /* ── Inline image attachments ────────────────────────────────── */
 
 .msgImages {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 6px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .msgImageLink {
@@ -566,22 +654,22 @@
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease;
   text-decoration: none;
-  max-width: 400px;
+  max-width: 340px;
 }
 
 .msgImageLink:hover {
-  border-color: rgba(74, 108, 247, 0.35);
+  border-color: rgba(74, 108, 247, 0.3);
+  transform: scale(1.01);
 }
 
 .msgImage {
   display: block;
   width: 100%;
-  max-height: 360px;
+  max-height: 320px;
   object-fit: contain;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .msgImageCaption {
@@ -841,29 +929,31 @@
 .thinking {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-height: 20px;
+  padding: 2px 0;
 }
 
 .dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #999;
-  animation: dotBounce 1.2s ease-in-out infinite;
+  background: var(--accent);
+  opacity: 0.3;
+  animation: dotPulse 1.4s ease-in-out infinite;
 }
 
-.dot:nth-child(2) { animation-delay: 0.15s; }
-.dot:nth-child(3) { animation-delay: 0.3s; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
 
-@keyframes dotBounce {
-  0%, 80%, 100% {
-    transform: translateY(0);
-    opacity: 0.3;
+@keyframes dotPulse {
+  0%, 100% {
+    transform: scale(0.8);
+    opacity: 0.25;
   }
-  40% {
-    transform: translateY(-4px);
-    opacity: 1;
+  50% {
+    transform: scale(1.1);
+    opacity: 0.9;
   }
 }
 
@@ -1015,6 +1105,64 @@
   color: var(--error);
 }
 
+/* ── Image thumbnail previews ──────────────────────────────────── */
+
+.imageThumb {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  width: 72px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  animation: bubbleIn 0.15s ease-out;
+}
+
+.imageThumbImg {
+  width: 72px;
+  height: 56px;
+  object-fit: cover;
+  display: block;
+}
+
+.imageThumbRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.imageThumb:hover .imageThumbRemove {
+  opacity: 1;
+}
+
+.imageThumbRemove:hover {
+  background: var(--error);
+}
+
+.imageThumbName {
+  display: block;
+  padding: 2px 5px 3px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Upload progress bar ───────────────────────────────────────── */
 
 .uploadProgressWrap {
@@ -1156,12 +1304,12 @@
   border-radius: 16px;
   background: var(--input-bar-bg, rgba(255, 255, 255, 0.65));
   box-shadow: 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-sm);
-  transition: border-color 0.25s, box-shadow 0.25s;
+  transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .inputBar:focus-within {
-  border-color: rgba(74, 108, 247, 0.35);
-  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.08)), 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
+  border-color: rgba(74, 108, 247, 0.3);
+  box-shadow: 0 0 0 3px var(--accent-muted, rgba(74, 108, 247, 0.06)), 0 1px 0 var(--glass-inset-highlight) inset, var(--shadow-md);
 }
 
 .input {
@@ -1266,20 +1414,21 @@
   cursor: pointer;
   flex-shrink: 0;
   box-shadow: var(--shadow-accent);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s;
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s, opacity 0.2s;
 }
 
 .sendBtn:hover:not(:disabled) {
-  transform: translateY(-1px) scale(1.05);
-  box-shadow: 0 4px 16px rgba(74, 108, 247, 0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(74, 108, 247, 0.3);
 }
 
 .sendBtn:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.92);
+  transition-duration: 0.06s;
 }
 
 .sendBtn:disabled {
-  opacity: 0.3;
+  opacity: 0.25;
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -1648,31 +1797,52 @@
 
 .markdown strong { font-weight: 600; }
 
-/* ── Code block copy button ──────────────────────────────── */
+/* ── Code block header + copy ────────────────────────────── */
 
 .markdown pre {
   position: relative;
 }
 
+.codeHeader {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-border);
+  background: var(--md-header-bg);
+  margin: -14px -16px 10px;
+  border-radius: 9px 9px 0 0;
+  z-index: 2;
+  min-height: 32px;
+}
+
+.codeLang {
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
 .codeCopyBtn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   font-size: 11px;
   font-family: var(--font-sans);
   font-weight: 500;
   color: var(--text-tertiary);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
   cursor: pointer;
+  margin-left: auto;
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
-  z-index: 2;
+  transition: opacity 0.12s, background 0.12s, color 0.12s, border-color 0.12s;
 }
 
 .markdown pre:hover .codeCopyBtn {
@@ -1680,8 +1850,18 @@
 }
 
 .codeCopyBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
+}
+
+.codeCopyBtnSuccess {
+  opacity: 1;
+  color: #2a9d60;
+}
+
+.codeCopyBtnSuccess:hover {
+  color: #2a9d60;
 }
 
 /* ── Mermaid: inline block ───────────────────────────────── */
@@ -2024,12 +2204,18 @@
 .markdownStreaming > *:last-child::after {
   content: '';
   display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
+  width: 2.5px;
+  height: 1.1em;
+  margin-left: 1px;
   background: var(--accent);
   vertical-align: text-bottom;
-  animation: blink 0.72s step-end infinite;
+  border-radius: 1px;
+  animation: cursorPulse 1s ease-in-out infinite;
+}
+
+@keyframes cursorPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
 }
 
 /* ── Artifact inline preview ───────────────────────────────── */
@@ -2501,6 +2687,53 @@
 
   :global(:root[data-theme="system"]) .subtaskStep {
     border-left-color: rgba(74, 108, 247, 0.2);
+  }
+}
+
+/* ── Dark mode: new elements ─────────────────────────────────── */
+
+:global(:root[data-theme="dark"]) .msgActionBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+:global(:root[data-theme="dark"]) .scrollFab {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+:global(:root[data-theme="dark"]) .scrollFab:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+:global(:root[data-theme="dark"]) .emptyChatIcon {
+  background: rgba(107, 140, 255, 0.1);
+  border-color: rgba(107, 140, 255, 0.15);
+}
+
+:global(:root[data-theme="dark"]) .imageThumb {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .msgActionBtn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  :global(:root[data-theme="system"]) .scrollFab {
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  :global(:root[data-theme="system"]) .emptyChatIcon {
+    background: rgba(107, 140, 255, 0.1);
+    border-color: rgba(107, 140, 255, 0.15);
+  }
+
+  :global(:root[data-theme="system"]) .imageThumb {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
   }
 }
 
