@@ -568,6 +568,33 @@
   margin-top: 4px;
 }
 
+/* ── Danger / warning banners ──────────────────────────────── */
+
+.dangerBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 10px;
+  animation: fadeUp 0.2s ease-out;
+}
+
+.dangerBanner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.dangerBanner strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
 /* ── Restart-needed banner ─────────────────────────────────── */
 
 .restartBanner {

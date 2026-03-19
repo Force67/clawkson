@@ -1894,8 +1894,8 @@ components:
           nullable: true
           description: >
             Docker image to use for this agent's container.
-            Defaults to "python:3.12-slim" if not set.
-          example: python:3.12-slim
+            Defaults to "clawkson-sandbox:latest" if not set.
+          example: clawkson-sandbox:latest
         cpu_limit:
           type: number
           format: double
@@ -1909,6 +1909,48 @@ components:
           type: boolean
           default: false
           description: Whether network access is enabled
+        container_mode:
+          type: string
+          enum: [temporal, persistent]
+          default: temporal
+          description: Container lifecycle mode
+        execution_mode:
+          type: string
+          enum: [container, host, ssh]
+          default: container
+          description: >
+            Where code execution happens.
+            "container" — sandboxed Docker/bwrap (safe, default).
+            "host" — directly on the server (dangerous, no isolation).
+            "ssh" — on a remote machine via SSH.
+        ssh_config:
+          $ref: "#/components/schemas/SshConfig"
+          nullable: true
+          description: SSH connection config (only used when execution_mode is "ssh")
+
+    SshConfig:
+      type: object
+      required: [host, username]
+      properties:
+        host:
+          type: string
+          description: Remote hostname or IP address
+        port:
+          type: integer
+          default: 22
+          description: SSH port
+        username:
+          type: string
+          description: SSH username
+        key_credential_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of a credential containing the SSH private key
+        working_directory:
+          type: string
+          nullable: true
+          description: Working directory on the remote machine
 
     ContainerStatus:
       type: object

@@ -63,6 +63,12 @@ pub struct AgentContainerConfig {
     /// Container lifecycle mode: temporal (per-conversation, default) or persistent (shared).
     #[serde(default)]
     pub container_mode: ContainerMode,
+    /// Where code execution happens: container (default), host, or ssh.
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    /// SSH connection config (only used when execution_mode is ssh).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh_config: Option<SshConfig>,
 }
 
 // ── Android-Style Permissions ─────────────────────────────────────
@@ -239,6 +245,46 @@ impl Default for ContainerMode {
     fn default() -> Self {
         Self::Temporal
     }
+}
+
+/// Where code execution happens.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    /// Execute inside a sandboxed Docker/bwrap container (default, safe).
+    Container,
+    /// Execute directly on the host machine (dangerous — no isolation).
+    Host,
+    /// Execute on a remote machine via SSH.
+    Ssh,
+}
+
+impl Default for ExecutionMode {
+    fn default() -> Self {
+        Self::Container
+    }
+}
+
+/// SSH connection configuration for remote execution mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshConfig {
+    /// Remote hostname or IP address.
+    pub host: String,
+    /// SSH port (default: 22).
+    #[serde(default = "default_ssh_port")]
+    pub port: u16,
+    /// SSH username.
+    pub username: String,
+    /// ID of a credential containing the SSH private key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_credential_id: Option<Uuid>,
+    /// Optional working directory on the remote machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+}
+
+fn default_ssh_port() -> u16 {
+    22
 }
 
 fn default_true() -> bool {

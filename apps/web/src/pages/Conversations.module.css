@@ -1648,6 +1648,377 @@
 
 .markdown strong { font-weight: 600; }
 
+/* ── Code block copy button ──────────────────────────────── */
+
+.markdown pre {
+  position: relative;
+}
+
+.codeCopyBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  z-index: 2;
+}
+
+.markdown pre:hover .codeCopyBtn {
+  opacity: 1;
+}
+
+.codeCopyBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+/* ── Mermaid: inline block ───────────────────────────────── */
+
+.mermaidContainer {
+  margin: 0.65em 0;
+  border-radius: 12px;
+  border: 1px solid var(--md-border);
+  background: linear-gradient(135deg, rgba(74, 108, 247, 0.03), rgba(107, 140, 255, 0.02));
+  overflow: hidden;
+}
+
+:global(:root[data-theme="dark"]) .mermaidContainer {
+  background: linear-gradient(135deg, rgba(13, 17, 23, 0.6), rgba(26, 39, 68, 0.4));
+  border-color: rgba(74, 108, 247, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root[data-theme="system"]) .mermaidContainer {
+    background: linear-gradient(135deg, rgba(13, 17, 23, 0.6), rgba(26, 39, 68, 0.4));
+    border-color: rgba(74, 108, 247, 0.15);
+  }
+}
+
+.mermaidToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.mermaidLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.mermaidBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mermaidBtn:hover {
+  background: rgba(74, 108, 247, 0.1);
+  color: var(--accent);
+}
+
+.mermaidSvg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  min-height: 80px;
+}
+
+.mermaidSvg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaidLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  margin: 0.65em 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--md-border);
+  border-radius: 12px;
+}
+
+.mermaidError {
+  margin: 0.65em 0;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: 12px;
+}
+
+.mermaidErrorLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.mermaidError pre {
+  margin: 4px 0;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.mermaidSource {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--md-code-bg);
+  max-height: 120px;
+  overflow: auto;
+}
+
+/* ── Mermaid: expanded modal ────────────────────────────── */
+
+.mermaidOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.mermaidModal {
+  display: flex;
+  flex-direction: column;
+  width: calc(100vw - 64px);
+  height: calc(100vh - 64px);
+  max-width: 1400px;
+  max-height: 900px;
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-xl),
+    var(--shadow-glow);
+  animation: dialogIn 0.2s ease-out;
+  overflow: hidden;
+}
+
+/* ── Modal header ── */
+
+.mermaidModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+}
+
+.mermaidModalTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+}
+
+.mermaidModalDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(74, 108, 247, 0.4);
+}
+
+.mermaidModalControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mermaidModalBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.mermaidModalBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mermaidZoomLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-align: center;
+  user-select: none;
+}
+
+.mermaidModalDivider {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--glass-border);
+}
+
+.mermaidModalClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.mermaidModalClose:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error, #ef4444);
+}
+
+/* ── Modal viewport ── */
+
+.mermaidModalViewport {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(74, 108, 247, 0.03), transparent 70%),
+    repeating-linear-gradient(0deg, transparent, transparent 31px, var(--glass-border) 31px, var(--glass-border) 32px),
+    repeating-linear-gradient(90deg, transparent, transparent 31px, var(--glass-border) 31px, var(--glass-border) 32px);
+}
+
+.mermaidModalCanvas {
+  transform-origin: center center;
+  transition: transform 0.15s ease-out;
+}
+
+.mermaidModalCanvas svg {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+/* ── Modal footer hint ── */
+
+.mermaidModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 16px;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.mermaidModalFooter kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  line-height: 1;
+}
+
+/* ── KaTeX / LaTeX styling ──────────────────────────────── */
+
+.markdown :global(.katex-display) {
+  margin: 0.8em 0;
+  padding: 16px 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 10px;
+  background: var(--md-code-bg);
+  border: 1px solid var(--md-border);
+}
+
+.markdown :global(.katex-display) > :global(.katex) {
+  text-align: center;
+}
+
+.markdown :global(.katex) {
+  font-size: 1.05em;
+}
+
+/* Inline math — subtle styling */
+.markdown :global(.katex-inline) {
+  padding: 0 2px;
+}
+
 /* ── Streaming cursor for markdown ─────────────────────────── */
 
 .markdownStreaming > *:last-child::after {

@@ -1,8 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container, Maximize, Copy, CheckCheck, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
+import rehypeRaw from 'rehype-raw'
+import type MermaidAPI from 'mermaid'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool } from '../lib/api'
@@ -55,17 +60,281 @@ async function getFilesFromDataTransfer(dataTransfer: DataTransfer): Promise<Fil
   return Array.from(dataTransfer.files)
 }
 
+// ── Mermaid lazy loading & initialization ────────────────────────
+
+let mermaidInstance: typeof MermaidAPI | null = null
+let mermaidLoadPromise: Promise<typeof MermaidAPI> | null = null
+
+function getMermaid(): Promise<typeof MermaidAPI> {
+  if (mermaidInstance) return Promise.resolve(mermaidInstance)
+  if (mermaidLoadPromise) return mermaidLoadPromise
+  mermaidLoadPromise = import('mermaid').then(mod => {
+    const m = mod.default
+    m.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      darkMode: true,
+      fontFamily: 'Plus Jakarta Sans, sans-serif',
+      themeVariables: {
+        primaryColor: '#2a3a5c',
+        primaryTextColor: '#e0e0e0',
+        primaryBorderColor: '#4a6cf7',
+        lineColor: '#6b8cff',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#0f172a',
+        background: 'transparent',
+        mainBkg: '#1a2744',
+        nodeBorder: '#4a6cf7',
+        clusterBkg: 'rgba(74, 108, 247, 0.08)',
+        clusterBorder: 'rgba(74, 108, 247, 0.25)',
+        titleColor: '#e0e0e0',
+        edgeLabelBackground: '#0d1117',
+        nodeTextColor: '#e0e0e0',
+      },
+    })
+    mermaidInstance = m
+    return m
+  })
+  return mermaidLoadPromise
+}
+
+// ── Mermaid block renderer ──────────────────────────────────────
+
+let mermaidCounter = 0
+
+function MermaidModal({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1)
+  const viewRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === '+' || e.key === '=') setZoom(z => Math.min(z + 0.25, 4))
+      if (e.key === '-') setZoom(z => Math.max(z - 0.25, 0.25))
+      if (e.key === '0') setZoom(1)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  // Mouse wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      setZoom(z => Math.min(Math.max(z - e.deltaY * 0.002, 0.25), 4))
+    }
+  }, [])
+
+  const handleDownload = () => {
+    const blob = new Blob([svg], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'diagram.svg'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return createPortal(
+    <div className={styles.mermaidOverlay} onClick={onClose}>
+      <div className={styles.mermaidModal} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className={styles.mermaidModalHeader}>
+          <div className={styles.mermaidModalTitle}>
+            <span className={styles.mermaidModalDot} />
+            Diagram
+          </div>
+          <div className={styles.mermaidModalControls}>
+            <button
+              type="button"
+              className={styles.mermaidModalBtn}
+              onClick={() => setZoom(z => Math.max(z - 0.25, 0.25))}
+              title="Zoom out (-)"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <span className={styles.mermaidZoomLabel}>{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              className={styles.mermaidModalBtn}
+              onClick={() => setZoom(z => Math.min(z + 0.25, 4))}
+              title="Zoom in (+)"
+            >
+              <ZoomIn size={14} />
+            </button>
+            <button
+              type="button"
+              className={styles.mermaidModalBtn}
+              onClick={() => setZoom(1)}
+              title="Reset zoom (0)"
+            >
+              <RotateCcw size={14} />
+            </button>
+            <div className={styles.mermaidModalDivider} />
+            <button
+              type="button"
+              className={styles.mermaidModalBtn}
+              onClick={handleDownload}
+              title="Download SVG"
+            >
+              <Download size={14} />
+            </button>
+            <button
+              type="button"
+              className={styles.mermaidModalClose}
+              onClick={onClose}
+              title="Close (Esc)"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Viewport */}
+        <div
+          ref={viewRef}
+          className={styles.mermaidModalViewport}
+          onWheel={handleWheel}
+        >
+          <div
+            className={styles.mermaidModalCanvas}
+            style={{ transform: `scale(${zoom})` }}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
+
+        {/* Footer hint */}
+        <div className={styles.mermaidModalFooter}>
+          <kbd>+</kbd> / <kbd>-</kbd> zoom &nbsp;&middot;&nbsp; <kbd>Ctrl</kbd>+scroll &nbsp;&middot;&nbsp; <kbd>0</kbd> reset &nbsp;&middot;&nbsp; <kbd>Esc</kbd> close
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const [showModal, setShowModal] = useState(false)
+  const idRef = useRef(`mermaid-${++mermaidCounter}-${Date.now()}`)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const m = await getMermaid()
+        const { svg: rendered } = await m.render(idRef.current, code.trim())
+        if (!cancelled) setSvg(rendered)
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to render diagram')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [code])
+
+  if (error) {
+    return (
+      <div className={styles.mermaidError}>
+        <span className={styles.mermaidErrorLabel}>Diagram Error</span>
+        <pre>{error}</pre>
+        <pre className={styles.mermaidSource}>{code}</pre>
+      </div>
+    )
+  }
+
+  if (!svg) {
+    return (
+      <div className={styles.mermaidLoading}>
+        <Loader2 size={16} className={styles.spinning} />
+        <span>Rendering diagram...</span>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className={styles.mermaidContainer}>
+        <div className={styles.mermaidToolbar}>
+          <span className={styles.mermaidLabel}>Diagram</span>
+          <button
+            type="button"
+            className={styles.mermaidBtn}
+            onClick={() => setShowModal(true)}
+            title="Expand diagram"
+          >
+            <Maximize size={13} />
+          </button>
+        </div>
+        <div
+          className={styles.mermaidSvg}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+      {showModal && <MermaidModal svg={svg} onClose={() => setShowModal(false)} />}
+    </>
+  )
+}
+
+// ── Code block with copy + mermaid detection ────────────────────
+
+function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  const match = /language-(\w+)/.exec(className || '')
+  const lang = match?.[1]
+  const codeStr = String(children).replace(/\n$/, '')
+
+  // Mermaid code blocks → render as diagrams
+  if (lang === 'mermaid') {
+    return <MermaidBlock code={codeStr} />
+  }
+
+  // Regular code blocks get a copy button
+  const isBlock = className?.includes('hljs') || (typeof children === 'string' && children.includes('\n'))
+
+  if (!isBlock) {
+    return <code className={className} {...props}>{children}</code>
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(codeStr).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <code className={className} {...props}>
+      <button
+        type="button"
+        className={styles.codeCopyBtn}
+        onClick={handleCopy}
+        title="Copy code"
+      >
+        {copied ? <CheckCheck size={12} /> : <Copy size={12} />}
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      {children}
+    </code>
+  )
+}
+
 // ── Markdown renderer ───────────────────────────────────────────
 
 function MarkdownContent({ content }: { content: string }) {
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
+      remarkPlugins={[remarkMath, remarkGfm]}
+      rehypePlugins={[
+        [rehypeKatex, { strict: false }],
+        rehypeRaw,
+        [rehypeHighlight, { ignoreMissing: true }],
+      ]}
       components={{
         a: ({ href, children, ...props }) => (
           <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
         ),
+        code: CodeBlock as any,
       }}
     >
       {content}
@@ -1758,7 +2027,7 @@ export function ConversationsPage() {
                   className={styles.hiddenFileInput}
                   onChange={handleFileChange}
                 />
-                {selectedAgent?.container_enabled && !selectedAgent.container_config?.permissions?.network?.enabled && !selectedAgent.container_config?.network_enabled && (
+                {selectedAgent?.container_enabled && (!selectedAgent.container_config?.execution_mode || selectedAgent.container_config?.execution_mode === 'container') && !selectedAgent.container_config?.permissions?.network?.enabled && !selectedAgent.container_config?.network_enabled && (
                   <div className={styles.sandboxWarning}>
                     <WifiOff size={13} />
                     <span>
@@ -1767,7 +2036,7 @@ export function ConversationsPage() {
                     </span>
                   </div>
                 )}
-                {selectedAgent?.container_enabled && selectedAgent.container_config?.container_mode === 'persistent' && (
+                {selectedAgent?.container_enabled && (!selectedAgent.container_config?.execution_mode || selectedAgent.container_config?.execution_mode === 'container') && selectedAgent.container_config?.container_mode === 'persistent' && (
                   <div className={styles.sandboxWarning} style={{ borderColor: 'var(--accent)' }}>
                     <Container size={13} />
                     <span>

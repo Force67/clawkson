@@ -841,12 +841,18 @@ fn build_system_prompt_with_skills(
         }
     }
 
-    // If no base or agent prompt, no skills, and no credentials, return None
-    if parts.is_empty() && skills.is_empty() && credentials.is_empty() {
-        return None;
-    }
-
     let mut prompt = parts.join("\n\n");
+
+    // Inject current date/time so the LLM is always aware of "now"
+    let now = chrono::Utc::now();
+    if !prompt.is_empty() {
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str(&format!(
+        "Current date and time: {} UTC ({})",
+        now.format("%Y-%m-%d %H:%M"),
+        now.format("%A"),
+    ));
 
     if !skills.is_empty() {
         if !prompt.is_empty() {
@@ -1194,94 +1200,188 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
         connector_name_to_id: connector_name_to_id.clone(),
     };
 
-    // Code execution tool (requires container)
+    // Code execution tool — branch on execution_mode
     if agent_cfg.container_enabled {
-        if let Some(cm) = &state.container_manager {
-            let is_persistent = agent_cfg.container_config.as_ref()
-                .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
-                .unwrap_or(false);
+        let execution_mode = agent_cfg.container_config.as_ref()
+            .map(|c| c.execution_mode.clone())
+            .unwrap_or_default();
 
-            // Auto-start container for this conversation if needed.
-            // Persistent mode: use get_or_start_persistent (shared container).
-            // Temporal mode: start a per-conversation container.
-            let container_config = agent_cfg.container_config
-                .as_ref()
-                .map(|ac| clawkson_container::ContainerConfig {
-                    image: ac.image.clone().unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
-                    cpu_limit: ac.cpu_limit,
-                    memory_limit_mb: ac.memory_limit_mb,
-                    network_enabled: ac.network_enabled,
-                    permissions: ac.permissions.clone(),
-                    persistent: is_persistent,
-                    ..Default::default()
-                })
-                .unwrap_or_default();
+        match execution_mode {
+            clawkson_core::ExecutionMode::Host => {
+                // ── Host mode: execute directly on host machine ──
+                tracing::warn!(agent_id = %agent_cfg.agent_id, "agent using HOST execution mode — no container isolation");
 
-            if is_persistent {
-                if let Err(e) = cm.get_or_start_persistent(agent_cfg.agent_id, &container_config).await {
-                    tracing::error!("failed to auto-start persistent container: {e}");
-                }
-            } else if cm.get_container(agent_cfg.agent_id, conversation_id).await.is_none() {
-                if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &container_config).await {
-                    tracing::error!("failed to auto-start container: {e}");
+                let workspace_root = std::env::var("CLAWKSON_WORKSPACE_ROOT")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/clawkson-workspaces"));
+                let workspace = workspace_root
+                    .join(agent_cfg.agent_id.to_string())
+                    .join(conversation_id.to_string());
+
+                let credential_env: std::collections::HashMap<String, String> = {
+                    let creds = clawkson_db::credential::agent_resolve_all_credentials(state.db.pool(), agent_cfg.agent_id)
+                        .await
+                        .unwrap_or_default();
+                    creds.into_iter().map(|c| {
+                        let env_name = format!("CREDENTIAL_{}", c.name.replace('-', "_").to_uppercase());
+                        (env_name, c.encrypted_value)
+                    }).collect()
+                };
+
+                let code_tool = crate::tools::HostExecutionTool::new(workspace.clone())
+                    .with_credentials(credential_env);
+                let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
+                registry.register(guarded.into_dyn());
+
+                // Workspace tools still work (reading/writing host filesystem workspace)
+                let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
+                let guarded = crate::permission_guard::GuardedBuiltinTool::new(read_tool.into_dyn(), "workspace_read".to_string(), guard_ctx.clone());
+                registry.register(guarded.into_dyn());
+
+                let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone());
+                let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
+                registry.register(guarded.into_dyn());
+
+                let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root);
+                let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
+                registry.register(guarded.into_dyn());
+            }
+
+            clawkson_core::ExecutionMode::Ssh => {
+                // ── SSH mode: execute on remote machine ──
+                if let Some(ssh_cfg) = agent_cfg.container_config.as_ref().and_then(|c| c.ssh_config.as_ref()) {
+                    tracing::info!(agent_id = %agent_cfg.agent_id, host = %ssh_cfg.host, "agent using SSH execution mode");
+
+                    // Resolve SSH key credential to a temp file if provided
+                    let key_path = if let Some(key_cred_id) = ssh_cfg.key_credential_id {
+                        match clawkson_db::credential::get_by_id(&state.db, key_cred_id).await {
+                            Ok(Some(cred)) => {
+                                let tmp = std::env::temp_dir().join(format!("clawkson-ssh-{}", agent_cfg.agent_id));
+                                if let Ok(()) = tokio::fs::write(&tmp, cred.encrypted_value.as_bytes()).await {
+                                    #[cfg(unix)]
+                                    {
+                                        use std::os::unix::fs::PermissionsExt;
+                                        tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).await.ok();
+                                    }
+                                    Some(tmp)
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    let credential_env: std::collections::HashMap<String, String> = {
+                        let creds = clawkson_db::credential::agent_resolve_all_credentials(state.db.pool(), agent_cfg.agent_id)
+                            .await
+                            .unwrap_or_default();
+                        creds.into_iter().map(|c| {
+                            let env_name = format!("CREDENTIAL_{}", c.name.replace('-', "_").to_uppercase());
+                            (env_name, c.encrypted_value)
+                        }).collect()
+                    };
+
+                    let code_tool = crate::tools::SshExecutionTool::new(
+                        ssh_cfg.host.clone(),
+                        ssh_cfg.port,
+                        ssh_cfg.username.clone(),
+                        key_path,
+                        ssh_cfg.working_directory.clone(),
+                    ).with_credentials(credential_env);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
+                } else {
+                    tracing::error!(agent_id = %agent_cfg.agent_id, "SSH execution mode enabled but no ssh_config provided");
                 }
             }
-            let workspace_root = cm.workspace_root().to_path_buf();
 
-            // Resolve credential values for env var injection into the container.
-            // These are the actual secret values — they never appear in LLM context.
-            let credential_env: std::collections::HashMap<String, String> = {
-                let creds = clawkson_db::credential::agent_resolve_all_credentials(state.db.pool(), agent_cfg.agent_id)
-                    .await
-                    .unwrap_or_default();
-                creds.into_iter().map(|c| {
-                    let env_name = format!("CREDENTIAL_{}", c.name.replace('-', "_").to_uppercase());
-                    (env_name, c.encrypted_value)
-                }).collect()
-            };
+            clawkson_core::ExecutionMode::Container => {
+                // ── Container mode (default): execute in Docker/bwrap sandbox ──
+                if let Some(cm) = &state.container_manager {
+                    let is_persistent = agent_cfg.container_config.as_ref()
+                        .map(|c| c.container_mode == clawkson_core::ContainerMode::Persistent)
+                        .unwrap_or(false);
 
-            let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone())
-                .with_persistent(is_persistent)
-                .with_credentials(credential_env);
-            let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
-            registry.register(guarded.into_dyn());
+                    let container_config = agent_cfg.container_config
+                        .as_ref()
+                        .map(|ac| clawkson_container::ContainerConfig {
+                            image: ac.image.clone().unwrap_or_else(|| "clawkson-sandbox:latest".to_string()),
+                            cpu_limit: ac.cpu_limit,
+                            memory_limit_mb: ac.memory_limit_mb,
+                            network_enabled: ac.network_enabled,
+                            permissions: ac.permissions.clone(),
+                            persistent: is_persistent,
+                            ..Default::default()
+                        })
+                        .unwrap_or_default();
 
-            // Workspace tools — let the LLM read, write, and list files in its workspace
-            let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
-                .with_persistent(is_persistent);
-            let guarded = crate::permission_guard::GuardedBuiltinTool::new(read_tool.into_dyn(), "workspace_read".to_string(), guard_ctx.clone());
-            registry.register(guarded.into_dyn());
+                    if is_persistent {
+                        if let Err(e) = cm.get_or_start_persistent(agent_cfg.agent_id, &container_config).await {
+                            tracing::error!("failed to auto-start persistent container: {e}");
+                        }
+                    } else if cm.get_container(agent_cfg.agent_id, conversation_id).await.is_none() {
+                        if let Err(e) = cm.start_container(agent_cfg.agent_id, conversation_id, &container_config).await {
+                            tracing::error!("failed to auto-start container: {e}");
+                        }
+                    }
+                    let workspace_root = cm.workspace_root().to_path_buf();
 
-            let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
-                .with_persistent(is_persistent);
-            let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
-            registry.register(guarded.into_dyn());
+                    let credential_env: std::collections::HashMap<String, String> = {
+                        let creds = clawkson_db::credential::agent_resolve_all_credentials(state.db.pool(), agent_cfg.agent_id)
+                            .await
+                            .unwrap_or_default();
+                        creds.into_iter().map(|c| {
+                            let env_name = format!("CREDENTIAL_{}", c.name.replace('-', "_").to_uppercase());
+                            (env_name, c.encrypted_value)
+                        }).collect()
+                    };
 
-            let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
-                .with_persistent(is_persistent);
-            let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
-            registry.register(guarded.into_dyn());
+                    let code_tool = crate::tools::CodeExecutionTool::new(agent_cfg.agent_id, conversation_id, cm.clone(), workspace_root.clone())
+                        .with_persistent(is_persistent)
+                        .with_credentials(credential_env);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(code_tool.into_dyn(), "code_execution".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
 
-            // Live preview tool — lets the agent register a web server for inline display
-            let preview_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
-            let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, preview_conv_id);
-            let guarded = crate::permission_guard::GuardedBuiltinTool::new(preview_tool.into_dyn(), "start_preview".to_string(), guard_ctx.clone());
-            registry.register(guarded.into_dyn());
+                    // Workspace tools
+                    let read_tool = crate::tools::WorkspaceReadTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                        .with_persistent(is_persistent);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(read_tool.into_dyn(), "workspace_read".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
 
-            // Browser tool — interactive browser control (navigate, click, type, screenshot)
-            // Registered when agent has container + network so Chromium can fetch pages.
-            let net_enabled = agent_cfg.container_config.as_ref()
-                .map(|c| c.permissions.network.enabled || c.network_enabled)
-                .unwrap_or(false);
-            if net_enabled {
-                let browser_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
-                let browser_tool = crate::browser_tools::BrowserTool::new(
-                    agent_cfg.agent_id, browser_conv_id, cm.clone(), workspace_root,
-                );
-                let guarded = crate::permission_guard::GuardedBuiltinTool::new(
-                    browser_tool.into_dyn(), "browser".to_string(), guard_ctx.clone(),
-                );
-                registry.register(guarded.into_dyn());
+                    let write_tool = crate::tools::WorkspaceWriteTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                        .with_persistent(is_persistent);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(write_tool.into_dyn(), "workspace_write".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
+
+                    let list_tool = crate::tools::WorkspaceListTool::new(agent_cfg.agent_id, conversation_id, workspace_root.clone())
+                        .with_persistent(is_persistent);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(list_tool.into_dyn(), "workspace_list".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
+
+                    // Live preview tool
+                    let preview_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
+                    let preview_tool = crate::tools::StartPreviewTool::new(agent_cfg.agent_id, preview_conv_id);
+                    let guarded = crate::permission_guard::GuardedBuiltinTool::new(preview_tool.into_dyn(), "start_preview".to_string(), guard_ctx.clone());
+                    registry.register(guarded.into_dyn());
+
+                    // Browser tool
+                    let net_enabled = agent_cfg.container_config.as_ref()
+                        .map(|c| c.permissions.network.enabled || c.network_enabled)
+                        .unwrap_or(false);
+                    if net_enabled {
+                        let browser_conv_id = if is_persistent { clawkson_container::PERSISTENT_SENTINEL } else { conversation_id };
+                        let browser_tool = crate::browser_tools::BrowserTool::new(
+                            agent_cfg.agent_id, browser_conv_id, cm.clone(), workspace_root,
+                        );
+                        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+                            browser_tool.into_dyn(), "browser".to_string(), guard_ctx.clone(),
+                        );
+                        registry.register(guarded.into_dyn());
+                    }
+                }
             }
         }
     }

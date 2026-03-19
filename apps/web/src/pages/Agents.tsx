@@ -4,6 +4,7 @@ import {
   Loader2, Cpu, Thermometer, Hash, Container, RotateCw,
   BookOpen, Zap, Search, Filter, Share2,
   Shield, HardDrive, Terminal, Database, Globe, X, GitBranch, KeyRound,
+  AlertTriangle, Monitor, ServerCog,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -27,6 +28,8 @@ import {
   type PolicyPreset,
   type ProxyRule,
   type HttpMethod,
+  type ExecutionMode,
+  type SshConfig,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import styles from './Agents.module.css'
@@ -441,6 +444,12 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, o
   const [connectorId, setConnectorId] = useState(agent.llm_connector_id ?? '')
   const [subtaskConnectorId, setSubtaskConnectorId] = useState(agent.subtask_llm_connector_id ?? '')
   const [containerEnabled, setContainerEnabled] = useState(agent.container_enabled)
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(
+    agent.container_config?.execution_mode ?? 'container'
+  )
+  const [sshConfig, setSshConfig] = useState<SshConfig>(
+    agent.container_config?.ssh_config ?? { host: '', port: 22, username: '' }
+  )
   const [containerMode, setContainerMode] = useState<'temporal' | 'persistent'>(
     agent.container_config?.container_mode ?? 'temporal'
   )
@@ -595,6 +604,8 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, o
           network_enabled: networkEnabled,
           permissions,
           container_mode: containerMode,
+          execution_mode: executionMode,
+          ssh_config: executionMode === 'ssh' ? sshConfig : undefined,
         } : undefined,
       })
       savedConfig.current = updated.container_config
@@ -776,7 +787,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, o
           </div>
 
           <div className={styles.fieldSection}>
-            <h4 className={styles.fieldSectionTitle}>Sandbox</h4>
+            <h4 className={styles.fieldSectionTitle}>Code Execution</h4>
             <div className={styles.formGroup}>
               <label className={styles.toggleLabel}>
                 <input
@@ -785,63 +796,185 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, o
                   onChange={e => setContainerEnabled(e.target.checked)}
                   className={styles.checkbox}
                 />
-                <Container size={11} /> Enable code execution sandbox
+                <Container size={11} /> Enable code execution
               </label>
               <p className={styles.fieldHint}>
-                Gives the agent a Docker container for running Python and Bash code.
+                Gives the agent the ability to run Python and Bash code.
               </p>
             </div>
             {containerEnabled && (
               <>
                 <div className={styles.formGroup} style={{ marginBottom: 10 }}>
-                  <label className={styles.label}>Container Mode</label>
+                  <label className={styles.label}>Execution Mode</label>
                   <div className={styles.segmentedControl}>
                     <button
                       type="button"
-                      className={`${styles.segmentBtn} ${containerMode === 'temporal' ? styles.segmentBtnActive : ''}`}
-                      onClick={() => setContainerMode('temporal')}
+                      className={`${styles.segmentBtn} ${executionMode === 'container' ? styles.segmentBtnActive : ''}`}
+                      onClick={() => setExecutionMode('container')}
                     >
-                      Temporal
+                      <Container size={11} /> Container
                     </button>
                     <button
                       type="button"
-                      className={`${styles.segmentBtn} ${containerMode === 'persistent' ? styles.segmentBtnActive : ''}`}
-                      onClick={() => {
-                        setContainerMode('persistent')
-                        // Persistent mode requires writable rootfs
-                        setPermissions(prev => ({
-                          ...prev,
-                          resources: { ...prev.resources, readonly_rootfs: false },
-                        }))
-                      }}
+                      className={`${styles.segmentBtn} ${executionMode === 'host' ? styles.segmentBtnActive : ''}`}
+                      onClick={() => setExecutionMode('host')}
                     >
-                      Persistent
+                      <Monitor size={11} /> Host
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.segmentBtn} ${executionMode === 'ssh' ? styles.segmentBtnActive : ''}`}
+                      onClick={() => setExecutionMode('ssh')}
+                    >
+                      <ServerCog size={11} /> SSH
                     </button>
                   </div>
-                  <p className={styles.fieldHint}>
-                    {containerMode === 'temporal'
-                      ? 'Each conversation gets its own isolated container. Containers are removed on server restart.'
-                      : 'One shared container across all conversations. Installed packages and state survive restarts.'}
-                  </p>
                 </div>
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}><Cpu size={11} /> CPU Limit (cores)</label>
-                    <input
-                      className={styles.input} value={cpuLimit}
-                      onChange={e => setCpuLimit(e.target.value)}
-                      placeholder="1.0" type="number" min="0.1" max="4" step="0.1"
-                    />
+
+                {executionMode === 'host' && (
+                  <div className={styles.dangerBanner}>
+                    <AlertTriangle size={14} />
+                    <div>
+                      <strong>Host execution — no sandbox isolation</strong>
+                      <p style={{ margin: '4px 0 0', opacity: 0.85 }}>
+                        Commands run directly on the server with full access to the filesystem,
+                        network, and system resources. Only enable this if you trust the agent's
+                        prompts and understand the risks.
+                      </p>
+                    </div>
                   </div>
-                  <div className={styles.formGroup}>
-                    <label className={styles.label}><Hash size={11} /> Memory (MB)</label>
-                    <input
-                      className={styles.input} value={memoryLimit}
-                      onChange={e => setMemoryLimit(e.target.value)}
-                      placeholder="512" type="number" min="64" max="4096" step="64"
-                    />
-                  </div>
-                </div>
+                )}
+
+                {executionMode === 'ssh' && (
+                  <>
+                    <div className={styles.dangerBanner} style={{ borderColor: 'var(--accent-blue, #3b82f6)' }}>
+                      <ServerCog size={14} />
+                      <div>
+                        <strong>SSH remote execution</strong>
+                        <p style={{ margin: '4px 0 0', opacity: 0.85 }}>
+                          Commands are sent to a remote machine via SSH. The agent will have the same
+                          permissions as the SSH user on the target host.
+                        </p>
+                      </div>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>SSH Host</label>
+                      <input
+                        className={styles.input}
+                        value={sshConfig.host}
+                        onChange={e => setSshConfig(prev => ({ ...prev, host: e.target.value }))}
+                        placeholder="192.168.1.100 or example.com"
+                      />
+                    </div>
+                    <div className={styles.formRow}>
+                      <div className={styles.formGroup}>
+                        <label className={styles.label}>Username</label>
+                        <input
+                          className={styles.input}
+                          value={sshConfig.username}
+                          onChange={e => setSshConfig(prev => ({ ...prev, username: e.target.value }))}
+                          placeholder="deploy"
+                        />
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label className={styles.label}>Port</label>
+                        <input
+                          className={styles.input}
+                          value={sshConfig.port}
+                          onChange={e => setSshConfig(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
+                          type="number" min="1" max="65535"
+                        />
+                      </div>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>SSH Key Credential</label>
+                      <div className={styles.selectWrap}>
+                        <select
+                          className={styles.select}
+                          value={sshConfig.key_credential_id ?? ''}
+                          onChange={e => setSshConfig(prev => ({
+                            ...prev,
+                            key_credential_id: e.target.value || undefined,
+                          }))}
+                        >
+                          <option value="">Use default SSH key (~/.ssh/id_*)</option>
+                          {credentials.map(cred => (
+                            <option key={cred.id} value={cred.id}>{cred.name}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={13} className={styles.selectChevron} />
+                      </div>
+                      <p className={styles.fieldHint}>
+                        Select a credential containing the SSH private key, or leave empty to use the server's default keys.
+                      </p>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Working Directory</label>
+                      <input
+                        className={styles.input}
+                        value={sshConfig.working_directory ?? ''}
+                        onChange={e => setSshConfig(prev => ({
+                          ...prev,
+                          working_directory: e.target.value || undefined,
+                        }))}
+                        placeholder="/home/deploy/workspace (optional)"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {executionMode === 'container' && (
+                  <>
+                    <div className={styles.formGroup} style={{ marginBottom: 10 }}>
+                      <label className={styles.label}>Container Mode</label>
+                      <div className={styles.segmentedControl}>
+                        <button
+                          type="button"
+                          className={`${styles.segmentBtn} ${containerMode === 'temporal' ? styles.segmentBtnActive : ''}`}
+                          onClick={() => setContainerMode('temporal')}
+                        >
+                          Temporal
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.segmentBtn} ${containerMode === 'persistent' ? styles.segmentBtnActive : ''}`}
+                          onClick={() => {
+                            setContainerMode('persistent')
+                            setPermissions(prev => ({
+                              ...prev,
+                              resources: { ...prev.resources, readonly_rootfs: false },
+                            }))
+                          }}
+                        >
+                          Persistent
+                        </button>
+                      </div>
+                      <p className={styles.fieldHint}>
+                        {containerMode === 'temporal'
+                          ? 'Each conversation gets its own isolated container. Containers are removed on server restart.'
+                          : 'One shared container across all conversations. Installed packages and state survive restarts.'}
+                      </p>
+                    </div>
+                    <div className={styles.formRow}>
+                      <div className={styles.formGroup}>
+                        <label className={styles.label}><Cpu size={11} /> CPU Limit (cores)</label>
+                        <input
+                          className={styles.input} value={cpuLimit}
+                          onChange={e => setCpuLimit(e.target.value)}
+                          placeholder="1.0" type="number" min="0.1" max="4" step="0.1"
+                        />
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label className={styles.label}><Hash size={11} /> Memory (MB)</label>
+                        <input
+                          className={styles.input} value={memoryLimit}
+                          onChange={e => setMemoryLimit(e.target.value)}
+                          placeholder="512" type="number" min="64" max="4096" step="64"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
             {containerConfigDirty && runningContainerCount > 0 && (
@@ -855,7 +988,7 @@ function ConfigPanel({ agent, connectors, knowledgeBases, skills, credentials, o
             )}
           </div>
 
-          {containerEnabled && (
+          {containerEnabled && executionMode === 'container' && (
           <div className={styles.fieldSection}>
             <h4 className={styles.fieldSectionTitle}>Permissions</h4>
             <p className={styles.fieldHint} style={{ marginBottom: 12, marginTop: -4 }}>
@@ -1341,7 +1474,19 @@ function AgentCard({ agent, connector, subtaskConnector, canManage, ownerLabel, 
         {ownerLabel && <span className={styles.configTag}>{ownerLabel}</span>}
         {agent.temperature != null && <span className={styles.configTag}><Thermometer size={10} /> {agent.temperature}</span>}
         {agent.max_tokens != null && <span className={styles.configTag}><Hash size={10} /> {agent.max_tokens}</span>}
-        {agent.container_enabled && <span className={styles.configTag}><Container size={10} /> Sandbox</span>}
+        {agent.container_enabled && agent.container_config?.execution_mode === 'host' && (
+          <span className={styles.configTag} style={{ color: 'var(--danger, #ef4444)' }}>
+            <Monitor size={10} /> Host
+          </span>
+        )}
+        {agent.container_enabled && agent.container_config?.execution_mode === 'ssh' && (
+          <span className={styles.configTag}>
+            <ServerCog size={10} /> SSH
+          </span>
+        )}
+        {agent.container_enabled && (!agent.container_config?.execution_mode || agent.container_config?.execution_mode === 'container') && (
+          <span className={styles.configTag}><Container size={10} /> Sandbox</span>
+        )}
         {agent.shared && <span className={styles.configTag}><Share2 size={10} /> Shared</span>}
       </div>
 

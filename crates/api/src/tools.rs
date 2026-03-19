@@ -240,6 +240,341 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+// ── Host Execution Tool ───────────────────────────────────────────
+
+/// A tool that executes code directly on the host machine (no container).
+/// **Dangerous** — no isolation. Only enabled when the agent is explicitly
+/// configured with `execution_mode: host`.
+pub struct HostExecutionTool {
+    workspace_root: std::path::PathBuf,
+    credential_env: std::collections::HashMap<String, String>,
+}
+
+impl HostExecutionTool {
+    pub fn new(workspace_root: std::path::PathBuf) -> Self {
+        Self {
+            workspace_root,
+            credential_env: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_credentials(mut self, env: std::collections::HashMap<String, String>) -> Self {
+        self.credential_env = env;
+        self
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for HostExecutionTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("code_execution")
+            .with_description(
+                "Execute code DIRECTLY on the HOST MACHINE. \
+                 ⚠️ WARNING: This runs WITHOUT any container sandbox — commands have full access \
+                 to the host system, filesystem, and network. Use with extreme caution. \
+                 Use this for running Python or Bash code. \
+                 The working directory is the workspace at the path shown below. \
+                 Read inputs from ./inputs/ and write outputs to ./outputs/. \
+                 After execution, any files written to ./outputs/ are automatically \
+                 returned to you so you can read or summarise their contents.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "language",
+                serde_json::json!({
+                    "type": "string",
+                    "enum": ["python", "bash"]
+                }),
+            )
+            .with_description("The programming language to execute: 'python' or 'bash'"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "code",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("The code to execute"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: CodeExecArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for code_execution: {e}"
+            ))
+        })?;
+
+        let command = match args.language.as_str() {
+            "python" => format!("python3 -c {}", shell_escape(&args.code)),
+            "bash" => args.code.clone(),
+            other => {
+                return Ok(serde_json::json!({
+                    "error": format!("Unsupported language: {other}. Use 'python' or 'bash'.")
+                }));
+            }
+        };
+
+        // Inject credential env vars as exports
+        let command = if self.credential_env.is_empty() {
+            command
+        } else {
+            let exports: Vec<String> = self.credential_env.iter()
+                .map(|(k, v)| format!("export {}={}", k, shell_escape(v)))
+                .collect();
+            format!("{}; {}", exports.join("; "), command)
+        };
+
+        // Ensure workspace exists
+        let workspace = &self.workspace_root;
+        for dir in ["inputs", "outputs"] {
+            let p = workspace.join(dir);
+            tokio::fs::create_dir_all(&p).await.ok();
+        }
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            tokio::process::Command::new("bash")
+                .arg("-c")
+                .arg(&command)
+                .current_dir(workspace)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output(),
+        )
+        .await;
+
+        match output {
+            Ok(Ok(out)) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let exit_code = out.status.code().unwrap_or(-1);
+
+                let mut response = serde_json::json!({
+                    "stdout": &stdout[..stdout.len().min(65536)],
+                    "stderr": &stderr[..stderr.len().min(65536)],
+                    "exit_code": exit_code,
+                    "timed_out": false,
+                    "execution_mode": "host",
+                });
+
+                // Collect output files
+                let output_dir = workspace.join("outputs");
+                if output_dir.is_dir() {
+                    if let Ok(files) = clawkson_container::workspace::collect_output_files(workspace, "outputs") {
+                        if !files.is_empty() {
+                            let files_json: Vec<Value> = files.iter().map(|f| {
+                                let abs = workspace.join(&f.path);
+                                let content = if f.size <= MAX_INLINE_FILE_BYTES {
+                                    match std::fs::read(&abs) {
+                                        Ok(bytes) => match std::str::from_utf8(&bytes) {
+                                            Ok(text) => Value::String(text.to_string()),
+                                            Err(_) => Value::String(format!("[binary file, {} bytes]", bytes.len())),
+                                        },
+                                        Err(e) => Value::String(format!("[read error: {e}]")),
+                                    }
+                                } else {
+                                    Value::String(format!("[file too large to inline ({} KB)]", f.size / 1024))
+                                };
+                                serde_json::json!({
+                                    "path": f.path,
+                                    "size_bytes": f.size,
+                                    "content": content,
+                                })
+                            }).collect();
+                            response["output_files"] = Value::Array(files_json);
+                        }
+                    }
+                }
+
+                Ok(response)
+            }
+            Ok(Err(e)) => Ok(serde_json::json!({
+                "error": format!("Failed to execute command: {e}"),
+                "execution_mode": "host",
+            })),
+            Err(_) => Ok(serde_json::json!({
+                "stdout": "",
+                "stderr": "Command timed out after 300 seconds",
+                "exit_code": -1,
+                "timed_out": true,
+                "execution_mode": "host",
+            })),
+        }
+    }
+}
+
+// ── SSH Execution Tool ────────────────────────────────────────────
+
+/// A tool that executes code on a remote machine via SSH.
+/// Requires SSH config (host, username, optional key credential).
+pub struct SshExecutionTool {
+    ssh_host: String,
+    ssh_port: u16,
+    ssh_user: String,
+    /// Path to a temporary key file (written at tool construction time).
+    ssh_key_path: Option<std::path::PathBuf>,
+    working_directory: Option<String>,
+    credential_env: std::collections::HashMap<String, String>,
+}
+
+impl SshExecutionTool {
+    pub fn new(
+        host: String,
+        port: u16,
+        user: String,
+        key_path: Option<std::path::PathBuf>,
+        working_directory: Option<String>,
+    ) -> Self {
+        Self {
+            ssh_host: host,
+            ssh_port: port,
+            ssh_user: user,
+            ssh_key_path: key_path,
+            working_directory,
+            credential_env: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_credentials(mut self, env: std::collections::HashMap<String, String>) -> Self {
+        self.credential_env = env;
+        self
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for SshExecutionTool {
+    fn definition(&self) -> FunctionDefinition {
+        let target = format!("{}@{}:{}", self.ssh_user, self.ssh_host, self.ssh_port);
+        let mut def = FunctionDefinition::new("code_execution")
+            .with_description(format!(
+                "Execute code on a REMOTE machine via SSH ({target}). \
+                 ⚠️ WARNING: Commands run on the remote host with the permissions of the SSH user. \
+                 Use this for running Python or Bash code remotely. \
+                 {cwd}\
+                 Write outputs to ./outputs/ relative to the working directory if you need to produce files.",
+                cwd = self.working_directory.as_ref()
+                    .map(|d| format!("Working directory: {d}. "))
+                    .unwrap_or_default(),
+            ));
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "language",
+                serde_json::json!({
+                    "type": "string",
+                    "enum": ["python", "bash"]
+                }),
+            )
+            .with_description("The programming language to execute: 'python' or 'bash'"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new(
+                "code",
+                serde_json::json!({ "type": "string" }),
+            )
+            .with_description("The code to execute on the remote machine"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: CodeExecArgs = serde_json::from_value(arguments.clone()).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid arguments for code_execution: {e}"
+            ))
+        })?;
+
+        let remote_cmd = match args.language.as_str() {
+            "python" => format!("python3 -c {}", shell_escape(&args.code)),
+            "bash" => args.code.clone(),
+            other => {
+                return Ok(serde_json::json!({
+                    "error": format!("Unsupported language: {other}. Use 'python' or 'bash'.")
+                }));
+            }
+        };
+
+        // Prepend credential exports + cd to working directory
+        let mut preamble = Vec::new();
+        for (k, v) in &self.credential_env {
+            preamble.push(format!("export {}={}", k, shell_escape(v)));
+        }
+        if let Some(ref wd) = self.working_directory {
+            preamble.push(format!("cd {} 2>/dev/null || true", shell_escape(wd)));
+        }
+        let full_cmd = if preamble.is_empty() {
+            remote_cmd
+        } else {
+            format!("{}; {}", preamble.join("; "), remote_cmd)
+        };
+
+        // Build SSH command
+        let mut cmd = tokio::process::Command::new("ssh");
+        cmd.arg("-o").arg("StrictHostKeyChecking=accept-new")
+            .arg("-o").arg("ConnectTimeout=10")
+            .arg("-o").arg("BatchMode=yes")
+            .arg("-p").arg(self.ssh_port.to_string());
+
+        if let Some(ref key_path) = self.ssh_key_path {
+            cmd.arg("-i").arg(key_path);
+        }
+
+        cmd.arg(format!("{}@{}", self.ssh_user, self.ssh_host))
+            .arg("--")
+            .arg(&full_cmd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            cmd.output(),
+        )
+        .await;
+
+        match output {
+            Ok(Ok(out)) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let exit_code = out.status.code().unwrap_or(-1);
+
+                Ok(serde_json::json!({
+                    "stdout": &stdout[..stdout.len().min(65536)],
+                    "stderr": &stderr[..stderr.len().min(65536)],
+                    "exit_code": exit_code,
+                    "timed_out": false,
+                    "execution_mode": "ssh",
+                    "target": format!("{}@{}:{}", self.ssh_user, self.ssh_host, self.ssh_port),
+                }))
+            }
+            Ok(Err(e)) => Ok(serde_json::json!({
+                "error": format!("SSH execution failed: {e}. Make sure `ssh` is installed and the target is reachable."),
+                "execution_mode": "ssh",
+            })),
+            Err(_) => Ok(serde_json::json!({
+                "stdout": "",
+                "stderr": "SSH command timed out after 300 seconds",
+                "exit_code": -1,
+                "timed_out": true,
+                "execution_mode": "ssh",
+            })),
+        }
+    }
+}
+
 // ── Workspace Read Tool ───────────────────────────────────────────
 
 /// A tool that lets the LLM read a file from the conversation's workspace.

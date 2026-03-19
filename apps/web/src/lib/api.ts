@@ -30,6 +30,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export type AgentStatus = 'online' | 'offline' | 'busy' | 'error'
 
 export type ContainerMode = 'temporal' | 'persistent'
+export type ExecutionMode = 'container' | 'host' | 'ssh'
+
+export interface SshConfig {
+  host: string
+  port: number
+  username: string
+  key_credential_id?: string | null
+  working_directory?: string | null
+}
 
 export interface AgentContainerConfig {
   cpu_limit: number | null
@@ -37,6 +46,8 @@ export interface AgentContainerConfig {
   network_enabled: boolean
   permissions?: AgentPermissions
   container_mode?: ContainerMode
+  execution_mode?: ExecutionMode
+  ssh_config?: SshConfig | null
 }
 
 // ── Agent Permissions (Android-style) ─────────────────────────────
