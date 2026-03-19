@@ -1175,6 +1175,226 @@ impl KernelFunction for KnowledgeSearchTool {
     }
 }
 
+// ── Knowledge Create Tool ─────────────────────────────────────────
+
+/// A tool that lets agents create new knowledge bases dynamically.
+pub struct KnowledgeCreateTool {
+    agent_id: Uuid,
+    user_id: Uuid,
+    db: Db,
+}
+
+impl KnowledgeCreateTool {
+    pub fn new(agent_id: Uuid, user_id: Uuid, db: Db) -> Self {
+        Self { agent_id, user_id, db }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KnowledgeCreateArgs {
+    name: String,
+    description: String,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for KnowledgeCreateTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("knowledge_create")
+            .with_description(
+                "Create a new knowledge base to store and organise information on a topic. \
+                 The knowledge base is automatically linked to you (this agent). \
+                 Use this when you want to build a persistent collection of notes, research, \
+                 or reference material that you can search later with knowledge_search.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("name", serde_json::json!({ "type": "string" }))
+                .with_description("A short, descriptive name for the knowledge base (e.g. 'Competitor Analysis', 'Project Requirements')"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("description", serde_json::json!({ "type": "string" }))
+                .with_description("A brief description of what this knowledge base contains"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: KnowledgeCreateArgs =
+            serde_json::from_value(arguments.clone()).map_err(|e| {
+                denkwerk::LLMError::InvalidFunctionArguments(format!(
+                    "Invalid arguments for knowledge_create: {e}"
+                ))
+            })?;
+
+        // Load embedding model from settings
+        let model = match clawkson_db::settings::get(&self.db).await {
+            Ok(s) => s.embedding_model,
+            Err(_) => "qwen3-embedding:8b".to_string(),
+        };
+
+        let kb = clawkson_db::knowledge_base::create_for_agent(
+            self.db.pool(),
+            self.agent_id,
+            self.user_id,
+            &args.name,
+            &args.description,
+            &model,
+        )
+        .await
+        .map_err(|e| denkwerk::LLMError::FunctionExecution {
+            function: "knowledge_create".to_string(),
+            message: format!("Failed to create knowledge base: {e}"),
+        })?;
+
+        Ok(serde_json::json!({
+            "id": kb.id.to_string(),
+            "name": kb.name,
+            "description": kb.description,
+            "message": format!("Knowledge base '{}' created and linked to this agent. Use knowledge_add to add entries.", kb.name),
+        }))
+    }
+}
+
+// ── Knowledge Add Tool ───────────────────────────────────────────
+
+/// A tool that lets agents add entries to a knowledge base and embed them immediately.
+pub struct KnowledgeAddTool {
+    agent_id: Uuid,
+    db: Db,
+}
+
+impl KnowledgeAddTool {
+    pub fn new(agent_id: Uuid, db: Db) -> Self {
+        Self { agent_id, db }
+    }
+
+    pub fn into_dyn(self) -> DynKernelFunction {
+        Arc::new(self)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct KnowledgeAddArgs {
+    knowledge_base_id: String,
+    title: String,
+    content: String,
+}
+
+#[async_trait::async_trait]
+impl KernelFunction for KnowledgeAddTool {
+    fn definition(&self) -> FunctionDefinition {
+        let mut def = FunctionDefinition::new("knowledge_add")
+            .with_description(
+                "Add a new entry to a knowledge base and generate its embedding immediately so it \
+                 becomes searchable right away. Use this to save important information, notes, \
+                 summaries, or findings that you or other agents should be able to search later.",
+            );
+
+        def.add_parameter(
+            FunctionParameter::new("knowledge_base_id", serde_json::json!({ "type": "string" }))
+                .with_description("The ID of the knowledge base to add the entry to (from knowledge_list or knowledge_create)"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("title", serde_json::json!({ "type": "string" }))
+                .with_description("A concise title for this entry"),
+        );
+
+        def.add_parameter(
+            FunctionParameter::new("content", serde_json::json!({ "type": "string" }))
+                .with_description("The full text content to store"),
+        );
+
+        def
+    }
+
+    async fn invoke(&self, arguments: &Value) -> Result<Value, denkwerk::LLMError> {
+        let args: KnowledgeAddArgs =
+            serde_json::from_value(arguments.clone()).map_err(|e| {
+                denkwerk::LLMError::InvalidFunctionArguments(format!(
+                    "Invalid arguments for knowledge_add: {e}"
+                ))
+            })?;
+
+        let kb_id = Uuid::parse_str(&args.knowledge_base_id).map_err(|e| {
+            denkwerk::LLMError::InvalidFunctionArguments(format!(
+                "Invalid knowledge_base_id: {e}"
+            ))
+        })?;
+
+        let pool = self.db.pool();
+
+        // Security check: verify KB is linked to this agent
+        let is_linked = clawkson_db::knowledge_base::is_linked_to_agent(pool, kb_id, self.agent_id)
+            .await
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "knowledge_add".to_string(),
+                message: format!("Failed to verify KB access: {e}"),
+            })?;
+
+        // Also allow if the KB has this agent's agent_id (memory KB or agent-created)
+        let kb = clawkson_db::knowledge_base::get_by_id(pool, kb_id)
+            .await
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "knowledge_add".to_string(),
+                message: format!("Failed to fetch KB: {e}"),
+            })?
+            .ok_or_else(|| denkwerk::LLMError::FunctionExecution {
+                function: "knowledge_add".to_string(),
+                message: "Knowledge base not found".to_string(),
+            })?;
+
+        let owns_kb = kb.agent_id == Some(self.agent_id);
+
+        if !is_linked && !owns_kb {
+            return Ok(serde_json::json!({
+                "error": "This knowledge base is not linked to this agent. Use knowledge_list to see available KBs.",
+            }));
+        }
+
+        // Create the entry
+        let entry = clawkson_db::knowledge_entry::create(pool, kb_id, &args.title, &args.content, None)
+            .await
+            .map_err(|e| denkwerk::LLMError::FunctionExecution {
+                function: "knowledge_add".to_string(),
+                message: format!("Failed to create entry: {e}"),
+            })?;
+
+        // Generate and store embedding inline so it's immediately searchable
+        let embed_result = async {
+            let settings = clawkson_db::settings::get(&self.db).await.ok()?;
+            let embed_config = crate::embeddings::EmbeddingConfig {
+                base_url: settings.embedding_api_base_url,
+                api_key: settings.embedding_api_key,
+                model: settings.embedding_model,
+            };
+            let text = format!("{}\n\n{}", args.title, args.content);
+            let embedding = crate::embeddings::generate_one(&embed_config, &kb.embedding_model, &text).await.ok()?;
+            clawkson_db::knowledge_entry::set_embedding(pool, entry.id, &embedding, None).await.ok()?;
+            Some(())
+        }.await;
+
+        let embedded = embed_result.is_some();
+
+        Ok(serde_json::json!({
+            "entry_id": entry.id.to_string(),
+            "title": entry.title,
+            "embedded": embedded,
+            "message": if embedded {
+                "Entry created and embedded — it is now searchable via knowledge_search."
+            } else {
+                "Entry created but embedding failed. It will be embedded later."
+            },
+        }))
+    }
+}
+
 // ── Web Search Tool ──────────────────────────────────────────────
 
 /// Max characters per search result snippet. Keeps tool output lean.

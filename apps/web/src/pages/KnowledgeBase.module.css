@@ -1,3 +1,55 @@
+/* ── Sections ────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 32px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sectionIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sectionIconMemory {
+  background: rgba(168, 85, 247, 0.08);
+  color: #a855f7;
+}
+
+.sectionIconAgent {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent-text);
+}
+
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin: 0;
+}
+
+.sectionCount {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  padding: 1px 7px;
+  background: var(--bg-secondary);
+  border-radius: 999px;
+}
+
 /* ── List view ───────────────────────────────────────────────── */
 
 .grid {
@@ -32,6 +84,16 @@
   justify-content: center;
   flex-shrink: 0;
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kbIconMemory {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(139, 92, 246, 0.06) 100%);
+  color: #a855f7;
+}
+
+.kbIconAgent {
+  background: linear-gradient(135deg, rgba(74, 108, 247, 0.1) 0%, rgba(59, 130, 246, 0.06) 100%);
+  color: var(--accent-text);
 }
 
 *:hover > .kbHeader > .kbIcon {
@@ -94,6 +156,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-top: auto;
 }
 
@@ -105,8 +168,8 @@
   letter-spacing: 1px;
   font-weight: 600;
   padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
 }
 
@@ -126,6 +189,50 @@
   border-radius: 999px;
 }
 
+/* ── Memory / Agent badges ──────────────────────────────────── */
+
+.memoryBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  color: #a855f7;
+  padding: 2px 9px;
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid rgba(168, 85, 247, 0.15);
+  border-radius: 999px;
+}
+
+.agentBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  color: var(--accent-text);
+  padding: 2px 9px;
+  background: rgba(74, 108, 247, 0.07);
+  border: 1px solid rgba(74, 108, 247, 0.15);
+  border-radius: 999px;
+}
+
+/* ── Memory card accent ─────────────────────────────────────── */
+
+.memoryCard {
+  border-color: rgba(168, 85, 247, 0.12);
+}
+
+.memoryCard:hover {
+  border-color: rgba(168, 85, 247, 0.25);
+}
+
 /* ── Detail view ─────────────────────────────────────────────── */
 
 .detailHeader {
@@ -141,7 +248,7 @@
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
@@ -156,9 +263,9 @@
 }
 
 .backBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--bg-hover);
   color: var(--text-primary);
-  border-color: rgba(0, 0, 0, 0.12);
+  border-color: var(--border-default);
 }
 
 .detailTitle {
@@ -191,6 +298,20 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.readOnlyNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(168, 85, 247, 0.06);
+  border: 1px solid rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  margin-bottom: 16px;
 }
 
 .spinning {
@@ -267,8 +388,8 @@
 .input {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 13px;
   font-family: var(--font-sans);
@@ -283,8 +404,8 @@
 .textarea {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 13px;
   font-family: var(--font-sans);
@@ -371,8 +492,8 @@
   justify-content: space-between;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .shareUser {
@@ -440,7 +561,7 @@
   justify-content: space-between;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  border: 1px solid var(--border-subtle);
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   transition: all 0.15s;
@@ -461,9 +582,9 @@
 
 .agentToggle {
   padding: 4px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: 10px;
   font-family: var(--font-mono);

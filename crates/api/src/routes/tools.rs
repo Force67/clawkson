@@ -95,6 +95,26 @@ async fn list_tools(auth: AuthUser, State(state): State<AppState>) -> Json<Vec<T
             tool_type: "builtin".into(),
             enabled: true,
         },
+        ToolInfo {
+            id: "builtin:knowledge_create".into(),
+            name: "knowledge_create".into(),
+            description: "Create a new knowledge base and link it to the agent. \
+                          Use for building topic-based collections of notes and research."
+                .into(),
+            connector_id: None,
+            tool_type: "builtin".into(),
+            enabled: true,
+        },
+        ToolInfo {
+            id: "builtin:knowledge_add".into(),
+            name: "knowledge_add".into(),
+            description: "Add an entry to a knowledge base and embed it immediately for search. \
+                          Use to save important findings, summaries, or reference material."
+                .into(),
+            connector_id: None,
+            tool_type: "builtin".into(),
+            enabled: true,
+        },
     ];
 
     // Add connector-derived tools for enabled connectors owned by this user.

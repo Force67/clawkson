@@ -30,7 +30,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         // Knowledge bases
         .route("/", get(list_bases).post(create_base))
-        .route("/memory", get(get_memory_kb))
+        .route("/agent-memories", get(list_agent_memories))
         .route("/{id}", get(get_base).patch(patch_base).delete(delete_base))
         // Entries within a base
         .route("/{id}/entries", get(list_entries).post(create_entry))
@@ -126,6 +126,8 @@ fn row_to_kb(row: &clawkson_db::knowledge_base::KnowledgeBaseWithCount) -> Knowl
     KnowledgeBase {
         id: row.id,
         owner_id: row.owner_id,
+        agent_id: row.agent_id,
+        agent_name: None,
         name: row.name.clone(),
         description: row.description.clone(),
         kb_type: row.kb_type.clone(),
@@ -215,25 +217,29 @@ async fn list_bases(
     Ok(Json(rows.iter().map(row_to_kb).collect()))
 }
 
-/// GET /api/knowledge/memory — get or create the user's memory KB.
-async fn get_memory_kb(
+/// GET /api/knowledge/agent-memories — list all agent memory KBs for the user's agents.
+async fn list_agent_memories(
     auth: AuthUser,
     State(state): State<AppState>,
-) -> Result<Json<KnowledgeBase>, StatusCode> {
+) -> Result<Json<Vec<KnowledgeBase>>, StatusCode> {
     let pool = state.db.pool();
-    let model = clawkson_db::settings::get(&state.db)
-        .await
-        .map(|s| s.embedding_model)
-        .unwrap_or_else(|_| "qwen3-embedding:8b".to_string());
-    let row = clawkson_db::knowledge_base::get_or_create_memory_kb(pool, auth.id(), &model)
+    let rows = clawkson_db::knowledge_base::list_agent_memory_kbs(pool, auth.id())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Get with count
-    let kb = clawkson_db::knowledge_base::get_by_id(pool, row.id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(row_to_kb(&kb)))
+    let kbs = rows.iter().map(|r| KnowledgeBase {
+        id: r.id,
+        owner_id: r.owner_id,
+        agent_id: r.agent_id,
+        agent_name: Some(r.agent_name.clone()),
+        name: r.name.clone(),
+        description: r.description.clone(),
+        kb_type: r.kb_type.clone(),
+        embedding_model: r.embedding_model.clone(),
+        entry_count: r.entry_count,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+    }).collect();
+    Ok(Json(kbs))
 }
 
 async fn get_base(
@@ -273,6 +279,8 @@ async fn create_base(
     Ok(Json(KnowledgeBase {
         id: row.id,
         owner_id: row.owner_id,
+        agent_id: row.agent_id,
+        agent_name: None,
         name: row.name,
         description: row.description,
         kb_type: row.kb_type,

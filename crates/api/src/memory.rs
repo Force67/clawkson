@@ -1,6 +1,6 @@
 //! Debounced conversation memory embedder.
 //!
-//! Buffers chat turns per conversation and embeds them into the user's "Memory"
+//! Buffers chat turns per conversation and embeds them into the agent's "Memory"
 //! knowledge base after a quiet period (no new messages for `DEBOUNCE_SECS`).
 //! This avoids hammering the embedding API during rapid back-and-forth exchanges.
 
@@ -21,6 +21,7 @@ struct BufferedTurn {
 
 /// Per-conversation buffer state.
 struct ConversationBuffer {
+    agent_id: Uuid,
     user_id: Uuid,
     conversation_title: String,
     turns: Vec<BufferedTurn>,
@@ -47,6 +48,7 @@ impl MemoryEmbedder {
     pub async fn push_turn(
         &self,
         conversation_id: Uuid,
+        agent_id: Uuid,
         user_id: Uuid,
         conversation_title: String,
         user_content: String,
@@ -55,6 +57,7 @@ impl MemoryEmbedder {
         let mut buffers = self.buffers.lock().await;
 
         let buf = buffers.entry(conversation_id).or_insert_with(|| ConversationBuffer {
+            agent_id,
             user_id,
             conversation_title: conversation_title.clone(),
             turns: Vec::new(),
@@ -96,6 +99,7 @@ impl MemoryEmbedder {
             return;
         }
 
+        let agent_id = buf.agent_id;
         let user_id = buf.user_id;
         let title = buf.conversation_title;
 
@@ -116,6 +120,7 @@ impl MemoryEmbedder {
 
         tracing::info!(
             conversation_id = %conversation_id,
+            agent_id = %agent_id,
             user_id = %user_id,
             turns = buf.turns.len(),
             chars = combined.len(),
@@ -137,9 +142,10 @@ impl MemoryEmbedder {
             model: settings.embedding_model.clone(),
         };
 
-        // Get or create the user's memory KB
-        let memory_kb = match clawkson_db::knowledge_base::get_or_create_memory_kb(
+        // Get or create the agent's memory KB
+        let memory_kb = match clawkson_db::knowledge_base::get_or_create_agent_memory_kb(
             self.db.pool(),
+            agent_id,
             user_id,
             &settings.embedding_model,
         )
@@ -147,7 +153,7 @@ impl MemoryEmbedder {
         {
             Ok(kb) => kb,
             Err(e) => {
-                tracing::warn!("memory embed: failed to get/create memory KB: {e}");
+                tracing::warn!("memory embed: failed to get/create agent memory KB: {e}");
                 return;
             }
         };
@@ -183,6 +189,7 @@ impl MemoryEmbedder {
                     tracing::warn!("memory embed: failed to store embedding: {e}");
                 } else {
                     tracing::info!(
+                        agent_id = %agent_id,
                         user_id = %user_id,
                         turns = buf.turns.len(),
                         "memory embed: successfully embedded buffered turns"

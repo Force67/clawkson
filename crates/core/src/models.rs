@@ -510,6 +510,11 @@ pub enum MessageRole {
 pub struct KnowledgeBase {
     pub id: Uuid,
     pub owner_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<Uuid>,
+    /// Agent name, populated when listing agent memory KBs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
     pub name: String,
     pub description: String,
     #[serde(default = "default_kb_type")]

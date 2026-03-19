@@ -1408,16 +1408,17 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
         }
     }
 
-    // Knowledge search tool (available if agent has linked KBs or user has memory, and search is enabled)
+    // Knowledge tools (available when search is enabled — agents always get memory now)
     if search_enabled {
         let has_kbs = clawkson_db::knowledge_base::agent_list_kbs(state.db.pool(), agent_cfg.agent_id)
             .await
             .map(|kbs| !kbs.is_empty())
             .unwrap_or(false);
 
-        // Check if user has a memory KB and include it in search scope
-        let memory_kb_ids: Vec<Uuid> = match clawkson_db::knowledge_base::get_or_create_memory_kb(
+        // Per-agent memory KB — auto-created, always included in search scope
+        let memory_kb_ids: Vec<Uuid> = match clawkson_db::knowledge_base::get_or_create_agent_memory_kb(
             state.db.pool(),
+            agent_cfg.agent_id,
             user_id,
             "",  // model doesn't matter for lookup, only creation
         ).await {
@@ -1437,6 +1438,15 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
             let guarded = crate::permission_guard::GuardedBuiltinTool::new(search_tool.into_dyn(), "knowledge_search".to_string(), guard_ctx.clone());
             registry.register(guarded.into_dyn());
         }
+
+        // Knowledge create & add tools — always available when search is enabled
+        let create_tool = crate::tools::KnowledgeCreateTool::new(agent_cfg.agent_id, user_id, state.db.clone());
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(create_tool.into_dyn(), "knowledge_create".to_string(), guard_ctx.clone());
+        registry.register(guarded.into_dyn());
+
+        let add_tool = crate::tools::KnowledgeAddTool::new(agent_cfg.agent_id, state.db.clone());
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(add_tool.into_dyn(), "knowledge_add".to_string(), guard_ctx.clone());
+        registry.register(guarded.into_dyn());
     }
 
     // Skill-creator tool — only available when the agent has the skill-creator or workflow-creator skill linked
@@ -1942,7 +1952,7 @@ async fn chat(
         let asst_content = assistant_content;
         let uid = auth.id();
         tokio::spawn(async move {
-            mem.push_turn(conv_id, uid, title, user_content, asst_content).await;
+            mem.push_turn(conv_id, agent_id, uid, title, user_content, asst_content).await;
         });
     }
 
@@ -2297,7 +2307,7 @@ async fn chat_stream(
             let user_content = expanded_content.clone();
             let asst_content = assistant_content.clone();
             tokio::spawn(async move {
-                mem.push_turn(conv_id, owner_id, title, user_content, asst_content).await;
+                mem.push_turn(conv_id, agent_id, owner_id, title, user_content, asst_content).await;
             });
         }
 

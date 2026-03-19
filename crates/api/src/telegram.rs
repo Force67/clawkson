@@ -358,7 +358,7 @@ async fn handle_message(
         let user_content = text.to_string();
         let asst_content = assistant_content.clone();
         tokio::spawn(async move {
-            mem.push_turn(conv_id, user_id, title, user_content, asst_content).await;
+            mem.push_turn(conv_id, agent_id, user_id, title, user_content, asst_content).await;
         });
     }
 

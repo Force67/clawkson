@@ -267,8 +267,9 @@ pub(crate) async fn execute_task(
         let user_content = task.prompt.clone();
         let asst_content = assistant_content.clone();
         let owner_id = task.owner_id;
+        let task_agent_id = task.agent_id;
         tokio::spawn(async move {
-            mem.push_turn(conv.id, owner_id, title, user_content, asst_content)
+            mem.push_turn(conv.id, task_agent_id, owner_id, title, user_content, asst_content)
                 .await;
         });
     }

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Plus, Database, Trash2, Share2, Zap, X, Upload,
   ChevronLeft, Users, Bot, FileText, CheckCircle, AlertCircle, Loader2,
+  Brain, Sparkles, Lock,
 } from 'lucide-react'
 import { api, type KnowledgeBase, type KnowledgeEntry, type KbShareInfo, type Agent } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -18,6 +19,7 @@ export function KnowledgeBasePage() {
   const { user } = useAuth()
   const [view, setView] = useState<View>('list')
   const [bases, setBases] = useState<KnowledgeBase[]>([])
+  const [agentMemories, setAgentMemories] = useState<KnowledgeBase[]>([])
   const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null)
   const [entries, setEntries] = useState<KnowledgeEntry[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -49,16 +51,35 @@ export function KnowledgeBasePage() {
   // Embed state
   const [embedding, setEmbedding] = useState(false)
   const [embedResult, setEmbedResult] = useState<{ embedded: number; failed: number } | null>(null)
+  const [embedError, setEmbedError] = useState('')
 
   const loadBases = useCallback(async () => {
     try {
-      const data = await api.knowledge.listBases()
+      const [data, memories] = await Promise.all([
+        api.knowledge.listBases(),
+        api.knowledge.listAgentMemories(),
+      ])
       setBases(data)
+      setAgentMemories(memories)
     } catch { /* */ }
     setLoading(false)
   }, [])
 
   useEffect(() => { loadBases() }, [loadBases])
+
+  // Split standard KBs into agent-created and user-created
+  const { agentKbs, userKbs } = useMemo(() => {
+    const agent: KnowledgeBase[] = []
+    const userOwned: KnowledgeBase[] = []
+    for (const kb of bases) {
+      if (kb.agent_id) {
+        agent.push(kb)
+      } else {
+        userOwned.push(kb)
+      }
+    }
+    return { agentKbs: agent, userKbs: userOwned }
+  }, [bases])
 
   const openKb = useCallback(async (kb: KnowledgeBase) => {
     setSelectedKb(kb)
@@ -124,9 +145,6 @@ export function KnowledgeBasePage() {
     } catch { /* */ }
   }
 
-  // Embed error
-  const [embedError, setEmbedError] = useState('')
-
   const handleEmbed = async () => {
     if (!selectedKb) return
     setEmbedding(true)
@@ -135,7 +153,6 @@ export function KnowledgeBasePage() {
     try {
       const result = await api.knowledge.embed(selectedKb.id)
       setEmbedResult(result)
-      // Refresh entries to update has_embedding status
       const ents = await api.knowledge.listEntries(selectedKb.id)
       setEntries(ents)
     } catch (err) {
@@ -182,6 +199,7 @@ export function KnowledgeBasePage() {
     } catch { /* */ }
   }
 
+  const isMemoryKb = selectedKb?.kb_type === 'memory'
   const isOwner = selectedKb?.owner_id === user?.id || user?.role === 'admin'
   const unembeddedCount = entries.filter(e => !e.has_embedding).length
 
@@ -230,44 +248,151 @@ export function KnowledgeBasePage() {
 
         {loading ? (
           <div className={styles.loadingState}>Loading...</div>
-        ) : bases.length === 0 ? (
+        ) : (agentMemories.length === 0 && bases.length === 0) ? (
           <EmptyState
             icon={Database}
             title="No knowledge bases yet"
             description="Create a knowledge base to store documents, notes, and reference material for your agents."
           />
         ) : (
-          <div className={styles.grid}>
-            {bases.map(kb => (
-              <Card key={kb.id} interactive onClick={() => openKb(kb)}>
-                <div className={styles.kbHeader}>
-                  <div className={styles.kbIcon}><Database size={18} /></div>
-                  <div className={styles.kbMeta}>
-                    <h3 className={styles.kbName}>{kb.name}</h3>
-                    <span className={styles.kbCount}>{kb.entry_count} entries</span>
+          <>
+            {/* Section 1 — Agent Memory */}
+            {agentMemories.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <div className={`${styles.sectionIcon} ${styles.sectionIconMemory}`}>
+                    <Brain size={15} />
                   </div>
-                  {(kb.owner_id === user?.id || user?.role === 'admin') && (
-                    <button
-                      className={styles.deleteBtn}
-                      onClick={e => { e.stopPropagation(); handleDeleteKb(kb.id) }}
-                      title="Delete"
+                  <h2 className={styles.sectionTitle}>Agent Memory</h2>
+                  <span className={styles.sectionCount}>{agentMemories.length}</span>
+                </div>
+                <div className={styles.grid}>
+                  {agentMemories.map((kb, i) => (
+                    <Card
+                      key={kb.id}
+                      interactive
+                      onClick={() => openKb(kb)}
+                      className={styles.memoryCard}
+                      style={{ animationDelay: `${i * 50}ms` }}
                     >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+                      <div className={styles.kbHeader}>
+                        <div className={`${styles.kbIcon} ${styles.kbIconMemory}`}>
+                          <Sparkles size={18} />
+                        </div>
+                        <div className={styles.kbMeta}>
+                          <h3 className={styles.kbName}>{kb.agent_name || 'Agent'}</h3>
+                          <span className={styles.kbCount}>{kb.entry_count} entries</span>
+                        </div>
+                      </div>
+                      <p className={styles.kbDescription}>Auto-populated conversation memory</p>
+                      <div className={styles.kbFooter}>
+                        <span className={styles.kbModel}>{kb.embedding_model}</span>
+                        <span className={styles.memoryBadge}><Sparkles size={10} /> Auto</span>
+                      </div>
+                    </Card>
+                  ))}
                 </div>
-                {kb.description && (
-                  <p className={styles.kbDescription}>{kb.description}</p>
-                )}
-                <div className={styles.kbFooter}>
-                  <span className={styles.kbModel}>{kb.embedding_model}</span>
-                  {kb.owner_id !== user?.id && (
-                    <span className={styles.sharedBadge}><Share2 size={10} /> Shared</span>
-                  )}
+              </div>
+            )}
+
+            {/* Section 2 — Agent Knowledge */}
+            {agentKbs.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <div className={`${styles.sectionIcon} ${styles.sectionIconAgent}`}>
+                    <Bot size={15} />
+                  </div>
+                  <h2 className={styles.sectionTitle}>Agent Knowledge</h2>
+                  <span className={styles.sectionCount}>{agentKbs.length}</span>
                 </div>
-              </Card>
-            ))}
-          </div>
+                <div className={styles.grid}>
+                  {agentKbs.map((kb, i) => (
+                    <Card
+                      key={kb.id}
+                      interactive
+                      onClick={() => openKb(kb)}
+                      style={{ animationDelay: `${i * 50}ms` }}
+                    >
+                      <div className={styles.kbHeader}>
+                        <div className={`${styles.kbIcon} ${styles.kbIconAgent}`}>
+                          <Database size={18} />
+                        </div>
+                        <div className={styles.kbMeta}>
+                          <h3 className={styles.kbName}>{kb.name}</h3>
+                          <span className={styles.kbCount}>{kb.entry_count} entries</span>
+                        </div>
+                        {(kb.owner_id === user?.id || user?.role === 'admin') && (
+                          <button
+                            className={styles.deleteBtn}
+                            onClick={e => { e.stopPropagation(); handleDeleteKb(kb.id) }}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                      {kb.description && (
+                        <p className={styles.kbDescription}>{kb.description}</p>
+                      )}
+                      <div className={styles.kbFooter}>
+                        <span className={styles.kbModel}>{kb.embedding_model}</span>
+                        <span className={styles.agentBadge}><Bot size={10} /> Agent</span>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Section 3 — Your Knowledge Bases */}
+            {userKbs.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.sectionHeader}>
+                  <div className={`${styles.sectionIcon} ${styles.sectionIconAgent}`}>
+                    <Database size={15} />
+                  </div>
+                  <h2 className={styles.sectionTitle}>Your Knowledge Bases</h2>
+                  <span className={styles.sectionCount}>{userKbs.length}</span>
+                </div>
+                <div className={styles.grid}>
+                  {userKbs.map((kb, i) => (
+                    <Card
+                      key={kb.id}
+                      interactive
+                      onClick={() => openKb(kb)}
+                      style={{ animationDelay: `${i * 50}ms` }}
+                    >
+                      <div className={styles.kbHeader}>
+                        <div className={styles.kbIcon}><Database size={18} /></div>
+                        <div className={styles.kbMeta}>
+                          <h3 className={styles.kbName}>{kb.name}</h3>
+                          <span className={styles.kbCount}>{kb.entry_count} entries</span>
+                        </div>
+                        {(kb.owner_id === user?.id || user?.role === 'admin') && (
+                          <button
+                            className={styles.deleteBtn}
+                            onClick={e => { e.stopPropagation(); handleDeleteKb(kb.id) }}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                      {kb.description && (
+                        <p className={styles.kbDescription}>{kb.description}</p>
+                      )}
+                      <div className={styles.kbFooter}>
+                        <span className={styles.kbModel}>{kb.embedding_model}</span>
+                        {kb.owner_id !== user?.id && (
+                          <span className={styles.sharedBadge}><Share2 size={10} /> Shared</span>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     )
@@ -281,16 +406,22 @@ export function KnowledgeBasePage() {
           <ChevronLeft size={18} /> Back
         </button>
         <div className={styles.detailTitle}>
-          <Database size={20} className={styles.detailIcon} />
+          {isMemoryKb
+            ? <Sparkles size={20} className={styles.detailIcon} style={{ color: '#a855f7' }} />
+            : <Database size={20} className={styles.detailIcon} />
+          }
           <div>
-            <h2 className={styles.detailName}>{selectedKb?.name}</h2>
-            {selectedKb?.description && (
+            <h2 className={styles.detailName}>
+              {isMemoryKb ? (selectedKb?.agent_name || 'Agent') + ' Memory' : selectedKb?.name}
+            </h2>
+            {selectedKb?.description && !isMemoryKb && (
               <p className={styles.detailDesc}>{selectedKb.description}</p>
             )}
           </div>
         </div>
         <div className={styles.detailActions}>
-          {isOwner && (
+          {/* Memory KBs are read-only — no add/delete/upload/share buttons */}
+          {!isMemoryKb && isOwner && (
             <>
               <Button variant="ghost" size="sm" onClick={() => setShowSharePanel(!showSharePanel)}>
                 <Users size={14} /> Share
@@ -309,7 +440,7 @@ export function KnowledgeBasePage() {
             {embedding ? <Loader2 size={14} className={styles.spinning} /> : <Zap size={14} />}
             {embedding ? 'Embedding...' : unembeddedCount > 0 ? `Embed ${unembeddedCount} entries` : 'All embedded'}
           </Button>
-          {isOwner && (
+          {!isMemoryKb && isOwner && (
             <>
               <Button variant="ghost" size="sm" onClick={() => setShowUpload(true)}>
                 <Upload size={14} /> Upload Files
@@ -321,6 +452,13 @@ export function KnowledgeBasePage() {
           )}
         </div>
       </div>
+
+      {isMemoryKb && (
+        <div className={styles.readOnlyNotice}>
+          <Lock size={14} />
+          This is an auto-populated memory — entries are created from conversations and cannot be manually edited.
+        </div>
+      )}
 
       {embedResult && (
         <div className={styles.embedNotice}>
@@ -441,7 +579,10 @@ export function KnowledgeBasePage() {
         <EmptyState
           icon={FileText}
           title="No entries yet"
-          description="Add knowledge entries — text documents, notes, or reference material."
+          description={isMemoryKb
+            ? "This agent hasn't built any memory yet. Start a conversation to populate it."
+            : "Add knowledge entries — text documents, notes, or reference material."
+          }
         />
       ) : (
         <div className={styles.entriesList}>
@@ -458,7 +599,7 @@ export function KnowledgeBasePage() {
                   ) : (
                     <span className={styles.pendingBadge}><AlertCircle size={12} /> Pending</span>
                   )}
-                  {isOwner && (
+                  {!isMemoryKb && isOwner && (
                     <button
                       className={styles.deleteEntryBtn}
                       onClick={() => handleDeleteEntry(entry.id)}

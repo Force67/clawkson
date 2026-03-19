@@ -242,6 +242,8 @@ export interface PolicyPreset {
 export interface KnowledgeBase {
   id: string
   owner_id: string
+  agent_id?: string
+  agent_name?: string
   name: string
   description: string
   kb_type: string
@@ -915,7 +917,7 @@ export const api = {
   knowledge: {
     // Bases
     listBases: () => request<KnowledgeBase[]>('/api/knowledge'),
-    getMemory: () => request<KnowledgeBase>('/api/knowledge/memory'),
+    listAgentMemories: () => request<KnowledgeBase[]>('/api/knowledge/agent-memories'),
     getBase: (id: string) => request<KnowledgeBase>(`/api/knowledge/${id}`),
     createBase: (body: { name: string; description?: string; embedding_model?: string }) =>
       request<KnowledgeBase>('/api/knowledge', { method: 'POST', body: JSON.stringify(body) }),

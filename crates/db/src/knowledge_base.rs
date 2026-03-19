@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct KnowledgeBaseRow {
     pub id: Uuid,
     pub owner_id: Uuid,
+    pub agent_id: Option<Uuid>,
     pub name: String,
     pub description: String,
     pub embedding_model: String,
@@ -18,6 +19,23 @@ pub struct KnowledgeBaseRow {
 pub struct KnowledgeBaseWithCount {
     pub id: Uuid,
     pub owner_id: Uuid,
+    pub agent_id: Option<Uuid>,
+    pub name: String,
+    pub description: String,
+    pub embedding_model: String,
+    pub kb_type: String,
+    pub entry_count: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Agent memory KB with the agent's name joined in.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentMemoryKb {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub agent_id: Option<Uuid>,
+    pub agent_name: String,
     pub name: String,
     pub description: String,
     pub embedding_model: String,
@@ -47,6 +65,36 @@ pub async fn create(
     .bind(embedding_model)
     .fetch_one(pool)
     .await
+}
+
+/// Create a knowledge base owned by an agent and auto-link it.
+pub async fn create_for_agent(
+    pool: &PgPool,
+    agent_id: Uuid,
+    owner_id: Uuid,
+    name: &str,
+    description: &str,
+    embedding_model: &str,
+) -> Result<KnowledgeBaseRow, sqlx::Error> {
+    let row = sqlx::query_as::<_, KnowledgeBaseRow>(
+        r#"
+        INSERT INTO knowledge_bases (owner_id, agent_id, name, description, embedding_model)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+        "#,
+    )
+    .bind(owner_id)
+    .bind(agent_id)
+    .bind(name)
+    .bind(description)
+    .bind(embedding_model)
+    .fetch_one(pool)
+    .await?;
+
+    // Auto-link to the agent
+    agent_link(pool, agent_id, row.id).await?;
+
+    Ok(row)
 }
 
 pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Option<KnowledgeBaseWithCount>, sqlx::Error> {
@@ -123,31 +171,52 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
     Ok(result.rows_affected() > 0)
 }
 
-/// Get or create the per-user "Memory" knowledge base.
-pub async fn get_or_create_memory_kb(
+/// Get or create the per-agent "Memory" knowledge base.
+pub async fn get_or_create_agent_memory_kb(
     pool: &PgPool,
-    user_id: Uuid,
+    agent_id: Uuid,
+    owner_id: Uuid,
     embedding_model: &str,
 ) -> Result<KnowledgeBaseRow, sqlx::Error> {
-    // Try insert first, ignore conflict
+    // Try insert first, ignore conflict (unique index on agent_id WHERE kb_type='memory')
     let _ = sqlx::query(
         r#"
-        INSERT INTO knowledge_bases (owner_id, name, description, kb_type, embedding_model)
-        VALUES ($1, 'Memory', 'Auto-embedded conversation history', 'memory', $2)
+        INSERT INTO knowledge_bases (owner_id, agent_id, name, description, kb_type, embedding_model)
+        VALUES ($1, $2, 'Memory', 'Auto-embedded conversation history', 'memory', $3)
         ON CONFLICT DO NOTHING
         "#,
     )
-    .bind(user_id)
+    .bind(owner_id)
+    .bind(agent_id)
     .bind(embedding_model)
     .execute(pool)
     .await;
 
     // Now fetch it
     sqlx::query_as::<_, KnowledgeBaseRow>(
-        "SELECT * FROM knowledge_bases WHERE owner_id = $1 AND kb_type = 'memory'",
+        "SELECT * FROM knowledge_bases WHERE agent_id = $1 AND kb_type = 'memory'",
+    )
+    .bind(agent_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// List all agent memory KBs for agents owned by (or shared with) a user.
+pub async fn list_agent_memory_kbs(pool: &PgPool, user_id: Uuid) -> Result<Vec<AgentMemoryKb>, sqlx::Error> {
+    sqlx::query_as::<_, AgentMemoryKb>(
+        r#"
+        SELECT kb.*, a.name AS agent_name, COALESCE(c.cnt, 0) AS entry_count
+        FROM knowledge_bases kb
+        INNER JOIN agents a ON a.id = kb.agent_id
+        LEFT JOIN (SELECT knowledge_base_id, COUNT(*) AS cnt FROM knowledge_entries GROUP BY knowledge_base_id) c
+            ON c.knowledge_base_id = kb.id
+        WHERE kb.kb_type = 'memory'
+          AND (a.owner_id = $1 OR a.shared = true)
+        ORDER BY a.name
+        "#,
     )
     .bind(user_id)
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await
 }
 
@@ -159,6 +228,18 @@ pub async fn is_memory_kb(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> 
             .fetch_optional(pool)
             .await?;
     Ok(row.map(|r| r.0 == "memory").unwrap_or(false))
+}
+
+/// Check if a knowledge base is linked to a specific agent.
+pub async fn is_linked_to_agent(pool: &PgPool, kb_id: Uuid, agent_id: Uuid) -> Result<bool, sqlx::Error> {
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT agent_id FROM agent_knowledge_bases WHERE knowledge_base_id = $1 AND agent_id = $2",
+    )
+    .bind(kb_id)
+    .bind(agent_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.is_some())
 }
 
 // ── Sharing ────────────────────────────────────────────────────────
