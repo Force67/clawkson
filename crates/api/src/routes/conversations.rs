@@ -63,6 +63,24 @@ pub struct ChatRequest {
     /// IDs of previously-uploaded attachments to associate with this message.
     #[serde(default)]
     pub attachment_ids: Vec<Uuid>,
+    /// Per-message temperature override (0.0–2.0). Falls back to agent default.
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// Per-message max-tokens override. Falls back to agent default.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Per-message LLM connector override. Falls back to agent default.
+    #[serde(default)]
+    pub llm_connector_id: Option<Uuid>,
+    /// Per-message subtask LLM connector override. Falls back to agent default.
+    #[serde(default)]
+    pub subtask_llm_connector_id: Option<Uuid>,
+    /// Per-message subtask temperature override. Falls back to agent default.
+    #[serde(default)]
+    pub subtask_temperature: Option<f64>,
+    /// Per-message subtask max-tokens override. Falls back to agent default.
+    #[serde(default)]
+    pub subtask_max_tokens: Option<u32>,
 }
 
 fn default_true() -> bool {
@@ -694,6 +712,8 @@ pub(crate) struct AgentConfig {
     /// Optional LLM connector for sub-task execution. When set, sub-agents use this
     /// (potentially cheaper/faster) model instead of the agent's primary connector.
     pub(crate) subtask_llm_connector_id: Option<Uuid>,
+    pub(crate) subtask_temperature: Option<f64>,
+    pub(crate) subtask_max_tokens: Option<u32>,
     /// Names of skills linked to this agent (used to conditionally register skill-specific tools).
     pub(crate) skill_names: Vec<String>,
 }
@@ -814,6 +834,8 @@ pub(crate) async fn load_agent_config(state: &AppState, agent_id: Uuid) -> Optio
         container_config: container_config,
         connector_policies,
         subtask_llm_connector_id: row.subtask_llm_connector_id,
+        subtask_temperature: row.subtask_temperature,
+        subtask_max_tokens: row.subtask_max_tokens.map(|v| v as u32),
         skill_names,
     })
 }
@@ -1786,8 +1808,12 @@ async fn chat(
         }
     }
 
-    // 4. Resolve LLM connector
-    let connector_id = resolve_connector_id(&state, agent_id).await;
+    // 4. Resolve LLM connector (per-message override > agent default > global default)
+    let connector_id = if let Some(override_id) = req.llm_connector_id {
+        Some(override_id)
+    } else {
+        resolve_connector_id(&state, agent_id).await
+    };
     let Some(connector_id) = connector_id else {
         let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
             "No LLM connector configured for this agent. Please add an inference connector in Settings and assign it to the agent."
@@ -1806,6 +1832,14 @@ async fn chat(
                 None => cfg.system_prompt = Some(user_ctx),
             }
         }
+    }
+    // Apply per-message parameter overrides onto agent config
+    if let Some(ref mut cfg) = agent_cfg {
+        if let Some(t) = req.temperature { cfg.temperature = Some(t); }
+        if let Some(m) = req.max_tokens { cfg.max_tokens = Some(m); }
+        if let Some(id) = req.subtask_llm_connector_id { cfg.subtask_llm_connector_id = Some(id); }
+        if let Some(t) = req.subtask_temperature { cfg.subtask_temperature = Some(t); }
+        if let Some(m) = req.subtask_max_tokens { cfg.subtask_max_tokens = Some(m); }
     }
     let connector = load_llm_connector(&state, connector_id).await;
     let Some(connector) = connector else {
@@ -1851,6 +1885,8 @@ async fn chat(
         container_config: None,
         connector_policies: vec![],
         subtask_llm_connector_id: None,
+        subtask_temperature: None,
+        subtask_max_tokens: None,
         skill_names: vec![],
     };
     let cfg = agent_cfg.as_ref().unwrap_or(&default_cfg);
@@ -2030,8 +2066,12 @@ async fn chat_stream(
         }
     }
 
-    // Resolve connector
-    let connector_id = resolve_connector_id(&state, agent_id).await;
+    // Resolve connector (per-message override > agent default > global default)
+    let connector_id = if let Some(override_id) = req.llm_connector_id {
+        Some(override_id)
+    } else {
+        resolve_connector_id(&state, agent_id).await
+    };
     let Some(connector_id) = connector_id else {
         let s = stream::once(async {
             Ok::<Event, Infallible>(Event::default().data(r#"{"error":"no LLM connector configured"}"#))
@@ -2050,6 +2090,14 @@ async fn chat_stream(
                 None => cfg.system_prompt = Some(user_ctx),
             }
         }
+    }
+    // Apply per-message parameter overrides onto agent config
+    if let Some(ref mut cfg) = agent_cfg {
+        if let Some(t) = req.temperature { cfg.temperature = Some(t); }
+        if let Some(m) = req.max_tokens { cfg.max_tokens = Some(m); }
+        if let Some(id) = req.subtask_llm_connector_id { cfg.subtask_llm_connector_id = Some(id); }
+        if let Some(t) = req.subtask_temperature { cfg.subtask_temperature = Some(t); }
+        if let Some(m) = req.subtask_max_tokens { cfg.subtask_max_tokens = Some(m); }
     }
     let connector = load_llm_connector(&state, connector_id).await;
     let Some(connector) = connector else {
@@ -2100,6 +2148,8 @@ async fn chat_stream(
         container_config: None,
         connector_policies: vec![],
         subtask_llm_connector_id: None,
+        subtask_temperature: None,
+        subtask_max_tokens: None,
         skill_names: vec![],
     };
     let cfg = agent_cfg.unwrap_or(default_cfg);

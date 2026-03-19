@@ -387,8 +387,8 @@ async fn run_subtask(
             connector,
             Some(system_prompt),
             &history,
-            agent_cfg.temperature,
-            agent_cfg.max_tokens,
+            agent_cfg.subtask_temperature.or(agent_cfg.temperature),
+            agent_cfg.subtask_max_tokens.or(agent_cfg.max_tokens),
             &registry,
             MAX_SUBTASK_ROUNDS,
             None, // no extended reasoning for sub-tasks
@@ -402,8 +402,8 @@ async fn run_subtask(
             connector,
             Some(system_prompt),
             &history,
-            agent_cfg.temperature,
-            agent_cfg.max_tokens,
+            agent_cfg.subtask_temperature.or(agent_cfg.temperature),
+            agent_cfg.subtask_max_tokens.or(agent_cfg.max_tokens),
             None,
             timeout_secs,
         )

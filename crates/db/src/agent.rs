@@ -30,6 +30,8 @@ pub struct AgentRow {
     pub connector_policies: JsonValue,
     /// Optional LLM connector for sub-task execution via delegate_tasks.
     pub subtask_llm_connector_id: Option<Uuid>,
+    pub subtask_temperature: Option<f64>,
+    pub subtask_max_tokens: Option<i32>,
     pub owner_id: Option<Uuid>,
     pub shared: bool,
     pub created_at: DateTime<Utc>,
@@ -50,11 +52,13 @@ pub async fn create(
     owner_id: Uuid,
     shared: bool,
     subtask_llm_connector_id: Option<Uuid>,
+    subtask_temperature: Option<f64>,
+    subtask_max_tokens: Option<i32>,
 ) -> Result<AgentRow, DbError> {
     let policies = connector_policies.unwrap_or_else(|| serde_json::json!([]));
     let row = sqlx::query_as::<_, AgentRow>(
-        "INSERT INTO agents (name, description, llm_connector_id, system_prompt, temperature, max_tokens, container_enabled, container_config, connector_policies, owner_id, shared, subtask_llm_connector_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        "INSERT INTO agents (name, description, llm_connector_id, system_prompt, temperature, max_tokens, container_enabled, container_config, connector_policies, owner_id, shared, subtask_llm_connector_id, subtask_temperature, subtask_max_tokens)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *",
     )
     .bind(name)
@@ -69,6 +73,8 @@ pub async fn create(
     .bind(owner_id)
     .bind(shared)
     .bind(subtask_llm_connector_id)
+    .bind(subtask_temperature)
+    .bind(subtask_max_tokens)
     .fetch_one(db.pool())
     .await?;
 
@@ -125,6 +131,8 @@ pub async fn update(
     connector_policies: Option<JsonValue>,
     shared: Option<bool>,
     subtask_llm_connector_id: Option<Option<Uuid>>,
+    subtask_temperature: Option<Option<f64>>,
+    subtask_max_tokens: Option<Option<i32>>,
 ) -> Result<Option<AgentRow>, DbError> {
     // Fetch current then apply patches — simpler than dynamic SQL for this many optional fields
     let Some(mut agent) = get_by_id(db, id).await? else {
@@ -143,13 +151,16 @@ pub async fn update(
     if let Some(v) = connector_policies { agent.connector_policies = v; }
     if let Some(v) = shared { agent.shared = v; }
     if let Some(v) = subtask_llm_connector_id { agent.subtask_llm_connector_id = v; }
+    if let Some(v) = subtask_temperature { agent.subtask_temperature = v; }
+    if let Some(v) = subtask_max_tokens { agent.subtask_max_tokens = v; }
 
     let row = sqlx::query_as::<_, AgentRow>(
         "UPDATE agents
          SET name = $2, description = $3, status = $4, llm_connector_id = $5,
              system_prompt = $6, temperature = $7, max_tokens = $8,
              container_enabled = $9, container_config = $10, connector_policies = $11,
-             shared = $12, subtask_llm_connector_id = $13, updated_at = now()
+             shared = $12, subtask_llm_connector_id = $13,
+             subtask_temperature = $14, subtask_max_tokens = $15, updated_at = now()
          WHERE id = $1
          RETURNING *",
     )
@@ -166,6 +177,8 @@ pub async fn update(
     .bind(&agent.connector_policies)
     .bind(agent.shared)
     .bind(agent.subtask_llm_connector_id)
+    .bind(agent.subtask_temperature)
+    .bind(agent.subtask_max_tokens)
     .fetch_optional(db.pool())
     .await?;
 

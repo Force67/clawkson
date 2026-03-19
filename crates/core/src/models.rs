@@ -32,6 +32,12 @@ pub struct Agent {
     /// When set, sub-agents use this (potentially cheaper/faster) model instead of the primary one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtask_llm_connector_id: Option<Uuid>,
+    /// Temperature for sub-task execution. None inherits agent's primary temperature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_temperature: Option<f64>,
+    /// Max tokens for sub-task execution. None inherits agent's primary max_tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtask_max_tokens: Option<u32>,
     /// The user who owns this agent. `None` for legacy agents with no owner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<Uuid>,

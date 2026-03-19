@@ -2644,6 +2644,27 @@ components:
           description: >
             IDs of previously-uploaded attachments (from POST /api/uploads) to
             associate with this message.
+        temperature:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          maximum: 2
+          description: Per-message temperature override. Falls back to agent default.
+        max_tokens:
+          type: integer
+          nullable: true
+          description: Per-message max-tokens override. Falls back to agent default.
+        llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Per-message LLM connector override. Falls back to agent default.
+        subtask_llm_connector_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Per-message subtask LLM connector override. Falls back to agent default.
 
     ChatResponse:
       type: object

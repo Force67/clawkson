@@ -37,6 +37,8 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub shared: bool,
     pub subtask_llm_connector_id: Option<Uuid>,
+    pub subtask_temperature: Option<f64>,
+    pub subtask_max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,6 +55,8 @@ pub struct PatchAgentRequest {
     pub connector_policies: Option<Vec<ConnectorPolicy>>,
     pub shared: Option<bool>,
     pub subtask_llm_connector_id: Option<Uuid>,
+    pub subtask_temperature: Option<f64>,
+    pub subtask_max_tokens: Option<u32>,
 }
 
 /// Map DB row to API type.
@@ -77,6 +81,8 @@ fn row_to_agent(row: clawkson_db::agent::AgentRow) -> Agent {
         container_config: row.container_config.and_then(|v| serde_json::from_value(v).ok()),
         connector_policies,
         subtask_llm_connector_id: row.subtask_llm_connector_id,
+        subtask_temperature: row.subtask_temperature,
+        subtask_max_tokens: row.subtask_max_tokens.map(|v| v as u32),
         owner_id: row.owner_id,
         shared: row.shared,
         created_at: row.created_at,
@@ -162,6 +168,8 @@ async fn create_agent(
         auth.id(),
         req.shared,
         req.subtask_llm_connector_id,
+        req.subtask_temperature,
+        req.subtask_max_tokens.map(|v| v as i32),
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -227,6 +235,8 @@ async fn patch_agent(
         connector_policies_json,
         req.shared,
         if req.subtask_llm_connector_id.is_some() { Some(req.subtask_llm_connector_id) } else { None },
+        if req.subtask_temperature.is_some() { Some(req.subtask_temperature) } else { None },
+        if req.subtask_max_tokens.is_some() { Some(req.subtask_max_tokens.map(|v| v as i32)) } else { None },
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?

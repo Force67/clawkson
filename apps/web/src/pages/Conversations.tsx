@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container, Maximize, Copy, CheckCheck, ZoomIn, ZoomOut, RotateCcw, ArrowDown, RotateCw, Clipboard } from 'lucide-react'
+import { Plus, Search, Send, Bot, MessageSquare, ChevronRight, ChevronDown, X, Loader2, Brain, Paperclip, SlidersHorizontal, Globe, File as FileIcon, Image as ImageIcon, FileText, FileSpreadsheet, Presentation, Trash2, Eraser, Zap, Download, Share2, UserPlus, Shield, Eye, Pencil, Pin, AlertTriangle, WifiOff, Check, Terminal, FolderOpen, Wrench, Maximize2, Minimize2, GitBranch, Upload, ExternalLink, Monitor, Square, Container, Maximize, Copy, CheckCheck, ZoomIn, ZoomOut, RotateCcw, ArrowDown, RotateCw, Clipboard, Thermometer, Hash, Cpu, RotateCcw as ResetIcon } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -10,7 +10,7 @@ import rehypeRaw from 'rehype-raw'
 import type MermaidAPI from 'mermaid'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
-import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool } from '../lib/api'
+import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool, type LlmConnector } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── Folder drag-and-drop traversal ──────────────────────────────
@@ -1142,6 +1142,214 @@ function ShareDialog({ conversationId, onClose }: ShareDialogProps) {
   )
 }
 
+// ── Chat settings panel ───────────────────────────────────────────
+
+interface ModelParams {
+  connectorId: string | null
+  temperature: number | null
+  maxTokens: number | null
+}
+
+interface ChatSettings {
+  main: ModelParams
+  sub: ModelParams
+}
+
+const TEMP_PRESETS = [
+  { value: 0, label: 'Precise', desc: 'Deterministic' },
+  { value: 0.3, label: 'Balanced', desc: 'Low variance' },
+  { value: 0.7, label: 'Creative', desc: 'Default' },
+  { value: 1.0, label: 'Diverse', desc: 'High variance' },
+  { value: 1.5, label: 'Wild', desc: 'Experimental' },
+] as const
+
+const PROVIDER_LABELS: Record<string, string> = {
+  azure: 'Azure',
+  open_router: 'OpenRouter',
+  open_ai: 'OpenAI',
+  custom: 'Custom',
+}
+
+interface ChatSettingsPanelProps {
+  settings: ChatSettings
+  onChange: (settings: ChatSettings) => void
+  connectors: LlmConnector[]
+  agentDefaults: { main: ModelParams; sub: ModelParams }
+  onClose: () => void
+  onSaveAsDefault: () => void
+}
+
+function ModelGroup({
+  label, icon, params, defaults, connectors, onChange, showInherit,
+}: {
+  label: string
+  icon: React.ReactNode
+  params: ModelParams
+  defaults: ModelParams
+  connectors: LlmConnector[]
+  onChange: (p: ModelParams) => void
+  showInherit?: boolean
+}) {
+  const temp = params.temperature ?? defaults.temperature ?? 0.7
+  const maxTok = params.maxTokens ?? defaults.maxTokens ?? null
+  const activeId = params.connectorId ?? defaults.connectorId
+
+  return (
+    <div className={styles.modelGroup}>
+      <div className={styles.modelGroupHeader}>{icon}{label}</div>
+
+      {/* Connector cards */}
+      <div className={styles.modelCardList}>
+        {showInherit && (
+          <button
+            type="button"
+            className={`${styles.modelCard} ${styles.modelCardMini} ${!activeId ? styles.modelCardActive : ''}`}
+            onClick={() => onChange({ ...params, connectorId: null })}
+          >
+            <span className={styles.modelCardName}>Same as main</span>
+            {!activeId && <Check size={11} className={styles.modelCardCheck} />}
+          </button>
+        )}
+        {connectors.map(c => (
+          <button
+            key={c.id}
+            type="button"
+            className={`${styles.modelCard} ${styles.modelCardMini} ${activeId === c.id ? styles.modelCardActive : ''}`}
+            onClick={() => onChange({ ...params, connectorId: c.id })}
+          >
+            <span className={styles.modelCardProvider}>
+              {PROVIDER_LABELS[c.provider_type] ?? c.provider_type}
+            </span>
+            <span className={styles.modelCardName}>{c.model}</span>
+            {activeId === c.id && <Check size={11} className={styles.modelCardCheck} />}
+          </button>
+        ))}
+      </div>
+
+      {/* Temperature */}
+      <div className={styles.settingsRow}>
+        <div className={styles.settingsLabel}>
+          <Thermometer size={10} />
+          Temp
+          <span className={styles.settingsValue}>{temp.toFixed(2)}</span>
+        </div>
+        <input
+          type="range" min="0" max="2" step="0.05" value={temp}
+          onChange={e => onChange({ ...params, temperature: parseFloat(e.target.value) })}
+          className={styles.settingsSlider}
+        />
+        <div className={styles.settingsPresets}>
+          {TEMP_PRESETS.map(p => (
+            <button
+              key={p.value} type="button" title={p.desc}
+              className={`${styles.settingsPresetBtn} ${Math.abs(temp - p.value) < 0.026 ? styles.settingsPresetActive : ''}`}
+              onClick={() => onChange({ ...params, temperature: p.value })}
+            >{p.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Max tokens */}
+      <div className={styles.settingsRow}>
+        <div className={styles.settingsLabel}>
+          <Hash size={10} />
+          Tokens
+          <span className={styles.settingsValue}>
+            {maxTok === null ? 'auto' : maxTok >= 1024 ? `${maxTok / 1024}k` : maxTok}
+          </span>
+        </div>
+        <div className={styles.settingsTokenRow}>
+          {([null, 1024, 2048, 4096, 8192, 16384] as const).map(v => (
+            <button
+              key={v ?? 'auto'} type="button"
+              className={`${styles.settingsTokenBtn} ${maxTok === v ? styles.settingsTokenActive : ''}`}
+              onClick={() => onChange({ ...params, maxTokens: v })}
+            >{v === null ? 'Auto' : v >= 1024 ? `${v / 1024}k` : v}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatSettingsPanel({ settings, onChange, connectors, agentDefaults, onClose, onSaveAsDefault, anchorRef }: ChatSettingsPanelProps & { anchorRef: React.RefObject<HTMLButtonElement | null> }) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ top: 0, right: 0 })
+
+  useEffect(() => {
+    if (!anchorRef.current) return
+    const rect = anchorRef.current.getBoundingClientRect()
+    setPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right })
+  }, [anchorRef])
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node) &&
+          anchorRef.current && !anchorRef.current.contains(e.target as Node)) onClose()
+    }
+    const timer = setTimeout(() => document.addEventListener('mousedown', handle), 10)
+    return () => { clearTimeout(timer); document.removeEventListener('mousedown', handle) }
+  }, [onClose, anchorRef])
+
+  useEffect(() => {
+    const handle = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handle)
+    return () => document.removeEventListener('keydown', handle)
+  }, [onClose])
+
+  const isDefault = (
+    settings.main.connectorId === null && settings.main.temperature === null && settings.main.maxTokens === null &&
+    settings.sub.connectorId === null && settings.sub.temperature === null && settings.sub.maxTokens === null
+  )
+
+  const handleReset = () => {
+    onChange({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
+  }
+
+  const stopProp = (e: React.MouseEvent) => e.stopPropagation()
+
+  return createPortal(
+    <div className={styles.settingsPanel} ref={panelRef} style={{ top: pos.top, right: pos.right }} onMouseDown={stopProp}>
+      <div className={styles.settingsPanelHeader}>
+        <span className={styles.settingsPanelTitle}>
+          <SlidersHorizontal size={12} />
+          Model Parameters
+        </span>
+        {!isDefault && (
+          <button type="button" className={styles.settingsResetBtn} onClick={handleReset} title="Reset to agent defaults">
+            <ResetIcon size={11} />
+            Reset
+          </button>
+        )}
+      </div>
+
+      <div className={styles.settingsPanelBody}>
+        <ModelGroup
+          label="Main Model" icon={<Cpu size={12} />}
+          params={settings.main} defaults={agentDefaults.main}
+          connectors={connectors}
+          onChange={main => onChange({ ...settings, main })}
+        />
+        <ModelGroup
+          label="Sub-task Model" icon={<GitBranch size={12} />}
+          params={settings.sub} defaults={agentDefaults.sub}
+          connectors={connectors}
+          onChange={sub => onChange({ ...settings, sub })}
+          showInherit
+        />
+      </div>
+
+      <div className={styles.settingsPanelFooter}>
+        <button type="button" className={styles.settingsSaveBtn} onClick={onSaveAsDefault} disabled={isDefault}>
+          <Check size={11} />
+          Save as Agent Default
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────
 
 export function ConversationsPage() {
@@ -1179,6 +1387,9 @@ export function ConversationsPage() {
   const [activitySteps, setActivitySteps] = useState<ActivityStep[]>([])
   const [livePreview, setLivePreview] = useState<PreviewInfo | null>(null)
   const [streamImages, setStreamImages] = useState<{url: string, filename: string}[]>([])
+  const [showChatSettings, setShowChatSettings] = useState(false)
+  const [chatSettings, setChatSettings] = useState<ChatSettings>({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
+  const [llmConnectors, setLlmConnectors] = useState<LlmConnector[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -1187,6 +1398,7 @@ export function ConversationsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const inputDockRef = useRef<HTMLDivElement>(null)
+  const settingsBtnRef = useRef<HTMLButtonElement>(null)
   const dragCounterRef = useRef(0)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
 
@@ -1199,15 +1411,16 @@ export function ConversationsPage() {
   )
   const groupedConversations = groupConversations(filtered)
 
-  // Load conversations and agents
+  // Load conversations, agents, and connectors
   useEffect(() => {
-    Promise.all([api.conversations.list(), api.agents.list()])
-      .then(([convos, agts]) => {
+    Promise.all([api.conversations.list(), api.agents.list(), api.llmConnectors.list()])
+      .then(([convos, agts, conns]) => {
         setConversations(convos.sort((a, b) => {
           if (a.pinned !== b.pinned) return b.pinned ? 1 : -1
           return b.updated_at.localeCompare(a.updated_at)
         }))
         setAgents(agts)
+        setLlmConnectors(conns)
         if (convos.length > 0) setSelectedId(convos[0].id)
       })
       .finally(() => setLoading(false))
@@ -1217,6 +1430,9 @@ export function ConversationsPage() {
   useEffect(() => {
     if (!selectedId) return
     setMessages([])
+    // Reset per-chat overrides to agent defaults
+    setChatSettings({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
+    setShowChatSettings(false)
     api.conversations.messages(selectedId).then(msgs => {
       setMessages(msgs)
       // Try to reconnect to an in-progress generation
@@ -1412,6 +1628,12 @@ export function ConversationsPage() {
       reasoning_effort: reasoningEnabled ? reasoningEffort : undefined,
       search_enabled: searchEnabled,
       attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
+      temperature: chatSettings.main.temperature ?? undefined,
+      max_tokens: chatSettings.main.maxTokens ?? undefined,
+      llm_connector_id: chatSettings.main.connectorId ?? undefined,
+      subtask_llm_connector_id: chatSettings.sub.connectorId ?? undefined,
+      subtask_temperature: chatSettings.sub.temperature ?? undefined,
+      subtask_max_tokens: chatSettings.sub.maxTokens ?? undefined,
     }
 
     // Try streaming first, fall back to non-streaming
@@ -1526,7 +1748,7 @@ export function ConversationsPage() {
       },
     )
     stopStreamRef.current = stop
-  }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles])
+  }, [input, selectedId, streaming, uploading, reasoningEnabled, reasoningEffort, searchEnabled, pendingFiles, chatSettings])
 
   const handleStopStream = useCallback(() => {
     // Cancel the generation server-side so the LLM stops even if we disconnect
@@ -1572,6 +1794,25 @@ export function ConversationsPage() {
     // Focus input so user can edit before resending
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [streaming, selectedId])
+
+  const handleSaveChatSettingsAsDefault = useCallback(async () => {
+    if (!selectedAgent) return
+    try {
+      const patch: import('../lib/api').PatchAgentRequest = {}
+      if (chatSettings.main.temperature !== null) patch.temperature = chatSettings.main.temperature
+      if (chatSettings.main.maxTokens !== null) patch.max_tokens = chatSettings.main.maxTokens
+      if (chatSettings.main.connectorId !== null) patch.llm_connector_id = chatSettings.main.connectorId
+      if (chatSettings.sub.connectorId !== null) patch.subtask_llm_connector_id = chatSettings.sub.connectorId
+      if (chatSettings.sub.temperature !== null) patch.subtask_temperature = chatSettings.sub.temperature
+      if (chatSettings.sub.maxTokens !== null) patch.subtask_max_tokens = chatSettings.sub.maxTokens
+      const updated = await api.agents.patch(selectedAgent.id, patch)
+      setAgents(prev => prev.map(a => a.id === updated.id ? updated : a))
+      // Reset overrides since they're now the default
+      setChatSettings({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
+    } catch (err) {
+      console.error('Failed to save agent defaults:', err)
+    }
+  }, [selectedAgent, chatSettings])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
@@ -1987,9 +2228,33 @@ export function ConversationsPage() {
                       : <Eraser size={14} />
                     }
                   </button>
-                  <button className={styles.iconBtn} type="button" title="Conversation controls">
+                  <button
+                    ref={settingsBtnRef}
+                    className={`${styles.iconBtn} ${showChatSettings ? styles.iconBtnActive : ''} ${
+                      (chatSettings.main.connectorId !== null || chatSettings.main.temperature !== null || chatSettings.main.maxTokens !== null ||
+                       chatSettings.sub.connectorId !== null || chatSettings.sub.temperature !== null || chatSettings.sub.maxTokens !== null)
+                        ? styles.iconBtnOverride : ''
+                    }`}
+                    type="button"
+                    title="Model parameters"
+                    onClick={() => setShowChatSettings(prev => !prev)}
+                  >
                     <SlidersHorizontal size={14} />
                   </button>
+                  {showChatSettings && selectedAgent && (
+                    <ChatSettingsPanel
+                      settings={chatSettings}
+                      onChange={setChatSettings}
+                      connectors={llmConnectors}
+                      agentDefaults={{
+                        main: { connectorId: selectedAgent.llm_connector_id, temperature: selectedAgent.temperature, maxTokens: selectedAgent.max_tokens },
+                        sub: { connectorId: selectedAgent.subtask_llm_connector_id, temperature: selectedAgent.subtask_temperature, maxTokens: selectedAgent.subtask_max_tokens },
+                      }}
+                      onClose={() => setShowChatSettings(false)}
+                      onSaveAsDefault={handleSaveChatSettingsAsDefault}
+                      anchorRef={settingsBtnRef}
+                    />
+                  )}
                 </div>
               </div>
 

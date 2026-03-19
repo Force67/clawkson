@@ -2690,6 +2690,410 @@
   }
 }
 
+/* ── Chat settings panel ─────────────────────────────────────── */
+
+.settingsAnchor {
+  position: relative;
+}
+
+.iconBtnActive {
+  background: rgba(74, 108, 247, 0.08);
+  border-color: rgba(74, 108, 247, 0.25);
+  color: var(--accent);
+}
+
+.iconBtnOverride {
+  position: relative;
+  color: var(--accent);
+}
+
+.iconBtnOverride::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.settingsPanel {
+  position: fixed;
+  z-index: 200;
+  width: 340px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-lg),
+    var(--shadow-md);
+  animation: settingsPanelIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 120px);
+}
+
+.settingsPanelBody {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+@keyframes settingsPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.settingsPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.settingsPanelTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+}
+
+.settingsResetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.settingsResetBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.settingsSection {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.settingsSection:last-of-type {
+  border-bottom: none;
+}
+
+.settingsLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.settingsValue {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-family: var(--font-mono);
+}
+
+/* ── Temperature slider ─────────────────────────────────────── */
+
+.settingsSection > .settingsSlider {
+  margin-bottom: 8px;
+}
+
+.settingsSlider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.08);
+  outline: none;
+  cursor: pointer;
+}
+
+.settingsSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(74, 108, 247, 0.2);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.settingsSlider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.3), 0 0 0 2px rgba(74, 108, 247, 0.15);
+}
+
+.settingsSlider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+
+.settingsPresets {
+  display: flex;
+  gap: 4px;
+}
+
+.settingsPresetBtn {
+  flex: 1;
+  padding: 4px 2px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  text-align: center;
+}
+
+.settingsPresetBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.settingsPresetActive {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+  border-color: rgba(74, 108, 247, 0.2);
+  font-weight: 600;
+}
+
+/* ── Token buttons ──────────────────────────────────────────── */
+
+.settingsTokenRow {
+  display: flex;
+  gap: 4px;
+}
+
+.settingsTokenBtn {
+  flex: 1;
+  padding: 5px 2px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  text-align: center;
+}
+
+.settingsTokenBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.settingsTokenActive {
+  background: rgba(74, 108, 247, 0.08);
+  color: var(--accent);
+  border-color: rgba(74, 108, 247, 0.2);
+  font-weight: 600;
+}
+
+/* ── Model groups ───────────────────────────────────────────── */
+
+.modelGroup {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modelGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+.settingsRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ── Model cards ────────────────────────────────────────────── */
+
+.modelCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modelCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.015);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.modelCard:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.modelCardActive {
+  background: rgba(74, 108, 247, 0.05);
+  border-color: rgba(74, 108, 247, 0.25);
+  box-shadow: 0 0 0 1px rgba(74, 108, 247, 0.08);
+}
+
+.modelCardActive:hover {
+  background: rgba(74, 108, 247, 0.08);
+  border-color: rgba(74, 108, 247, 0.3);
+}
+
+.modelCardMini {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.modelCardProvider {
+  font-size: 9.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+.modelCardName {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.modelCardMini .modelCardName {
+  font-size: 11.5px;
+}
+
+.modelCardConnector {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+.modelCardCheck {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--accent);
+}
+
+.modelCardMini .modelCardProvider {
+  font-size: 9px;
+  min-width: 0;
+}
+
+/* ── Save button ────────────────────────────────────────────── */
+
+.settingsPanelFooter {
+  padding: 10px 16px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.settingsSaveBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.settingsSaveBtn:hover:not(:disabled) {
+  background: rgba(74, 108, 247, 0.06);
+  color: var(--accent);
+  border-color: rgba(74, 108, 247, 0.2);
+}
+
+.settingsSaveBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* ── Dark mode: new elements ─────────────────────────────────── */
 
 :global(:root[data-theme="dark"]) .msgActionBtn:hover {
@@ -2716,6 +3120,73 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+:global(:root[data-theme="dark"]) .settingsPanel {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:global(:root[data-theme="dark"]) .settingsPanelHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .modelGroup {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .settingsSection {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+:global(:root[data-theme="dark"]) .settingsSlider {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:global(:root[data-theme="dark"]) .settingsSlider::-webkit-slider-thumb {
+  border-color: #222;
+}
+
+:global(:root[data-theme="dark"]) .settingsPresetBtn,
+:global(:root[data-theme="dark"]) .settingsTokenBtn {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .settingsPresetBtn:hover,
+:global(:root[data-theme="dark"]) .settingsTokenBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(:root[data-theme="dark"]) .modelCard {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+:global(:root[data-theme="dark"]) .modelCard:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(:root[data-theme="dark"]) .modelCardActive {
+  background: rgba(107, 140, 255, 0.08);
+  border-color: rgba(107, 140, 255, 0.25);
+}
+
+:global(:root[data-theme="dark"]) .settingsResetBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .settingsPanelFooter {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(:root[data-theme="dark"]) .settingsSaveBtn {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:global(:root[data-theme="dark"]) .iconBtnOverride::after {
+  box-shadow: 0 0 0 2px var(--glass-bg);
+}
+
 @media (prefers-color-scheme: dark) {
   :global(:root[data-theme="system"]) .msgActionBtn:hover {
     background: rgba(255, 255, 255, 0.08);
@@ -2734,6 +3205,28 @@
   :global(:root[data-theme="system"]) .imageThumb {
     border-color: rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.04);
+  }
+
+  :global(:root[data-theme="system"]) .settingsPanel {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  :global(:root[data-theme="system"]) .settingsSlider {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  :global(:root[data-theme="system"]) .modelCard {
+    border-color: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  :global(:root[data-theme="system"]) .modelCard:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  :global(:root[data-theme="system"]) .modelCardActive {
+    background: rgba(107, 140, 255, 0.08);
+    border-color: rgba(107, 140, 255, 0.25);
   }
 }
 

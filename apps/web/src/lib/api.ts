@@ -145,6 +145,8 @@ export interface Agent {
   container_config: AgentContainerConfig | null
   connector_policies: ConnectorPolicy[]
   subtask_llm_connector_id: string | null
+  subtask_temperature: number | null
+  subtask_max_tokens: number | null
   owner_id?: string | null
   shared: boolean
   created_at: string
@@ -596,6 +598,8 @@ export interface CreateAgentRequest {
   connector_policies?: ConnectorPolicy[]
   shared?: boolean
   subtask_llm_connector_id?: string
+  subtask_temperature?: number
+  subtask_max_tokens?: number
 }
 
 export interface PatchAgentRequest {
@@ -611,6 +615,8 @@ export interface PatchAgentRequest {
   connector_policies?: ConnectorPolicy[]
   shared?: boolean
   subtask_llm_connector_id?: string
+  subtask_temperature?: number
+  subtask_max_tokens?: number
 }
 
 export interface CreateConversationRequest {
@@ -1112,6 +1118,12 @@ export interface ChatStreamOptions {
   reasoning_effort?: ReasoningEffort
   search_enabled?: boolean
   attachment_ids?: string[]
+  temperature?: number
+  max_tokens?: number
+  llm_connector_id?: string
+  subtask_llm_connector_id?: string
+  subtask_temperature?: number
+  subtask_max_tokens?: number
 }
 
 export interface AttachmentInfo {
@@ -1152,6 +1164,12 @@ export function streamChat(
   if (options?.reasoning_effort) body.reasoning_effort = options.reasoning_effort
   if (options?.search_enabled !== undefined) body.search_enabled = options.search_enabled
   if (options?.attachment_ids?.length) body.attachment_ids = options.attachment_ids
+  if (options?.temperature != null) body.temperature = options.temperature
+  if (options?.max_tokens != null) body.max_tokens = options.max_tokens
+  if (options?.llm_connector_id) body.llm_connector_id = options.llm_connector_id
+  if (options?.subtask_llm_connector_id) body.subtask_llm_connector_id = options.subtask_llm_connector_id
+  if (options?.subtask_temperature != null) body.subtask_temperature = options.subtask_temperature
+  if (options?.subtask_max_tokens != null) body.subtask_max_tokens = options.subtask_max_tokens
 
   fetch(`${BASE}/api/conversations/${conversationId}/chat/stream`, {
     method: 'POST',
