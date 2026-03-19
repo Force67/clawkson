@@ -9,7 +9,6 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import type MermaidAPI from 'mermaid'
 import { Button } from '../components/Button'
-import { EmptyState } from '../components/EmptyState'
 import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool, type LlmConnector } from '../lib/api'
 import styles from './Conversations.module.css'
 
@@ -217,6 +216,7 @@ function MermaidBlock({ code }: { code: string }) {
   const [svg, setSvg] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [showModal, setShowModal] = useState(false)
+  const [copiedDiagram, setCopiedDiagram] = useState(false)
   const idRef = useRef(`mermaid-${++mermaidCounter}-${Date.now()}`)
 
   useEffect(() => {
@@ -257,6 +257,30 @@ function MermaidBlock({ code }: { code: string }) {
       <div className={styles.mermaidContainer}>
         <div className={styles.mermaidToolbar}>
           <span className={styles.mermaidLabel}>Diagram</span>
+          <button
+            type="button"
+            className={`${styles.mermaidBtn} ${copiedDiagram ? styles.mermaidBtnSuccess : ''}`}
+            onClick={async () => {
+              const onSuccess = () => { setCopiedDiagram(true); setTimeout(() => setCopiedDiagram(false), 2000) }
+              try {
+                // Copy SVG as HTML so it pastes as an image in rich-text editors
+                await navigator.clipboard.write([
+                  new ClipboardItem({
+                    'text/html': new Blob([svg], { type: 'text/html' }),
+                    'text/plain': new Blob([code], { type: 'text/plain' }),
+                  })
+                ])
+                onSuccess()
+              } catch {
+                // Fallback: copy mermaid source as plain text
+                await navigator.clipboard.writeText(code).catch(() => {})
+                onSuccess()
+              }
+            }}
+            title={copiedDiagram ? 'Copied!' : 'Copy diagram'}
+          >
+            {copiedDiagram ? <CheckCheck size={13} /> : <Clipboard size={13} />}
+          </button>
           <button
             type="button"
             className={styles.mermaidBtn}
@@ -560,16 +584,51 @@ function MsgBubble({ msg, agentName, onRetry }: MsgBubbleProps) {
   const officeIds = new Set(officeAttachments.map(a => a.id))
   const fileAttachments = attachments.filter(a => !a.content_type.startsWith('image/') && !htmlIds.has(a.id) && !officeIds.has(a.id))
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(msg.content).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    })
+  const bubbleRef = useRef<HTMLDivElement>(null)
+
+  const handleCopy = async () => {
+    const onSuccess = () => { setCopied(true); setTimeout(() => setCopied(false), 1800) }
+    const contentEl = bubbleRef.current?.querySelector(`.${styles.bubbleContent}`)
+
+    // For assistant messages, try to copy rendered HTML so formatting pastes into rich editors.
+    if (contentEl && !isUser) {
+      const html = contentEl.innerHTML
+      const plain = contentEl.textContent || msg.content
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([plain], { type: 'text/plain' }),
+          })
+        ])
+        onSuccess()
+        return
+      } catch {
+        // ClipboardItem not supported or permission denied — fall through
+      }
+    }
+
+    // Fallback: copy raw content as plain text
+    try {
+      await navigator.clipboard.writeText(msg.content)
+      onSuccess()
+    } catch {
+      // Last resort: execCommand fallback for insecure contexts
+      const ta = document.createElement('textarea')
+      ta.value = msg.content
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      onSuccess()
+    }
   }
 
   return (
     <div className={`${styles.messageRow} ${isUser ? styles.messageRowUser : styles.messageRowAssistant}`}>
-      <div className={`${styles.bubble} ${isUser ? styles.bubbleUser : styles.bubbleAssistant}`}>
+      <div ref={bubbleRef} className={`${styles.bubble} ${isUser ? styles.bubbleUser : styles.bubbleAssistant}`}>
         {!isUser && (
           <div className={styles.bubbleMeta}>
             <div className={styles.bubbleAvatar}><Bot size={12} /></div>
@@ -2186,13 +2245,38 @@ export function ConversationsPage() {
 
         <main className={styles.chat}>
           {!selectedConvo ? (
-            <div className={styles.emptyPanel}>
-              <EmptyState
-                icon={MessageSquare}
-                title="Select a conversation"
-                description="Pick one from the sidebar or start a new one."
-                action={<Button variant="primary" size="sm" onClick={() => setShowNewDialog(true)}>New Conversation</Button>}
-              />
+            <div className={styles.welcomePanel}>
+              <div className={styles.welcomeContent}>
+                <div className={styles.welcomeOrb}>
+                  <MessageSquare size={28} strokeWidth={1.5} />
+                </div>
+                <div className={styles.welcomeText}>
+                  <h2 className={styles.welcomeTitle}>Start a conversation</h2>
+                  <p className={styles.welcomeDesc}>
+                    Pick a thread from the sidebar, or create a new one to get started with an agent.
+                  </p>
+                </div>
+                <div className={styles.welcomeActions}>
+                  <button
+                    className={styles.welcomeStartBtn}
+                    onClick={() => setShowNewDialog(true)}
+                    type="button"
+                  >
+                    <Plus size={16} />
+                    New Conversation
+                  </button>
+                  <div className={styles.welcomeHints}>
+                    <span className={styles.welcomeHint}>
+                      <Zap size={11} />
+                      Attach files
+                    </span>
+                    <span className={styles.welcomeHint}>
+                      <Terminal size={11} />
+                      Use /skills
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <>

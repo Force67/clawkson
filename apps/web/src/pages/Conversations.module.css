@@ -491,6 +491,147 @@
   opacity: 0.7;
 }
 
+/* ── Welcome empty panel (no conversation selected) ──────────── */
+
+.welcomePanel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.welcomeContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-width: 400px;
+  text-align: center;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.welcomeOrb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  background: var(--accent-gradient-subtle);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  overflow: hidden;
+}
+
+.welcomeOrb::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-gradient);
+  opacity: 0.08;
+  animation: breathe 4s ease-in-out infinite;
+}
+
+.welcomeOrb svg {
+  position: relative;
+  z-index: 1;
+}
+
+.welcomeText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.welcomeTitle {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.welcomeDesc {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.welcomeActions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.welcomeStartBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 28px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent-gradient);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-accent);
+  transition: transform 0.2s var(--ease-out-expo), box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcomeStartBtn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  transition: left 0.5s ease;
+  pointer-events: none;
+}
+
+.welcomeStartBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(107, 140, 255, 0.3);
+}
+
+.welcomeStartBtn:hover::after {
+  left: 200%;
+}
+
+.welcomeStartBtn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.welcomeHints {
+  display: flex;
+  gap: 20px;
+}
+
+.welcomeHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+}
+
+.welcomeHint svg {
+  opacity: 0.6;
+}
+
 /* ── Message bubbles ─────────────────────────────────────────── */
 
 .messageRow {
@@ -1461,23 +1602,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(8px);
+  background: var(--dialog-overlay-bg, rgba(0, 0, 0, 0.25));
+  backdrop-filter: blur(12px);
   animation: fadeIn 0.15s ease-out;
 }
 
 .dialog {
   width: min(420px, calc(100vw - 32px));
-  padding: 22px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 24px;
+  border: 1px solid var(--glass-border);
   border-radius: 20px;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.7) inset,
-    0 8px 32px rgba(0, 0, 0, 0.14),
-    0 2px 8px rgba(0, 0, 0, 0.08);
-  animation: dialogIn 0.2s ease-out;
+    0 1px 0 var(--glass-inset-highlight) inset,
+    var(--shadow-xl);
+  animation: dialogIn 0.25s var(--ease-out-expo);
 }
 
 @keyframes dialogIn {
@@ -1522,7 +1662,7 @@
 }
 
 .dialogClose:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -1571,20 +1711,21 @@
 
 .formInput {
   width: 100%;
-  padding: 9px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-tertiary);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .formInput:focus {
-  border-color: rgba(74, 108, 247, 0.4);
-  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+  background: var(--bg-secondary);
 }
 
 .formInput::placeholder {
@@ -1611,37 +1752,50 @@
   gap: 10px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--bg-tertiary);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 
 .agentOption:hover {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(0, 0, 0, 0.12);
+  background: var(--bg-hover);
+  border-color: var(--border-default);
 }
 
 .agentOptionSelected {
-  border-color: rgba(74, 108, 247, 0.25);
-  background: rgba(74, 108, 247, 0.06);
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.agentOptionSelected:hover {
+  background: var(--accent-muted);
+  border-color: var(--accent);
 }
 
 .agentOptionIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.07);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.agentOptionSelected .agentOptionIcon {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .agentOptionCheck {
@@ -1919,6 +2073,14 @@
 .mermaidBtn:hover {
   background: rgba(74, 108, 247, 0.1);
   color: var(--accent);
+}
+
+.mermaidBtnSuccess {
+  color: #2a9d60;
+}
+.mermaidBtnSuccess:hover {
+  color: #2a9d60;
+  background: rgba(42, 157, 96, 0.1);
 }
 
 .mermaidSvg {
@@ -3120,6 +3282,32 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* ── Dark mode: dialog & forms ───────────────────────────────── */
+
+:global(:root[data-theme="dark"]) .dialogOverlay {
+  --dialog-overlay-bg: rgba(0, 0, 0, 0.55);
+}
+
+:global(:root[data-theme="dark"]) .dialog {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 8px 40px rgba(0, 0, 0, 0.5),
+    0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+:global(:root[data-theme="dark"]) .searchInput:focus {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:global(:root[data-theme="dark"]) .welcomeOrb {
+  border-color: rgba(107, 140, 255, 0.15);
+}
+
+:global(:root[data-theme="dark"]) .welcomeStartBtn {
+  box-shadow: 0 4px 24px rgba(107, 140, 255, 0.25);
+}
+
 :global(:root[data-theme="dark"]) .settingsPanel {
   border-color: rgba(255, 255, 255, 0.08);
 }
@@ -3228,6 +3416,30 @@
     background: rgba(107, 140, 255, 0.08);
     border-color: rgba(107, 140, 255, 0.25);
   }
+
+  :global(:root[data-theme="system"]) .dialogOverlay {
+    --dialog-overlay-bg: rgba(0, 0, 0, 0.55);
+  }
+
+  :global(:root[data-theme="system"]) .dialog {
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.03) inset,
+      0 8px 40px rgba(0, 0, 0, 0.5),
+      0 2px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  :global(:root[data-theme="system"]) .searchInput:focus {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  :global(:root[data-theme="system"]) .welcomeOrb {
+    border-color: rgba(107, 140, 255, 0.15);
+  }
+
+  :global(:root[data-theme="system"]) .welcomeStartBtn {
+    box-shadow: 0 4px 24px rgba(107, 140, 255, 0.25);
+  }
 }
 
 /* ── Utility ─────────────────────────────────────────────────── */
@@ -3256,7 +3468,7 @@
 
   .sidebar {
     border-right: none;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+    border-bottom: 1px solid var(--border-subtle);
     max-height: 280px;
   }
 
@@ -3325,7 +3537,7 @@
 
 .sharePermToggle {
   display: flex;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   overflow: hidden;
   flex-shrink: 0;
@@ -3338,28 +3550,28 @@
   width: 32px;
   height: 34px;
   border: none;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-tertiary);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .permBtn:first-child {
-  border-right: 1px solid rgba(0, 0, 0, 0.07);
+  border-right: 1px solid var(--border-subtle);
 }
 
 .permBtn:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
 .permBtnActive {
-  background: rgba(74, 108, 247, 0.06);
+  background: var(--accent-muted);
   color: var(--accent);
 }
 
 .permBtnActive:hover {
-  background: rgba(74, 108, 247, 0.1);
+  background: var(--accent-glow);
 }
 
 .shareError {
@@ -3397,7 +3609,7 @@
 }
 
 .shareRow:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--bg-hover);
 }
 
 .shareUser {
