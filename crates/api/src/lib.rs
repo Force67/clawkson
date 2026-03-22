@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod browser_cdp;
 pub mod browser_tools;
 pub mod chat_commands;
 pub mod compaction;

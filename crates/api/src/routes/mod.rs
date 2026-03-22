@@ -3,6 +3,7 @@ pub mod agents;
 pub mod audit;
 pub mod auth;
 pub mod calendar;
+pub mod companion;
 pub mod containers;
 pub mod conversations;
 pub mod credentials;
@@ -42,6 +43,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/skills", skills::router())
         .nest("/credentials", credentials::router())
         .nest("/calendar", calendar::router())
+        .nest("/companion", companion::router())
         .nest("/scheduled-tasks", scheduled_tasks::router())
         .nest("/uploads", uploads::router())
         .nest("/audit-log", audit::router())
