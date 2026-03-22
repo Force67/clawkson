@@ -1,12 +1,17 @@
 pub mod auth;
 pub mod browser_tools;
+pub mod chat_commands;
+pub mod compaction;
+pub mod context_engine;
 pub mod embeddings;
 pub mod generations;
 pub mod llm;
+pub mod loop_detector;
 pub mod memory;
 pub mod pdf;
 pub mod permission_guard;
 pub mod proxy;
+pub mod retry;
 pub mod routes;
 pub mod s3;
 pub mod state;
