@@ -1,0 +1,15 @@
+[package]
+name = "clawkson-search-duckduckgo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clawkson-plugin = { path = "../../../plugin" }
+clawkson-core = { path = "../../../core" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+reqwest.workspace = true
