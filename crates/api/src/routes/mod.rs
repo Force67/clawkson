@@ -9,6 +9,8 @@ pub mod credentials;
 pub mod connectors;
 pub mod knowledge;
 pub mod plugins;
+pub mod polls;
+pub mod reactions;
 pub mod scheduled_tasks;
 pub mod shares;
 pub mod skills;
@@ -47,5 +49,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/usage", usage::router())
         .nest("/webhooks", webhooks::router())
         .nest("/plugins", plugins::router())
+        .merge(reactions::router())
+        .merge(polls::router())
         .merge(shares::router())
 }

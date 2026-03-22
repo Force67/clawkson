@@ -4,6 +4,7 @@ pub mod chat_commands;
 pub mod compaction;
 pub mod context_engine;
 pub mod embeddings;
+pub mod extra_tools;
 pub mod generations;
 pub mod llm;
 pub mod loop_detector;

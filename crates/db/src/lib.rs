@@ -24,6 +24,8 @@ pub mod scheduled_task;
 pub mod token_usage;
 pub mod tool_audit;
 pub mod model_pricing;
+pub mod poll;
+pub mod reaction;
 pub mod webhook;
 
 pub use bootstrap::{
