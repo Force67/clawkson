@@ -198,13 +198,14 @@ export interface ChatResponse {
   assistant_message: Message
 }
 
-export type ConnectorType = 'telegram' | 'gmail' | 'slack' | 'azure_devops' | 'custom' | 'tavily' | 'bing'
+// Extensible via plugins — string type with well-known values.
+export type ConnectorType = string
 
 export interface Connector {
   id: string
   user_id: string
   name: string
-  connector_type: ConnectorType
+  connector_type: string
   enabled: boolean
   config: Record<string, unknown>
   /** Free-text operational context injected when this connector is invoked. */
@@ -372,12 +373,13 @@ export interface AgentCredentialInfo {
   credential_type: string
 }
 
-export type LlmProviderType = 'azure' | 'open_router' | 'open_ai' | 'custom'
+// Extensible via plugins — string type with well-known values.
+export type LlmProviderType = string
 
 export interface LlmConnector {
   id: string
   name: string
-  provider_type: LlmProviderType
+  provider_type: string
   api_key: string       // masked on retrieval
   api_base_url: string
   model: string
@@ -767,6 +769,50 @@ export interface PatchSettingsRequest {
   embedding_api_key?: string
   /** Model name for embedding generation. */
   embedding_model?: string
+}
+
+// ── Plugin types ─────────────────────────────────────────────────
+
+export interface PluginSidebarItem {
+  label: string
+  path: string
+  icon: string
+  group: string
+}
+
+export interface PluginRoute {
+  path: string
+  component: string
+}
+
+export interface PluginSettingsPanel {
+  label: string
+  component: string
+}
+
+export interface PluginConnectorCard {
+  connector_type: string
+  component: string
+  display_name: string
+  icon: string
+}
+
+export interface PluginFrontendManifest {
+  sidebar_items: PluginSidebarItem[]
+  routes: PluginRoute[]
+  settings_panels: PluginSettingsPanel[]
+  connector_cards: PluginConnectorCard[]
+  bundle_url: string | null
+}
+
+export interface PluginManifest {
+  name: string
+  display_name: string
+  description: string
+  version: string
+  dependencies: string[]
+  capabilities: string[]
+  frontend: PluginFrontendManifest | null
 }
 
 // ── API client ─────────────────────────────────────────────────────
@@ -1160,6 +1206,10 @@ export const api = {
       request<TaskExecution>(`/api/scheduled-tasks/${id}/run`, { method: 'POST' }),
     history: (id: string) =>
       request<TaskExecution[]>(`/api/scheduled-tasks/${id}/history`),
+  },
+
+  plugins: {
+    list: () => request<PluginManifest[]>('/api/plugins'),
   },
 
   uploads: {
