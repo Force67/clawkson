@@ -122,12 +122,12 @@ async fn list_tools(auth: AuthUser, State(state): State<AppState>) -> Json<Vec<T
         clawkson_db::connector::list_for_user(&state.db, auth.id()).await
     {
         for c in connectors.into_iter().filter(|c| c.enabled) {
-            match c.connector_type {
-                clawkson_db::connector::ConnectorType::Tavily
-                | clawkson_db::connector::ConnectorType::Bing => {
-                    let provider_label = match c.connector_type {
-                        clawkson_db::connector::ConnectorType::Tavily => "Tavily",
-                        clawkson_db::connector::ConnectorType::Bing => "Bing",
+            match c.connector_type.as_str() {
+                clawkson_db::connector::TAVILY
+                | clawkson_db::connector::BING => {
+                    let provider_label = match c.connector_type.as_str() {
+                        clawkson_db::connector::TAVILY => "Tavily",
+                        clawkson_db::connector::BING => "Bing",
                         _ => "Web",
                     };
                     tools.push(ToolInfo {

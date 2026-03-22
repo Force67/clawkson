@@ -1634,7 +1634,7 @@ pub mod http_tool {
     #[derive(Debug, Clone)]
     pub struct ConnectorAuth {
         pub connector_name: String,
-        pub connector_type: clawkson_db::connector::ConnectorType,
+        pub connector_type: String,
         pub config: serde_json::Value,
     }
 
@@ -1675,8 +1675,8 @@ pub mod http_tool {
             auth: &ConnectorAuth,
             mut builder: reqwest::RequestBuilder,
         ) -> reqwest::RequestBuilder {
-            match auth.connector_type {
-                clawkson_db::connector::ConnectorType::AzureDevops => {
+            match auth.connector_type.as_str() {
+                clawkson_db::connector::AZURE_DEVOPS => {
                     // Azure DevOps uses Basic auth with empty user + PAT as password
                     if let Some(pat) = auth.config.get("pat").and_then(|v| v.as_str()) {
                         builder = builder.basic_auth("", Some(pat));

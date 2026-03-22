@@ -1,6 +1,6 @@
 /// LLM adapter backed by vendored denkwerk providers.
 use anyhow::Result;
-use clawkson_core::{LlmConnector, LlmProviderType, MessageRole};
+use clawkson_core::{LlmConnector, llm_provider_types, MessageRole};
 use denkwerk::{
     providers::{
         azure_openai::{AzureOpenAI, AzureOpenAIConfig},
@@ -112,9 +112,10 @@ fn find_matching_brace(s: &str) -> Option<usize> {
 }
 
 fn resolve_base_url(connector: &LlmConnector) -> String {
-    match &connector.provider_type {
-        LlmProviderType::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
-        LlmProviderType::OpenAi => "https://api.openai.com/v1".to_string(),
+    match connector.provider_type.as_str() {
+        llm_provider_types::OPENROUTER | "open_router" => "https://openrouter.ai/api/v1".to_string(),
+        llm_provider_types::OPENAI | "open_ai" => "https://api.openai.com/v1".to_string(),
+        _ if connector.api_base_url.is_empty() => String::new(),
         _ => connector.api_base_url.clone(),
     }
 }
@@ -175,10 +176,10 @@ fn build_request(
     request
 }
 
-fn build_provider(connector: &LlmConnector, timeout_secs: u64) -> Result<Box<dyn LLMProvider>> {
+pub fn build_provider(connector: &LlmConnector, timeout_secs: u64) -> Result<Box<dyn LLMProvider>> {
     let timeout = std::time::Duration::from_secs(timeout_secs);
-    match connector.provider_type {
-        LlmProviderType::Azure => {
+    match connector.provider_type.as_str() {
+        llm_provider_types::AZURE => {
             let mut config =
                 AzureOpenAIConfig::new(connector.api_key.clone(), connector.api_base_url.clone());
             if let Some(version) = &connector.azure_api_version {
@@ -187,7 +188,7 @@ fn build_provider(connector: &LlmConnector, timeout_secs: u64) -> Result<Box<dyn
             config = config.with_timeout(timeout);
             Ok(Box::new(AzureOpenAI::from_config(config)?))
         }
-        LlmProviderType::OpenRouter => {
+        llm_provider_types::OPENROUTER | "open_router" => {
             let mut config = OpenRouterConfig::new(connector.api_key.clone());
             config.base_url = resolve_base_url(connector);
             config.referer = Some("https://clawkson.app".to_string());
@@ -195,7 +196,8 @@ fn build_provider(connector: &LlmConnector, timeout_secs: u64) -> Result<Box<dyn
             config.request_timeout = timeout;
             Ok(Box::new(OpenRouter::from_config(config)?))
         }
-        LlmProviderType::OpenAi | LlmProviderType::Custom => {
+        // OpenAI, Custom, and any unknown plugin-provided type that is OpenAI-compatible
+        _ => {
             let config = OpenAIConfig::new(connector.api_key.clone())
                 .with_base_url(resolve_base_url(connector))
                 .with_timeout(timeout);

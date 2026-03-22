@@ -5,6 +5,7 @@ members = [
     "crates/container",
     "crates/core",
     "crates/db",
+    "crates/plugin",
     "crates/server",
 ]
 
@@ -36,3 +37,5 @@ rand = "0.8"
 aws-sdk-s3 = "1"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-types = "1"
+async-trait = "0.1"
+libloading = "0.8"

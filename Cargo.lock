@@ -964,6 +964,7 @@ dependencies = [
  "clawkson-container",
  "clawkson-core",
  "clawkson-db",
+ "clawkson-plugin",
  "cron",
  "denkwerk",
  "futures",
@@ -1029,6 +1030,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "clawkson-plugin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "chrono",
+ "clawkson-core",
+ "denkwerk",
+ "libloading",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "clawkson-server"
 version = "0.1.0"
 dependencies = [
@@ -1037,6 +1057,7 @@ dependencies = [
  "clawkson-api",
  "clawkson-container",
  "clawkson-db",
+ "clawkson-plugin",
  "dotenvy",
  "tokio",
  "tower-http",

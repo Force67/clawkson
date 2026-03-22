@@ -5,18 +5,20 @@ use uuid::Uuid;
 
 use crate::{Db, DbError};
 
-// ── DB row type ────────────────────────────────────────────────────
+// ── Well-known connector types ────────────────────────────────────
+// Stored as TEXT in PostgreSQL — plugins can register additional types.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "connector_type", rename_all = "snake_case")]
-pub enum ConnectorType {
-    Telegram,
-    Gmail,
-    Slack,
-    AzureDevops,
-    Custom,
-    Tavily,
-    Bing,
+pub const TELEGRAM: &str = "telegram";
+pub const GMAIL: &str = "gmail";
+pub const SLACK: &str = "slack";
+pub const AZURE_DEVOPS: &str = "azure_devops";
+pub const CUSTOM: &str = "custom";
+pub const TAVILY: &str = "tavily";
+pub const BING: &str = "bing";
+
+/// Check if a connector type is a web search type.
+pub fn is_web_search_type(ct: &str) -> bool {
+    matches!(ct, TAVILY | BING)
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -24,7 +26,7 @@ pub struct ConnectorRow {
     pub id: Uuid,
     pub user_id: Uuid,
     pub name: String,
-    pub connector_type: ConnectorType,
+    pub connector_type: String,
     pub enabled: bool,
     pub config: serde_json::Value,
     /// Free-text operational context injected when this connector is invoked.
@@ -64,7 +66,7 @@ pub async fn get(db: &Db, id: Uuid, user_id: Uuid) -> Result<Option<ConnectorRow
 pub struct CreateConnector {
     pub user_id: Uuid,
     pub name: String,
-    pub connector_type: ConnectorType,
+    pub connector_type: String,
     pub config: serde_json::Value,
 }
 
@@ -167,7 +169,7 @@ pub async fn set_config(
 }
 
 /// List all enabled connectors of a given type (across all users).
-pub async fn list_enabled_by_type(db: &Db, ct: ConnectorType) -> Result<Vec<ConnectorRow>, DbError> {
+pub async fn list_enabled_by_type(db: &Db, ct: &str) -> Result<Vec<ConnectorRow>, DbError> {
     let rows = sqlx::query_as::<_, ConnectorRow>(
         "SELECT id, user_id, name, connector_type, enabled, config, context, created_at, updated_at
          FROM connectors

@@ -471,16 +471,10 @@ const CHUNK_OVERLAP_CHARS: usize = 200;
 
 /// Convert a DB connector row to the core `LlmConnector` type.
 fn db_connector_row_to_core(row: clawkson_db::llm_connector::LlmConnectorRow) -> clawkson_core::LlmConnector {
-    use clawkson_core::LlmProviderType;
     clawkson_core::LlmConnector {
         id: row.id,
         name: row.name,
-        provider_type: match row.provider_type {
-            clawkson_db::llm_connector::LlmProviderType::Azure => LlmProviderType::Azure,
-            clawkson_db::llm_connector::LlmProviderType::Openrouter => LlmProviderType::OpenRouter,
-            clawkson_db::llm_connector::LlmProviderType::Openai => LlmProviderType::OpenAi,
-            clawkson_db::llm_connector::LlmProviderType::Custom => LlmProviderType::Custom,
-        },
+        provider_type: row.provider_type,
         api_key: row.api_key,
         api_base_url: row.api_base_url,
         model: row.model,

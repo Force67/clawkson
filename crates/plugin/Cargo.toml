@@ -1,0 +1,24 @@
+[package]
+name = "clawkson-plugin"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+# Enable dynamic plugin loading via .so/.dylib
+dynamic = ["dep:libloading"]
+
+[dependencies]
+clawkson-core = { path = "../core" }
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+async-trait = "0.1"
+denkwerk = { path = "../../../denkwerk" }
+sqlx.workspace = true
+libloading = { version = "0.8", optional = true }

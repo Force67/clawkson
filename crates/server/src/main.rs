@@ -112,8 +112,12 @@ async fn main() -> Result<()> {
         tracing::warn!("poppler-utils not installed — PDF pages will use text extraction fallback (install poppler-utils for vision)");
     }
 
+    // ── Plugin system ────────────────────────────────────────────
+    let plugin_registry = std::sync::Arc::new(clawkson_plugin::PluginRegistry::new());
+    tracing::info!("plugin registry initialized");
+
     // ── HTTP server ───────────────────────────────────────────────
-    let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3);
+    let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3, plugin_registry);
 
     // ── Telegram bot pollers ──────────────────────────────────────
     clawkson_api::telegram::boot_pollers(&state, &state.telegram).await;

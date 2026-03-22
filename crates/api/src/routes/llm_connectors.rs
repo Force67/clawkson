@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use clawkson_core::{LlmConnector, LlmProviderType};
+use clawkson_core::{LlmConnector, llm_provider_types};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,7 +22,7 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug, Deserialize)]
 pub struct CreateLlmConnectorRequest {
     pub name: String,
-    pub provider_type: LlmProviderType,
+    pub provider_type: String,
     pub api_key: String,
     pub api_base_url: Option<String>,
     pub model: String,
@@ -34,7 +34,7 @@ pub struct CreateLlmConnectorRequest {
 #[derive(Debug, Deserialize)]
 pub struct PatchLlmConnectorRequest {
     pub name: Option<String>,
-    pub provider_type: Option<LlmProviderType>,
+    pub provider_type: Option<String>,
     pub api_key: Option<String>,
     pub api_base_url: Option<String>,
     pub model: Option<String>,
@@ -47,12 +47,7 @@ fn row_to_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> LlmConn
     LlmConnector {
         id: row.id,
         name: row.name,
-        provider_type: match row.provider_type {
-            clawkson_db::llm_connector::LlmProviderType::Azure => LlmProviderType::Azure,
-            clawkson_db::llm_connector::LlmProviderType::Openrouter => LlmProviderType::OpenRouter,
-            clawkson_db::llm_connector::LlmProviderType::Openai => LlmProviderType::OpenAi,
-            clawkson_db::llm_connector::LlmProviderType::Custom => LlmProviderType::Custom,
-        },
+        provider_type: row.provider_type,
         api_key: row.api_key,
         api_base_url: row.api_base_url,
         model: row.model,
@@ -63,12 +58,12 @@ fn row_to_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> LlmConn
     }
 }
 
-fn provider_to_db(p: &LlmProviderType) -> clawkson_db::llm_connector::LlmProviderType {
-    match p {
-        LlmProviderType::Azure => clawkson_db::llm_connector::LlmProviderType::Azure,
-        LlmProviderType::OpenRouter => clawkson_db::llm_connector::LlmProviderType::Openrouter,
-        LlmProviderType::OpenAi => clawkson_db::llm_connector::LlmProviderType::Openai,
-        LlmProviderType::Custom => clawkson_db::llm_connector::LlmProviderType::Custom,
+/// Resolve the default base URL for well-known provider types.
+fn default_base_url(provider_type: &str) -> String {
+    match provider_type {
+        llm_provider_types::OPENROUTER | "open_router" => "https://openrouter.ai/api/v1".to_string(),
+        llm_provider_types::OPENAI | "open_ai" => "https://api.openai.com/v1".to_string(),
+        _ => String::new(),
     }
 }
 
@@ -113,13 +108,7 @@ async fn create(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let base_url = req.api_base_url.unwrap_or_else(|| {
-        match req.provider_type {
-            LlmProviderType::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
-            LlmProviderType::OpenAi => "https://api.openai.com/v1".to_string(),
-            _ => String::new(),
-        }
-    });
+    let base_url = req.api_base_url.unwrap_or_else(|| default_base_url(&req.provider_type));
 
     // Auto-set as default if it's the first connector
     let existing = clawkson_db::llm_connector::list_all(&state.db)
@@ -129,7 +118,7 @@ async fn create(
     let row = clawkson_db::llm_connector::create(
         &state.db,
         &req.name,
-        provider_to_db(&req.provider_type),
+        &req.provider_type,
         &req.api_key,
         &base_url,
         &req.model,
@@ -169,7 +158,7 @@ async fn patch(
         &state.db,
         id,
         req.name.as_deref(),
-        req.provider_type.as_ref().map(provider_to_db),
+        req.provider_type.as_deref(),
         req.api_key.as_deref(),
         req.api_base_url.as_deref(),
         req.model.as_deref(),
@@ -236,13 +225,7 @@ async fn test_connection(
     use clawkson_core::MessageRole;
     use std::time::Instant;
 
-    let base_url = req.api_base_url.clone().unwrap_or_else(|| {
-        match req.provider_type {
-            LlmProviderType::OpenRouter => "https://openrouter.ai/api/v1".to_string(),
-            LlmProviderType::OpenAi => "https://api.openai.com/v1".to_string(),
-            _ => String::new(),
-        }
-    });
+    let base_url = req.api_base_url.clone().unwrap_or_else(|| default_base_url(&req.provider_type));
 
     let connector = LlmConnector {
         id: Uuid::new_v4(),

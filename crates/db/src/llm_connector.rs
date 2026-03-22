@@ -4,20 +4,19 @@ use uuid::Uuid;
 
 use crate::{Db, DbError};
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "llm_provider_type", rename_all = "lowercase")]
-pub enum LlmProviderType {
-    Azure,
-    Openrouter,
-    Openai,
-    Custom,
-}
+// ── Well-known LLM provider types ─────────────────────────────────
+// Stored as TEXT in PostgreSQL — plugins can register additional types.
+
+pub const AZURE: &str = "azure";
+pub const OPENROUTER: &str = "openrouter";
+pub const OPENAI: &str = "openai";
+pub const CUSTOM: &str = "custom";
 
 #[derive(Debug, Clone, FromRow)]
 pub struct LlmConnectorRow {
     pub id: Uuid,
     pub name: String,
-    pub provider_type: LlmProviderType,
+    pub provider_type: String,
     pub api_key: String,
     pub api_base_url: String,
     pub model: String,
@@ -31,7 +30,7 @@ pub struct LlmConnectorRow {
 pub async fn create(
     db: &Db,
     name: &str,
-    provider_type: LlmProviderType,
+    provider_type: &str,
     api_key: &str,
     api_base_url: &str,
     model: &str,
@@ -78,7 +77,7 @@ pub async fn update(
     db: &Db,
     id: Uuid,
     name: Option<&str>,
-    provider_type: Option<LlmProviderType>,
+    provider_type: Option<&str>,
     api_key: Option<&str>,
     api_base_url: Option<&str>,
     model: Option<&str>,
@@ -106,7 +105,7 @@ pub async fn update(
     )
     .bind(id)
     .bind(name.unwrap_or(&existing.name))
-    .bind(provider_type.unwrap_or(existing.provider_type))
+    .bind(provider_type.unwrap_or(&existing.provider_type))
     .bind(api_key.unwrap_or(&existing.api_key))
     .bind(api_base_url.unwrap_or(&existing.api_base_url))
     .bind(model.unwrap_or(&existing.model))

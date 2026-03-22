@@ -4,7 +4,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use clawkson_core::{Connector, ConnectorType};
+use clawkson_core::Connector;
 use clawkson_db::connector as db_connector;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -20,41 +20,12 @@ pub fn router() -> Router<AppState> {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-fn db_type_to_core(t: &db_connector::ConnectorType) -> ConnectorType {
-    match t {
-        db_connector::ConnectorType::Telegram => ConnectorType::Telegram,
-        db_connector::ConnectorType::Gmail => ConnectorType::Gmail,
-        db_connector::ConnectorType::Slack => ConnectorType::Slack,
-        db_connector::ConnectorType::AzureDevops => ConnectorType::AzureDevops,
-        db_connector::ConnectorType::Custom => ConnectorType::Custom,
-        db_connector::ConnectorType::Tavily => ConnectorType::Tavily,
-        db_connector::ConnectorType::Bing => ConnectorType::Bing,
-    }
-}
-
-fn core_type_to_db(t: &ConnectorType) -> db_connector::ConnectorType {
-    match t {
-        ConnectorType::Telegram => db_connector::ConnectorType::Telegram,
-        ConnectorType::Gmail => db_connector::ConnectorType::Gmail,
-        ConnectorType::Slack => db_connector::ConnectorType::Slack,
-        ConnectorType::AzureDevops => db_connector::ConnectorType::AzureDevops,
-        ConnectorType::Custom => db_connector::ConnectorType::Custom,
-        ConnectorType::Tavily => db_connector::ConnectorType::Tavily,
-        ConnectorType::Bing => db_connector::ConnectorType::Bing,
-    }
-}
-
-/// Returns true if this connector type provides web search (only one should be active at a time).
-fn is_web_search_type(t: &ConnectorType) -> bool {
-    matches!(t, ConnectorType::Tavily | ConnectorType::Bing)
-}
-
 fn row_to_connector(row: db_connector::ConnectorRow) -> Connector {
     Connector {
         id: row.id,
         user_id: row.user_id,
         name: row.name,
-        connector_type: db_type_to_core(&row.connector_type),
+        connector_type: row.connector_type,
         enabled: row.enabled,
         config: row.config,
         context: row.context,
@@ -65,7 +36,7 @@ fn row_to_connector(row: db_connector::ConnectorRow) -> Connector {
 
 /// Try to start/stop Telegram polling based on connector state.
 async fn sync_telegram_poller(state: &AppState, row: &db_connector::ConnectorRow) {
-    if row.connector_type != db_connector::ConnectorType::Telegram {
+    if row.connector_type != db_connector::TELEGRAM {
         return;
     }
 
@@ -109,7 +80,7 @@ async fn get_connector(
 #[derive(Debug, Deserialize)]
 pub struct CreateConnectorRequest {
     pub name: String,
-    pub connector_type: ConnectorType,
+    pub connector_type: String,
     pub config: serde_json::Value,
 }
 
@@ -123,7 +94,7 @@ async fn create_connector(
         db_connector::CreateConnector {
             user_id: auth.id(),
             name: req.name,
-            connector_type: core_type_to_db(&req.connector_type),
+            connector_type: req.connector_type.clone(),
             config: req.config,
         },
     )
@@ -131,7 +102,7 @@ async fn create_connector(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Web search connectors are mutually exclusive — disable others when a new one is created
-    if is_web_search_type(&req.connector_type) {
+    if db_connector::is_web_search_type(&req.connector_type) {
         let _ = db_connector::disable_other_web_search(&state.db, auth.id(), row.id).await;
     }
 
@@ -192,7 +163,7 @@ async fn patch_connector(
             .ok_or(StatusCode::NOT_FOUND)?;
 
         // Web search connectors are mutually exclusive — disable others when one is enabled
-        if enabled && is_web_search_type(&db_type_to_core(&row.connector_type)) {
+        if enabled && db_connector::is_web_search_type(&row.connector_type) {
             let _ = db_connector::disable_other_web_search(&state.db, auth.id(), id).await;
         }
 

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use clawkson_container::ContainerManager;
 use clawkson_db::Db;
+use clawkson_plugin::PluginRegistry;
 
 use crate::generations::ActiveGenerations;
 use crate::memory::MemoryEmbedder;
@@ -25,6 +26,8 @@ pub struct AppState {
     pub scheduler: SchedulerManager,
     /// Registry of in-progress LLM generations (keyed by conversation ID).
     pub generations: ActiveGenerations,
+    /// Plugin registry — holds all loaded plugins and their sub-registries.
+    pub plugins: Arc<PluginRegistry>,
 }
 
 impl AppState {
@@ -32,6 +35,7 @@ impl AppState {
         db: Db,
         container_manager: Option<Arc<ContainerManager>>,
         s3: Option<Arc<S3Storage>>,
+        plugins: Arc<PluginRegistry>,
     ) -> Self {
         let memory = MemoryEmbedder::new(db.clone());
         Self {
@@ -42,6 +46,7 @@ impl AppState {
             telegram: TelegramManager::new(),
             scheduler: SchedulerManager::new(),
             generations: ActiveGenerations::new(),
+            plugins,
         }
     }
 }

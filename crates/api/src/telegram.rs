@@ -69,7 +69,7 @@ impl TelegramManager {
 pub async fn boot_pollers(state: &AppState, mgr: &TelegramManager) {
     let connectors = match clawkson_db::connector::list_enabled_by_type(
         &state.db,
-        clawkson_db::connector::ConnectorType::Telegram,
+        clawkson_db::connector::TELEGRAM,
     ).await {
         Ok(cs) => cs,
         Err(e) => {

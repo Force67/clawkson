@@ -8,7 +8,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use clawkson_core::{BranchInfo, BranchPoint, Conversation, LlmConnector, LlmProviderType, Message, MessageRole, UsageSummaryWithCost};
+use clawkson_core::{BranchInfo, BranchPoint, Conversation, LlmConnector, Message, MessageRole, UsageSummaryWithCost};
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -1033,12 +1033,7 @@ fn row_to_llm_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> Llm
     LlmConnector {
         id: row.id,
         name: row.name,
-        provider_type: match row.provider_type {
-            clawkson_db::llm_connector::LlmProviderType::Azure => LlmProviderType::Azure,
-            clawkson_db::llm_connector::LlmProviderType::Openrouter => LlmProviderType::OpenRouter,
-            clawkson_db::llm_connector::LlmProviderType::Openai => LlmProviderType::OpenAi,
-            clawkson_db::llm_connector::LlmProviderType::Custom => LlmProviderType::Custom,
-        },
+        provider_type: row.provider_type,
         api_key: row.api_key,
         api_base_url: row.api_base_url,
         model: row.model,
@@ -1519,8 +1514,8 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
         let mut http_connectors: Vec<crate::tools::http_tool::ConnectorAuth> = Vec::new();
 
         for c in connectors.into_iter().filter(|c| c.enabled) {
-            match c.connector_type {
-                clawkson_db::connector::ConnectorType::Tavily => {
+            match c.connector_type.as_str() {
+                clawkson_db::connector::TAVILY => {
                     if let Some(api_key) = c.config.get("api_key").and_then(|v| v.as_str()) {
                         let provider = crate::tools::SearchProvider::Tavily { api_key: api_key.to_string() };
                         let tool = crate::tools::WebSearchTool::new(provider);
@@ -1530,7 +1525,7 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
                         registry.register(guarded.into_dyn());
                     }
                 }
-                clawkson_db::connector::ConnectorType::Bing => {
+                clawkson_db::connector::BING => {
                     if let Some(api_key) = c.config.get("api_key").and_then(|v| v.as_str()) {
                         let endpoint = c.config.get("endpoint")
                             .and_then(|v| v.as_str())

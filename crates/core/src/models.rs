@@ -379,7 +379,7 @@ pub struct PolicyPreset {
     /// Human-readable label, e.g. "Gmail — Read Only".
     pub label: String,
     /// Which connector type this preset applies to.
-    pub connector_type: ConnectorType,
+    pub connector_type: String,
     /// The pre-built policy rules.
     pub policy: ConnectorPolicy,
 }
@@ -618,7 +618,7 @@ pub struct Connector {
     /// The user who owns this connector.
     pub user_id: Uuid,
     pub name: String,
-    pub connector_type: ConnectorType,
+    pub connector_type: String,
     pub enabled: bool,
     pub config: serde_json::Value,
     /// Free-text operational context injected when this connector is invoked.
@@ -627,16 +627,15 @@ pub struct Connector {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectorType {
-    Telegram,
-    Gmail,
-    Slack,
-    AzureDevops,
-    Custom,
-    Tavily,
-    Bing,
+// Well-known connector type constants (extensible via plugins).
+pub mod connector_types {
+    pub const TELEGRAM: &str = "telegram";
+    pub const GMAIL: &str = "gmail";
+    pub const SLACK: &str = "slack";
+    pub const AZURE_DEVOPS: &str = "azure_devops";
+    pub const CUSTOM: &str = "custom";
+    pub const TAVILY: &str = "tavily";
+    pub const BING: &str = "bing";
 }
 
 // ── Tool ───────────────────────────────────────────────────────────
@@ -653,25 +652,20 @@ pub struct Tool {
 
 // ── LLM Connector (bring your own) ────────────────────────────────
 
-/// The inference backend type, used to select the correct API format.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum LlmProviderType {
-    /// Azure OpenAI Service — uses `api-key` header + deployment URL.
-    Azure,
-    /// OpenRouter — OpenAI-compatible with `Authorization: Bearer` header.
-    OpenRouter,
-    /// OpenAI — standard API at api.openai.com.
-    OpenAi,
-    /// Any OpenAI-compatible endpoint (e.g. Ollama, LM Studio, etc.).
-    Custom,
+// Well-known LLM provider type constants (extensible via plugins).
+// NOTE: Values must match what's stored in PostgreSQL (from the old enum).
+pub mod llm_provider_types {
+    pub const AZURE: &str = "azure";
+    pub const OPENROUTER: &str = "openrouter";
+    pub const OPENAI: &str = "openai";
+    pub const CUSTOM: &str = "custom";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConnector {
     pub id: Uuid,
     pub name: String,
-    pub provider_type: LlmProviderType,
+    pub provider_type: String,
     /// API key. Stored in-memory only (never persisted to disk in this MVP).
     pub api_key: String,
     /// Base URL for the provider.
