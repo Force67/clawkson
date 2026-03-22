@@ -116,8 +116,27 @@ async fn main() -> Result<()> {
     let plugin_registry = std::sync::Arc::new(clawkson_plugin::PluginRegistry::new());
     tracing::info!("plugin registry initialized");
 
+    // ── WASM runtime ──────────────────────────────────────────────
+    let wasm_workspace = std::path::PathBuf::from(
+        std::env::var("CLAWKSON_WASM_ROOT")
+            .unwrap_or_else(|_| format!("{workspace_root}/wasm-plugins")),
+    );
+    let wasm_runtime = match clawkson_wasm_runtime::WasmRuntime::new(wasm_workspace.clone()) {
+        Ok(rt) => {
+            tracing::info!(workspace = %wasm_workspace.display(), "WASM plugin runtime ready");
+            std::sync::Arc::new(rt)
+        }
+        Err(e) => {
+            tracing::warn!("WASM runtime init failed: {e}, creating with /tmp fallback");
+            std::sync::Arc::new(
+                clawkson_wasm_runtime::WasmRuntime::new("/tmp/clawkson-wasm".into())
+                    .expect("fallback WASM runtime must succeed"),
+            )
+        }
+    };
+
     // ── HTTP server ───────────────────────────────────────────────
-    let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3, plugin_registry);
+    let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3, plugin_registry, wasm_runtime);
 
     // ── Telegram bot pollers ──────────────────────────────────────
     clawkson_api::telegram::boot_pollers(&state, &state.telegram).await;

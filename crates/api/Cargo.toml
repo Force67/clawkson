@@ -8,6 +8,7 @@ clawkson-core = { path = "../core" }
 clawkson-container = { path = "../container" }
 clawkson-db = { path = "../db" }
 clawkson-plugin = { path = "../plugin" }
+clawkson-wasm-runtime = { path = "../wasm-runtime" }
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true

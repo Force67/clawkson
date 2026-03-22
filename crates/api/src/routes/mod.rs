@@ -20,6 +20,7 @@ pub mod llm_connectors;
 pub mod settings;
 pub mod uploads;
 pub mod usage;
+pub mod wasm_plugins;
 pub mod webhooks;
 pub mod workspace;
 
@@ -51,6 +52,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/usage", usage::router())
         .nest("/webhooks", webhooks::router())
         .nest("/plugins", plugins::router())
+        .nest("/wasm-plugins", wasm_plugins::router())
         .merge(reactions::router())
         .merge(polls::router())
         .merge(shares::router())

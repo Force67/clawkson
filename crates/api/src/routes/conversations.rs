@@ -1572,6 +1572,32 @@ async fn build_tool_registry_inner(state: &AppState, agent_cfg: &AgentConfig, co
         }
     }
 
+    // ── WASM plugin tools ────────────────────────────────────────
+    // 1. Register the install_wasm_plugin tool (lets agents load new plugins)
+    let install_tool = clawkson_wasm_runtime::InstallWasmPluginTool::new(state.wasm.clone());
+    let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+        install_tool.into_dyn(),
+        "install_wasm_plugin".to_string(),
+        guard_ctx.clone(),
+    );
+    registry.register(guarded.into_dyn());
+
+    // 2. Register tools from all currently loaded WASM plugins
+    let wasm_tools = state.wasm.all_tools().await;
+    for (plugin_name, tool_def) in wasm_tools {
+        let bridge = clawkson_wasm_runtime::WasmToolBridge::new(
+            state.wasm.clone(),
+            plugin_name.clone(),
+            tool_def,
+        );
+        let guarded = crate::permission_guard::GuardedBuiltinTool::new(
+            bridge.into_dyn(),
+            format!("wasm:{plugin_name}"),
+            guard_ctx.clone(),
+        );
+        registry.register(guarded.into_dyn());
+    }
+
     registry
 }
 

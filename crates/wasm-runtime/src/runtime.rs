@@ -52,8 +52,8 @@ impl WasmRuntime {
     /// Create a new WASM runtime.
     pub fn new(workspace_root: PathBuf) -> Result<Self> {
         let mut config = Config::new();
-        config.async_support(true);
-        // Limit fuel to prevent infinite loops (1 billion instructions)
+        // Don't enable async_support — our host functions are sync.
+        // Fuel limits prevent infinite loops (1 billion instructions).
         config.consume_fuel(true);
 
         let engine = Engine::new(&config)?;

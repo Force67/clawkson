@@ -3,6 +3,7 @@ use std::sync::Arc;
 use clawkson_container::ContainerManager;
 use clawkson_db::Db;
 use clawkson_plugin::PluginRegistry;
+use clawkson_wasm_runtime::WasmRuntime;
 
 use crate::generations::ActiveGenerations;
 use crate::memory::MemoryEmbedder;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub generations: ActiveGenerations,
     /// Plugin registry — holds all loaded plugins and their sub-registries.
     pub plugins: Arc<PluginRegistry>,
+    /// WASM plugin runtime — agents can load and execute WASM plugins.
+    pub wasm: Arc<WasmRuntime>,
 }
 
 impl AppState {
@@ -36,6 +39,7 @@ impl AppState {
         container_manager: Option<Arc<ContainerManager>>,
         s3: Option<Arc<S3Storage>>,
         plugins: Arc<PluginRegistry>,
+        wasm: Arc<WasmRuntime>,
     ) -> Self {
         let memory = MemoryEmbedder::new(db.clone());
         Self {
@@ -47,6 +51,7 @@ impl AppState {
             scheduler: SchedulerManager::new(),
             generations: ActiveGenerations::new(),
             plugins,
+            wasm,
         }
     }
 }

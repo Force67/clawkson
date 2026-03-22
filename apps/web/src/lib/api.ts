@@ -815,6 +815,22 @@ export interface PluginManifest {
   frontend: PluginFrontendManifest | null
 }
 
+// ── WASM Plugin types ────────────────────────────────────────────
+
+export interface WasmPluginTool {
+  name: string
+  description: string
+  parameters_schema: Record<string, unknown>
+}
+
+export interface WasmPlugin {
+  name: string
+  description: string
+  version: string
+  wasm_path: string
+  tools: WasmPluginTool[]
+}
+
 // ── API client ─────────────────────────────────────────────────────
 
 export const api = {
@@ -1210,6 +1226,16 @@ export const api = {
 
   plugins: {
     list: () => request<PluginManifest[]>('/api/plugins'),
+  },
+
+  wasmPlugins: {
+    list: () => request<WasmPlugin[]>('/api/wasm-plugins'),
+    load: (body: { wasm_base64?: string; wasm_path?: string; config?: Record<string, string>; network_enabled?: boolean }) =>
+      request<{ name: string; description: string; version: string; tools: string[] }>('/api/wasm-plugins/load', { method: 'POST', body: JSON.stringify(body) }),
+    unload: (name: string) =>
+      request<void>(`/api/wasm-plugins/${name}`, { method: 'DELETE' }),
+    invoke: (pluginName: string, toolName: string, args: Record<string, unknown>) =>
+      request<{ result: unknown }>(`/api/wasm-plugins/${pluginName}/invoke`, { method: 'POST', body: JSON.stringify({ tool_name: toolName, arguments: args }) }),
   },
 
   uploads: {
