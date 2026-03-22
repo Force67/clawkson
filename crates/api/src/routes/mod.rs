@@ -15,6 +15,8 @@ pub mod tools;
 pub mod llm_connectors;
 pub mod settings;
 pub mod uploads;
+pub mod usage;
+pub mod webhooks;
 pub mod workspace;
 
 use axum::Router;
@@ -41,5 +43,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/uploads", uploads::router())
         .nest("/audit-log", audit::router())
         .nest("/policy-presets", audit::presets_router())
+        .nest("/usage", usage::router())
+        .nest("/webhooks", webhooks::router())
         .merge(shares::router())
 }

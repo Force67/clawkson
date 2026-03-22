@@ -2,12 +2,12 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   ChevronDown, ChevronRight, Plus, Check, Loader2, X,
   Cloud, Zap, Globe, Star, Key, Trash2, Pencil, Cpu, Palette, Database,
-  Users, BarChart3, Timer, Lock,
+  Users, BarChart3, Timer, Lock, DollarSign,
 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
 import { Button } from '../components/Button'
-import { api, type Settings, type LlmConnector, type LlmProviderType, type User, type UserTokenUsage } from '../lib/api'
+import { api, type Settings, type LlmConnector, type LlmProviderType, type User, type UserTokenUsage, type ModelPricing, type UsageSummaryWithCost } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import styles from './Settings.module.css'
 
@@ -76,7 +76,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'inference',   label: 'Inference',   icon: <Cpu size={15} /> },
   { id: 'embeddings',  label: 'Embeddings',  icon: <Database size={15} /> },
-  { id: 'usage',       label: 'Usage',       icon: <BarChart3 size={15} />, adminOnly: true },
+  { id: 'usage',       label: 'Usage',       icon: <BarChart3 size={15} /> },
   { id: 'appearance',  label: 'Appearance',  icon: <Palette size={15} /> },
   { id: 'advanced',    label: 'Advanced',    icon: <Timer size={15} /> },
 ]
@@ -764,14 +764,29 @@ function EmbeddingsPanel({ settings, onUpdate, llmConnectors }: EmbeddingsPanelP
 // ── Usage Stats Panel ───────────────────────────────────────────
 
 function UsagePanel() {
-  const [usage, setUsage] = useState<UserTokenUsage[]>([])
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [adminUsage, setAdminUsage] = useState<UserTokenUsage[]>([])
+  const [myUsage, setMyUsage] = useState<UsageSummaryWithCost[]>([])
   const [loading, setLoading] = useState(true)
   const [range, setRange] = useState('30d')
+  const [pricing, setPricing] = useState<ModelPricing[]>([])
+  const [pricingModel, setPricingModel] = useState('')
+  const [pricingPrompt, setPricingPrompt] = useState('')
+  const [pricingCompletion, setPricingCompletion] = useState('')
 
   useEffect(() => {
     setLoading(true)
-    api.admin.getUsage(range === 'all' ? undefined : range).then(setUsage).finally(() => setLoading(false))
-  }, [range])
+    const since = range === 'all' ? undefined : range
+    if (isAdmin) {
+      Promise.all([
+        api.admin.getUsage(since).then(setAdminUsage),
+        api.admin.listPricing().then(setPricing),
+      ]).finally(() => setLoading(false))
+    } else {
+      api.usage.me(since).then(setMyUsage).finally(() => setLoading(false))
+    }
+  }, [range, isAdmin])
 
   const formatTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -779,15 +794,43 @@ function UsagePanel() {
     return String(n)
   }
 
-  const totalTokens = usage.reduce((sum, u) => sum + u.models.reduce((s, m) => s + m.total_tokens, 0), 0)
-  const totalUsers = usage.length
+  const formatCost = (n: number) => n < 0.01 ? '<$0.01' : `$${n.toFixed(2)}`
+
+  const handleUpsertPricing = async () => {
+    if (!pricingModel) return
+    const p = parseFloat(pricingPrompt) || 0
+    const c = parseFloat(pricingCompletion) || 0
+    const entry = await api.admin.upsertPricing(pricingModel, p, c)
+    setPricing(prev => {
+      const filtered = prev.filter(x => x.model !== entry.model)
+      return [...filtered, entry].sort((a, b) => a.model.localeCompare(b.model))
+    })
+    setPricingModel('')
+    setPricingPrompt('')
+    setPricingCompletion('')
+  }
+
+  const handleDeletePricing = async (id: string) => {
+    await api.admin.deletePricing(id)
+    setPricing(prev => prev.filter(x => x.id !== id))
+  }
+
+  // Admin view: per-user breakdown
+  const totalTokens = adminUsage.reduce((sum, u) => sum + u.models.reduce((s, m) => s + m.total_tokens, 0), 0)
+  const totalUsers = adminUsage.length
+
+  // User view: own usage with cost
+  const myTotalTokens = myUsage.reduce((s, m) => s + m.total_tokens, 0)
+  const myTotalCost = myUsage.reduce((s, m) => s + m.estimated_cost_usd, 0)
 
   return (
     <div className={styles.tabContent}>
       <div className={styles.tabContentHeader}>
         <div>
           <h3 className={styles.tabContentTitle}>Token Usage</h3>
-          <p className={styles.tabContentDesc}>Per-user LLM token consumption across all connectors.</p>
+          <p className={styles.tabContentDesc}>
+            {isAdmin ? 'Per-user LLM token consumption across all connectors.' : 'Your LLM token usage and estimated costs.'}
+          </p>
         </div>
         <div className={styles.selectWrap} style={{ width: 'auto' }}>
           <select className={styles.select} value={range} onChange={e => setRange(e.target.value)}>
@@ -800,7 +843,7 @@ function UsagePanel() {
         </div>
       </div>
 
-      {!loading && usage.length > 0 && (
+      {!loading && isAdmin && adminUsage.length > 0 && (
         <div className={styles.usageSummaryRow}>
           <div className={styles.usageStat}>
             <span className={styles.usageStatValue}>{formatTokens(totalTokens)}</span>
@@ -813,34 +856,136 @@ function UsagePanel() {
         </div>
       )}
 
+      {!loading && !isAdmin && myUsage.length > 0 && (
+        <div className={styles.usageSummaryRow}>
+          <div className={styles.usageStat}>
+            <span className={styles.usageStatValue}>{formatTokens(myTotalTokens)}</span>
+            <span className={styles.usageStatLabel}>total tokens</span>
+          </div>
+          <div className={styles.usageStat}>
+            <span className={styles.usageStatValue}>{formatCost(myTotalCost)}</span>
+            <span className={styles.usageStatLabel}>estimated cost</span>
+          </div>
+        </div>
+      )}
+
       <Card>
         {loading ? (
           <div className={styles.loadingRow}><Loader2 size={14} className="spinning" /> Loading...</div>
-        ) : usage.length === 0 ? (
-          <div className={styles.emptyState}>
-            <BarChart3 size={24} strokeWidth={1} />
-            <p>No token usage recorded yet.</p>
-          </div>
-        ) : (
-          <div className={styles.usageTable}>
-            <div className={styles.usageTableHeader}>
-              <span>User</span><span>Model</span>
-              <span className={styles.usageNum}>Prompt</span>
-              <span className={styles.usageNum}>Completion</span>
-              <span className={styles.usageNum}>Total</span>
+        ) : isAdmin ? (
+          adminUsage.length === 0 ? (
+            <div className={styles.emptyState}>
+              <BarChart3 size={24} strokeWidth={1} />
+              <p>No token usage recorded yet.</p>
             </div>
-            {usage.map(u => u.models.map((m, i) => (
-              <div key={`${u.user_id}-${m.model}`} className={styles.usageTableRow}>
-                <span className={i === 0 ? styles.usageUser : ''}>{i === 0 ? u.display_name : ''}</span>
-                <span className={styles.usageModel}>{m.model}</span>
-                <span className={styles.usageNum}>{formatTokens(m.prompt_tokens)}</span>
-                <span className={styles.usageNum}>{formatTokens(m.completion_tokens)}</span>
-                <span className={styles.usageNum}>{formatTokens(m.total_tokens)}</span>
+          ) : (
+            <div className={styles.usageTable}>
+              <div className={styles.usageTableHeader}>
+                <span>User</span><span>Model</span>
+                <span className={styles.usageNum}>Prompt</span>
+                <span className={styles.usageNum}>Completion</span>
+                <span className={styles.usageNum}>Total</span>
               </div>
-            )))}
-          </div>
+              {adminUsage.map(u => u.models.map((m, i) => (
+                <div key={`${u.user_id}-${m.model}`} className={styles.usageTableRow}>
+                  <span className={i === 0 ? styles.usageUser : ''}>{i === 0 ? u.display_name : ''}</span>
+                  <span className={styles.usageModel}>{m.model}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.prompt_tokens)}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.completion_tokens)}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.total_tokens)}</span>
+                </div>
+              )))}
+            </div>
+          )
+        ) : (
+          myUsage.length === 0 ? (
+            <div className={styles.emptyState}>
+              <BarChart3 size={24} strokeWidth={1} />
+              <p>No token usage recorded yet.</p>
+            </div>
+          ) : (
+            <div className={styles.usageTable}>
+              <div className={styles.usageTableHeader}>
+                <span>Model</span>
+                <span className={styles.usageNum}>Prompt</span>
+                <span className={styles.usageNum}>Completion</span>
+                <span className={styles.usageNum}>Total</span>
+                <span className={styles.usageNum}>Cost</span>
+              </div>
+              {myUsage.map(m => (
+                <div key={m.model} className={styles.usageTableRow}>
+                  <span className={styles.usageModel}>{m.model}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.prompt_tokens)}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.completion_tokens)}</span>
+                  <span className={styles.usageNum}>{formatTokens(m.total_tokens)}</span>
+                  <span className={styles.usageNum}>{formatCost(m.estimated_cost_usd)}</span>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </Card>
+
+      {isAdmin && (
+        <>
+          <div className={styles.tabContentHeader} style={{ marginTop: 24 }}>
+            <div>
+              <h3 className={styles.tabContentTitle}><DollarSign size={15} style={{ marginRight: 6, verticalAlign: -2 }} />Model Pricing</h3>
+              <p className={styles.tabContentDesc}>Set cost per million tokens for each model to enable cost estimation.</p>
+            </div>
+          </div>
+          <Card>
+            <div className={styles.usageTable}>
+              <div className={styles.usageTableHeader}>
+                <span>Model</span>
+                <span className={styles.usageNum}>Prompt $/M</span>
+                <span className={styles.usageNum}>Completion $/M</span>
+                <span className={styles.usageNum}></span>
+              </div>
+              {pricing.map(p => (
+                <div key={p.id} className={styles.usageTableRow}>
+                  <span className={styles.usageModel}>{p.model}</span>
+                  <span className={styles.usageNum}>${p.prompt_cost_per_million.toFixed(2)}</span>
+                  <span className={styles.usageNum}>${p.completion_cost_per_million.toFixed(2)}</span>
+                  <span className={styles.usageNum}>
+                    <button onClick={() => handleDeletePricing(p.id)} className={styles.iconBtn} title="Delete"><Trash2 size={13} /></button>
+                  </span>
+                </div>
+              ))}
+              <div className={styles.usageTableRow} style={{ borderTop: '1px solid var(--border)' }}>
+                <input
+                  className={styles.input}
+                  placeholder="Model name"
+                  value={pricingModel}
+                  onChange={e => setPricingModel(e.target.value)}
+                  style={{ fontSize: 12 }}
+                />
+                <input
+                  className={styles.input}
+                  placeholder="0.00"
+                  type="number"
+                  step="0.01"
+                  value={pricingPrompt}
+                  onChange={e => setPricingPrompt(e.target.value)}
+                  style={{ fontSize: 12, textAlign: 'right' }}
+                />
+                <input
+                  className={styles.input}
+                  placeholder="0.00"
+                  type="number"
+                  step="0.01"
+                  value={pricingCompletion}
+                  onChange={e => setPricingCompletion(e.target.value)}
+                  style={{ fontSize: 12, textAlign: 'right' }}
+                />
+                <span className={styles.usageNum}>
+                  <button onClick={handleUpsertPricing} className={styles.iconBtn} title="Add" disabled={!pricingModel}><Plus size={13} /></button>
+                </span>
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   )
 }

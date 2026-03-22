@@ -13,6 +13,7 @@ pub struct Conversation {
     pub summary: Option<String>,
     pub pinned: bool,
     pub archived: bool,
+    pub active_leaf_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -219,6 +220,16 @@ pub async fn touch(db: &Db, id: Uuid) -> Result<(), DbError> {
         .execute(db.pool())
         .await?;
 
+    Ok(())
+}
+
+/// Set the active branch leaf for a conversation.
+pub async fn set_active_leaf(db: &Db, id: Uuid, leaf_id: Option<Uuid>) -> Result<(), DbError> {
+    sqlx::query("UPDATE conversations SET active_leaf_id = $2 WHERE id = $1")
+        .bind(id)
+        .bind(leaf_id)
+        .execute(db.pool())
+        .await?;
     Ok(())
 }
 

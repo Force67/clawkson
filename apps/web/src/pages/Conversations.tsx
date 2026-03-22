@@ -9,7 +9,7 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import type MermaidAPI from 'mermaid'
 import { Button } from '../components/Button'
-import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool, type LlmConnector } from '../lib/api'
+import { api, streamChat, subscribeChatStream, type Agent, type Conversation, type Message, type ReasoningEffort, type AgentSkillInfo, type ShareResponse, type SharePermission, type ToolEvent, type PreviewInfo, type Tool, type LlmConnector, type BranchInfo, type BranchPoint, type UsageSummaryWithCost } from '../lib/api'
 import styles from './Conversations.module.css'
 
 // ── Folder drag-and-drop traversal ──────────────────────────────
@@ -71,6 +71,7 @@ function getMermaid(): Promise<typeof MermaidAPI> {
     const m = mod.default
     m.initialize({
       startOnLoad: false,
+      suppressErrorRendering: true,
       theme: 'dark',
       darkMode: true,
       fontFamily: 'Plus Jakarta Sans, sans-serif',
@@ -212,7 +213,7 @@ function MermaidModal({ svg, onClose }: { svg: string; onClose: () => void }) {
   )
 }
 
-function MermaidBlock({ code }: { code: string }) {
+function MermaidBlock({ code, onError }: { code: string; onError?: (code: string, error: string) => void }) {
   const [svg, setSvg] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [showModal, setShowModal] = useState(false)
@@ -221,13 +222,36 @@ function MermaidBlock({ code }: { code: string }) {
 
   useEffect(() => {
     let cancelled = false
+    const container = document.createElement('div')
+    container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;'
+    document.body.appendChild(container)
+
     ;(async () => {
       try {
         const m = await getMermaid()
-        const { svg: rendered } = await m.render(idRef.current, code.trim())
+        const trimmed = code.trim()
+        // parse() validates without DOM side-effects
+        await m.parse(trimmed)
+        // render into an offscreen container (3rd arg) so mermaid
+        // never touches the real page DOM on error
+        const { svg: rendered } = await m.render(idRef.current, trimmed, container)
         if (!cancelled) setSvg(rendered)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to render diagram')
+        if (!cancelled) {
+          let msg = e instanceof Error ? e.message : 'Failed to render diagram'
+          msg = msg.replace(/Syntax error in text\nmermaid version [\d.]+\n?/g, '').trim()
+          // Strip internal DOM errors the user can't act on
+          if (msg.includes('firstChild') || msg.includes('Cannot read properties')) {
+            msg = 'Invalid diagram syntax — check node labels and structure'
+          }
+          const finalMsg = msg || 'Invalid diagram syntax'
+          setError(finalMsg)
+          onError?.(code, finalMsg)
+        }
+      } finally {
+        container.remove()
+        // Belt-and-suspenders: remove any stray mermaid error elements
+        document.getElementById('d' + idRef.current)?.remove()
       }
     })()
     return () => { cancelled = true }
@@ -236,9 +260,12 @@ function MermaidBlock({ code }: { code: string }) {
   if (error) {
     return (
       <div className={styles.mermaidError}>
-        <span className={styles.mermaidErrorLabel}>Diagram Error</span>
+        <span className={styles.mermaidErrorLabel}>Diagram syntax error</span>
         <pre>{error}</pre>
-        <pre className={styles.mermaidSource}>{code}</pre>
+        <details className={styles.mermaidSourceDetails}>
+          <summary>Show source</summary>
+          <pre className={styles.mermaidSource}>{code}</pre>
+        </details>
       </div>
     )
   }
@@ -261,21 +288,11 @@ function MermaidBlock({ code }: { code: string }) {
             type="button"
             className={`${styles.mermaidBtn} ${copiedDiagram ? styles.mermaidBtnSuccess : ''}`}
             onClick={async () => {
-              const onSuccess = () => { setCopiedDiagram(true); setTimeout(() => setCopiedDiagram(false), 2000) }
               try {
-                // Copy SVG as HTML so it pastes as an image in rich-text editors
-                await navigator.clipboard.write([
-                  new ClipboardItem({
-                    'text/html': new Blob([svg], { type: 'text/html' }),
-                    'text/plain': new Blob([code], { type: 'text/plain' }),
-                  })
-                ])
-                onSuccess()
-              } catch {
-                // Fallback: copy mermaid source as plain text
-                await navigator.clipboard.writeText(code).catch(() => {})
-                onSuccess()
-              }
+                await navigator.clipboard.writeText(code)
+                setCopiedDiagram(true)
+                setTimeout(() => setCopiedDiagram(false), 2000)
+              } catch { /* clipboard not available */ }
             }}
             title={copiedDiagram ? 'Copied!' : 'Copy diagram'}
           >
@@ -302,15 +319,23 @@ function MermaidBlock({ code }: { code: string }) {
 
 // ── Code block with copy + mermaid detection ────────────────────
 
-function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
+function extractText(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join('')
+  if (typeof node === 'object' && 'props' in node) return extractText(node.props.children)
+  return ''
+}
+
+function CodeBlock({ className, children, onMermaidError, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode; onMermaidError?: (code: string, error: string) => void }) {
   const [copied, setCopied] = useState(false)
   const match = /language-(\w+)/.exec(className || '')
   const lang = match?.[1]
-  const codeStr = String(children).replace(/\n$/, '')
+  const codeStr = extractText(children).replace(/\n$/, '')
 
   // Mermaid code blocks → render as diagrams
   if (lang === 'mermaid') {
-    return <MermaidBlock code={codeStr} />
+    return <MermaidBlock code={codeStr} onError={onMermaidError} />
   }
 
   // Regular code blocks get a copy button
@@ -320,15 +345,29 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
     return <code className={className} {...props}>{children}</code>
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(codeStr).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+  const codeRef = useRef<HTMLElement>(null)
+
+  const handleCopy = async () => {
+    // Read text directly from the DOM to handle rehype-highlight spans
+    const text = codeRef.current?.innerText?.replace(/\n$/, '') ?? codeStr
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // Fallback for insecure contexts / denied permission
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.cssText = 'position:fixed;opacity:0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
-    <code className={className} {...props}>
+    <code ref={codeRef} className={className} {...props}>
       <div className={styles.codeHeader}>
         {lang && <span className={styles.codeLang}>{lang}</span>}
         <button
@@ -348,7 +387,13 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
 
 // ── Markdown renderer ───────────────────────────────────────────
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({ content, onMermaidError }: { content: string; onMermaidError?: (code: string, error: string) => void }) {
+  const codeComponent = useMemo(() => {
+    if (!onMermaidError) return CodeBlock as any
+    // Thread the callback through to CodeBlock → MermaidBlock
+    return (props: any) => <CodeBlock {...props} onMermaidError={onMermaidError} />
+  }, [onMermaidError])
+
   return (
     <Markdown
       remarkPlugins={[remarkMath, remarkGfm]}
@@ -361,7 +406,7 @@ function MarkdownContent({ content }: { content: string }) {
         a: ({ href, children, ...props }) => (
           <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
         ),
-        code: CodeBlock as any,
+        code: codeComponent,
       }}
     >
       {content}
@@ -452,6 +497,10 @@ interface MsgBubbleProps {
   msg: Message
   agentName?: string
   onRetry?: (content: string) => void
+  onMermaidError?: (code: string, error: string) => void
+  isBranchPoint?: boolean
+  onBranchFrom?: (messageId: string) => void
+  onShowBranchPicker?: (messageId: string) => void
 }
 
 const OFFICE_TYPES = {
@@ -571,7 +620,7 @@ function ArtifactPreview({ id, filename }: { id: string; filename: string }) {
   )
 }
 
-function MsgBubble({ msg, agentName, onRetry }: MsgBubbleProps) {
+function MsgBubble({ msg, agentName, onRetry, onMermaidError, isBranchPoint, onBranchFrom, onShowBranchPicker }: MsgBubbleProps) {
   const isUser = msg.role === 'user'
   const [copied, setCopied] = useState(false)
   const attachments = msg.attachments ?? []
@@ -652,7 +701,7 @@ function MsgBubble({ msg, agentName, onRetry }: MsgBubbleProps) {
           <div className={`${styles.bubbleContent} ${isUser ? styles.bubbleContentUser : styles.bubbleContentAssistant}`}>
             {isUser ? msg.content : (
               <div className={styles.markdown}>
-                <MarkdownContent content={msg.content} />
+                <MarkdownContent content={msg.content} onMermaidError={onMermaidError} />
               </div>
             )}
           </div>
@@ -676,6 +725,26 @@ function MsgBubble({ msg, agentName, onRetry }: MsgBubbleProps) {
               title="Retry this message"
             >
               <RotateCw size={13} />
+            </button>
+          )}
+          {onBranchFrom && (
+            <button
+              type="button"
+              className={styles.msgActionBtn}
+              onClick={() => onBranchFrom(msg.id)}
+              title="Branch from here"
+            >
+              <GitBranch size={13} />
+            </button>
+          )}
+          {isBranchPoint && onShowBranchPicker && (
+            <button
+              type="button"
+              className={`${styles.msgActionBtn} ${styles.msgActionBtnBranch}`}
+              onClick={() => onShowBranchPicker(msg.id)}
+              title="View branches"
+            >
+              <GitBranch size={13} />
             </button>
           )}
         </div>
@@ -1449,6 +1518,14 @@ export function ConversationsPage() {
   const [showChatSettings, setShowChatSettings] = useState(false)
   const [chatSettings, setChatSettings] = useState<ChatSettings>({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
   const [llmConnectors, setLlmConnectors] = useState<LlmConnector[]>([])
+  const [conversationCost, setConversationCost] = useState<UsageSummaryWithCost[]>([])
+  const [branchPoints, setBranchPoints] = useState<BranchPoint[]>([])
+  const [branches, setBranches] = useState<BranchInfo[]>([])
+  const [showBranchPicker, setShowBranchPicker] = useState<string | null>(null) // message id showing picker
+
+  // Mermaid auto-fix: track retries per conversation turn to avoid infinite loops
+  const mermaidRetryCount = useRef(0)
+  const mermaidRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -1489,9 +1566,17 @@ export function ConversationsPage() {
   useEffect(() => {
     if (!selectedId) return
     setMessages([])
+    setConversationCost([])
+    setBranchPoints([])
+    setBranches([])
+    setShowBranchPicker(null)
     // Reset per-chat overrides to agent defaults
     setChatSettings({ main: { connectorId: null, temperature: null, maxTokens: null }, sub: { connectorId: null, temperature: null, maxTokens: null } })
     setShowChatSettings(false)
+    // Lazy-load cost and branch data
+    api.conversations.cost(selectedId).then(setConversationCost).catch(() => {})
+    api.conversations.branchPoints(selectedId).then(setBranchPoints).catch(() => {})
+    api.conversations.listBranches(selectedId).then(setBranches).catch(() => {})
     api.conversations.messages(selectedId).then(msgs => {
       setMessages(msgs)
       // Try to reconnect to an in-progress generation
@@ -1649,6 +1734,10 @@ export function ConversationsPage() {
     setActivitySteps([])
     setLivePreview(null)
     setStreamImages([])
+    // Only reset mermaid retries for user-initiated messages (not auto-fix)
+    if (!content.startsWith('The mermaid diagram you generated')) {
+      mermaidRetryCount.current = 0
+    }
 
     // Upload pending files first
     let attachmentIds: string[] = []
@@ -1683,6 +1772,10 @@ export function ConversationsPage() {
     }
     setMessages(prev => [...prev, tempUserMsg])
 
+    // Consume branch parent ref if set
+    const parentId = branchParentRef.current ?? undefined
+    branchParentRef.current = null
+
     const options = {
       reasoning_effort: reasoningEnabled ? reasoningEffort : undefined,
       search_enabled: searchEnabled,
@@ -1693,6 +1786,7 @@ export function ConversationsPage() {
       subtask_llm_connector_id: chatSettings.sub.connectorId ?? undefined,
       subtask_temperature: chatSettings.sub.temperature ?? undefined,
       subtask_max_tokens: chatSettings.sub.maxTokens ?? undefined,
+      parent_id: parentId,
     }
 
     // Try streaming first, fall back to non-streaming
@@ -1718,6 +1812,10 @@ export function ConversationsPage() {
           return b.updated_at.localeCompare(a.updated_at)
         }))
           )
+          // Refresh cost and branch data after chat
+          api.conversations.cost(selectedId).then(setConversationCost).catch(() => {})
+          api.conversations.branchPoints(selectedId).then(setBranchPoints).catch(() => {})
+          api.conversations.listBranches(selectedId).then(setBranches).catch(() => {})
         })
       },
       (err) => {
@@ -1853,6 +1951,73 @@ export function ConversationsPage() {
     // Focus input so user can edit before resending
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [streaming, selectedId])
+
+  // Branch from a specific message: focus input, set parent_id via ref
+  const branchParentRef = useRef<string | null>(null)
+  const handleBranchFrom = useCallback((messageId: string) => {
+    if (streaming || !selectedId) return
+    branchParentRef.current = messageId
+    inputRef.current?.focus()
+  }, [streaming, selectedId])
+
+  // Switch active branch
+  const handleSwitchBranch = useCallback(async (leafId: string) => {
+    if (!selectedId) return
+    try {
+      const conv = await api.conversations.switchBranch(selectedId, leafId)
+      setConversations(prev => prev.map(c => c.id === conv.id ? conv : c))
+      const msgs = await api.conversations.messages(selectedId)
+      setMessages(msgs)
+      setShowBranchPicker(null)
+      // Refresh branch data
+      api.conversations.branchPoints(selectedId).then(setBranchPoints).catch(() => {})
+      api.conversations.listBranches(selectedId).then(setBranches).catch(() => {})
+    } catch (e) {
+      console.error('Failed to switch branch:', e)
+    }
+  }, [selectedId])
+
+  // Queue an auto-send (used by mermaid auto-fix). Stored in ref,
+  // picked up by an effect that calls sendMessage after input updates.
+  const autoSendRef = useRef<string | null>(null)
+
+  const queueAutoSend = useCallback((content: string) => {
+    if (streaming || !selectedId) return
+    autoSendRef.current = content
+    setInput(content)
+  }, [streaming, selectedId])
+
+  // Effect: when input matches a queued auto-send, fire sendMessage
+  useEffect(() => {
+    if (autoSendRef.current && input === autoSendRef.current && !streaming) {
+      autoSendRef.current = null
+      // Defer to next tick so React has committed the input state
+      const t = setTimeout(() => sendMessage(), 0)
+      return () => clearTimeout(t)
+    }
+  }, [input, streaming, sendMessage])
+
+  // Handle mermaid render errors on the latest assistant message
+  const handleMermaidError = useCallback((code: string, error: string) => {
+    if (streaming || !selectedId) return
+    if (mermaidRetryCount.current >= 2) return // max 2 auto-retries
+
+    // Debounce: multiple mermaid blocks might fail in the same message
+    if (mermaidRetryTimer.current) clearTimeout(mermaidRetryTimer.current)
+    mermaidRetryTimer.current = setTimeout(() => {
+      mermaidRetryCount.current++
+      queueAutoSend(
+        `The mermaid diagram you generated has a syntax error and failed to render.\n\n` +
+        `**Error:** ${error}\n\n` +
+        `**Your code:**\n\`\`\`\n${code}\n\`\`\`\n\n` +
+        `Please fix the mermaid syntax and output the corrected diagram. Common issues:\n` +
+        `- Node labels with special characters (parentheses, quotes, colons) must be wrapped in double quotes\n` +
+        `- Node IDs must use only letters, numbers, and underscores (no hyphens)\n` +
+        `- No HTML tags in labels\n` +
+        `- Every subgraph needs a matching \`end\``
+      )
+    }, 500)
+  }, [streaming, selectedId, queueAutoSend])
 
   const handleSaveChatSettingsAsDefault = useCallback(async () => {
     if (!selectedAgent) return
@@ -2290,6 +2455,20 @@ export function ConversationsPage() {
                       {selectedAgent.name}
                     </span>
                   )}
+                  {conversationCost.length > 0 && (() => {
+                    const totalCost = conversationCost.reduce((s, c) => s + c.estimated_cost_usd, 0)
+                    return totalCost > 0 ? (
+                      <span className={styles.costBadge} title={conversationCost.map(c => `${c.model}: $${c.estimated_cost_usd.toFixed(4)}`).join('\n')}>
+                        ${totalCost < 0.01 ? '<0.01' : totalCost.toFixed(2)}
+                      </span>
+                    ) : null
+                  })()}
+                  {branches.length > 1 && (
+                    <span className={styles.branchBadge}>
+                      <GitBranch size={11} />
+                      {branches.length} branches
+                    </span>
+                  )}
                 </div>
                 <div className={styles.chatHeaderActions}>
                   <button
@@ -2367,14 +2546,24 @@ export function ConversationsPage() {
                   </div>
                 )}
 
-                {messages.map(msg => (
-                  <MsgBubble
-                    key={msg.id}
-                    msg={msg}
-                    agentName={selectedAgent?.name}
-                    onRetry={msg.role === 'user' ? handleRetry : undefined}
-                  />
-                ))}
+                {messages.map((msg, i) => {
+                  // Only enable mermaid auto-fix on the very last assistant message
+                  const isLastAssistant = msg.role === 'assistant' && !streaming &&
+                    !messages.slice(i + 1).some(m => m.role === 'assistant')
+                  const isBP = branchPoints.some(bp => bp.message_id === msg.id)
+                  return (
+                    <MsgBubble
+                      key={msg.id}
+                      msg={msg}
+                      agentName={selectedAgent?.name}
+                      onRetry={msg.role === 'user' ? handleRetry : undefined}
+                      onMermaidError={isLastAssistant ? handleMermaidError : undefined}
+                      isBranchPoint={isBP}
+                      onBranchFrom={handleBranchFrom}
+                      onShowBranchPicker={isBP ? (id) => setShowBranchPicker(prev => prev === id ? null : id) : undefined}
+                    />
+                  )
+                })}
 
                 {streaming && streamBuffer && (
                   <div className={`${styles.messageRow} ${styles.messageRowAssistant}`}>

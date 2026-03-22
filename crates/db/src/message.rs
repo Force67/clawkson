@@ -221,6 +221,62 @@ pub async fn delete(db: &Db, id: Uuid) -> Result<bool, DbError> {
     Ok(result.rows_affected() > 0)
 }
 
+// ── Branching queries ────────────────────────────────────────────
+
+/// Walk from a leaf message to the root via parent_id, returned in chronological order.
+pub async fn get_branch_path(db: &Db, leaf_id: Uuid) -> Result<Vec<Message>, DbError> {
+    let rows = sqlx::query_as::<_, Message>(
+        "WITH RECURSIVE branch AS (
+            SELECT * FROM messages WHERE id = $1
+            UNION ALL
+            SELECT m.* FROM messages m JOIN branch b ON m.id = b.parent_id
+         )
+         SELECT * FROM branch ORDER BY created_at ASC",
+    )
+    .bind(leaf_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows)
+}
+
+/// Messages with more than one child (branch points).
+/// Returns (parent_message_id, child_count).
+pub async fn list_branch_points(
+    db: &Db,
+    conversation_id: Uuid,
+) -> Result<Vec<(Uuid, i64)>, DbError> {
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT parent_id, COUNT(*) AS child_count
+         FROM messages
+         WHERE conversation_id = $1 AND parent_id IS NOT NULL
+         GROUP BY parent_id
+         HAVING COUNT(*) > 1",
+    )
+    .bind(conversation_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows)
+}
+
+/// Messages with no children (each defines a unique branch).
+pub async fn get_leaf_messages(
+    db: &Db,
+    conversation_id: Uuid,
+) -> Result<Vec<Message>, DbError> {
+    let rows = sqlx::query_as::<_, Message>(
+        "SELECT m.* FROM messages m
+         WHERE m.conversation_id = $1
+           AND NOT EXISTS (
+               SELECT 1 FROM messages c WHERE c.parent_id = m.id
+           )
+         ORDER BY m.created_at DESC",
+    )
+    .bind(conversation_id)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows)
+}
+
 /// Delete all messages in a conversation without deleting the conversation itself.
 /// Returns the number of messages deleted.
 pub async fn clear_for_conversation(db: &Db, conversation_id: Uuid) -> Result<u64, DbError> {

@@ -468,6 +468,9 @@ pub struct Conversation {
     pub pinned: bool,
     #[serde(default)]
     pub archived: bool,
+    /// The current branch tip. None for legacy linear conversations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_leaf_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -476,6 +479,9 @@ pub struct Conversation {
 pub struct Message {
     pub id: Uuid,
     pub conversation_id: Uuid,
+    /// Parent message ID for conversation branching. None for root messages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<Uuid>,
     pub role: MessageRole,
     pub content: String,
     pub created_at: DateTime<Utc>,
@@ -502,6 +508,24 @@ pub enum MessageRole {
     Assistant,
     System,
     Tool,
+}
+
+// ── Branch Info ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchInfo {
+    pub leaf_id: Uuid,
+    pub message_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_content_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchPoint {
+    pub message_id: Uuid,
+    pub child_count: i64,
 }
 
 // ── Knowledge Base ─────────────────────────────────────────────────
@@ -685,6 +709,72 @@ pub struct UserTokenUsage {
     pub email: String,
     pub display_name: String,
     pub models: Vec<TokenUsageSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageSummaryWithCost {
+    pub model: String,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageTimeBucket {
+    pub bucket: DateTime<Utc>,
+    pub model: String,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPricing {
+    pub id: Uuid,
+    pub model: String,
+    pub prompt_cost_per_million: f64,
+    pub completion_cost_per_million: f64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// ── Webhooks ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub agent_id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub secret: String,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_template: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookExecution {
+    pub id: Uuid,
+    pub webhook_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<Uuid>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+    pub started_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

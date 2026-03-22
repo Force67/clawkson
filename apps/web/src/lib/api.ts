@@ -160,6 +160,7 @@ export interface Conversation {
   owner_id?: string
   pinned: boolean
   archived: boolean
+  active_leaf_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -185,6 +186,7 @@ export interface MessageAttachment {
 export interface Message {
   id: string
   conversation_id: string
+  parent_id?: string | null
   role: MessageRole
   content: string
   created_at: string
@@ -405,6 +407,90 @@ export interface LlmAccessEntry {
   user_id: string
   email: string
   display_name: string
+}
+
+// ── Cost Tracking ─────────────────────────────────────────────────
+
+export interface UsageSummaryWithCost {
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  estimated_cost_usd: number
+}
+
+export interface UsageTimeBucket {
+  bucket: string
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  estimated_cost_usd: number
+}
+
+export interface ModelPricing {
+  id: string
+  model: string
+  prompt_cost_per_million: number
+  completion_cost_per_million: number
+  created_at: string
+  updated_at: string
+}
+
+// ── Webhooks ──────────────────────────────────────────────────────
+
+export interface Webhook {
+  id: string
+  owner_id: string
+  agent_id: string
+  name: string
+  description: string
+  secret: string
+  enabled: boolean
+  payload_template?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookExecution {
+  id: string
+  webhook_id: string
+  conversation_id?: string | null
+  status: string
+  result_summary?: string | null
+  error_message?: string | null
+  payload?: Record<string, unknown> | null
+  started_at: string
+  completed_at?: string | null
+  duration_ms?: number | null
+}
+
+export interface CreateWebhookRequest {
+  name: string
+  agent_id: string
+  description?: string
+  payload_template?: string | null
+}
+
+export interface PatchWebhookRequest {
+  name?: string
+  description?: string
+  enabled?: boolean
+  payload_template?: string | null
+}
+
+// ── Branching ─────────────────────────────────────────────────────
+
+export interface BranchInfo {
+  leaf_id: string
+  message_count: number
+  last_message_at?: string | null
+  last_content_preview?: string | null
+}
+
+export interface BranchPoint {
+  message_id: string
+  child_count: number
 }
 
 export interface Settings {
@@ -715,6 +801,21 @@ export const api = {
       request<UserTokenUsage[]>(`/api/admin/usage${since ? `?since=${since}` : ''}`),
     getUserUsage: (userId: string, since?: string) =>
       request<TokenUsageSummary[]>(`/api/admin/usage/${userId}${since ? `?since=${since}` : ''}`),
+    getUsageTimeSeries: (since?: string, bucket?: string) => {
+      const params = new URLSearchParams()
+      if (since) params.set('since', since)
+      if (bucket) params.set('bucket', bucket)
+      const qs = params.toString()
+      return request<UsageTimeBucket[]>(`/api/admin/usage/time-series${qs ? `?${qs}` : ''}`)
+    },
+    listPricing: () => request<ModelPricing[]>('/api/admin/pricing'),
+    upsertPricing: (model: string, prompt_cost_per_million: number, completion_cost_per_million: number) =>
+      request<ModelPricing>('/api/admin/pricing', {
+        method: 'POST',
+        body: JSON.stringify({ model, prompt_cost_per_million, completion_cost_per_million }),
+      }),
+    deletePricing: (id: string) =>
+      request<void>(`/api/admin/pricing/${id}`, { method: 'DELETE' }),
   },
 
   shares: {
@@ -761,6 +862,17 @@ export const api = {
       }),
     stopGeneration: (id: string) =>
       request<void>(`/api/conversations/${id}/chat/stop`, { method: 'POST' }),
+    cost: (id: string) =>
+      request<UsageSummaryWithCost[]>(`/api/conversations/${id}/cost`),
+    listBranches: (id: string) =>
+      request<BranchInfo[]>(`/api/conversations/${id}/branches`),
+    branchPoints: (id: string) =>
+      request<BranchPoint[]>(`/api/conversations/${id}/branch-points`),
+    switchBranch: (id: string, leaf_id: string) =>
+      request<Conversation>(`/api/conversations/${id}/switch-branch`, {
+        method: 'POST',
+        body: JSON.stringify({ leaf_id }),
+      }),
   },
 
   llmConnectors: {
@@ -1017,6 +1129,24 @@ export const api = {
     },
   },
 
+  usage: {
+    me: (since?: string) =>
+      request<UsageSummaryWithCost[]>(`/api/usage/me${since ? `?since=${since}` : ''}`),
+  },
+
+  webhooks: {
+    list: () => request<Webhook[]>('/api/webhooks'),
+    get: (id: string) => request<Webhook>(`/api/webhooks/${id}`),
+    create: (body: CreateWebhookRequest) =>
+      request<Webhook>('/api/webhooks', { method: 'POST', body: JSON.stringify(body) }),
+    patch: (id: string, body: PatchWebhookRequest) =>
+      request<Webhook>(`/api/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request<void>(`/api/webhooks/${id}`, { method: 'DELETE' }),
+    executions: (id: string) =>
+      request<WebhookExecution[]>(`/api/webhooks/${id}/executions`),
+  },
+
   scheduledTasks: {
     list: () => request<ScheduledTask[]>('/api/scheduled-tasks'),
     get: (id: string) => request<ScheduledTask>(`/api/scheduled-tasks/${id}`),
@@ -1126,6 +1256,7 @@ export interface ChatStreamOptions {
   subtask_llm_connector_id?: string
   subtask_temperature?: number
   subtask_max_tokens?: number
+  parent_id?: string
 }
 
 export interface AttachmentInfo {
@@ -1172,6 +1303,7 @@ export function streamChat(
   if (options?.subtask_llm_connector_id) body.subtask_llm_connector_id = options.subtask_llm_connector_id
   if (options?.subtask_temperature != null) body.subtask_temperature = options.subtask_temperature
   if (options?.subtask_max_tokens != null) body.subtask_max_tokens = options.subtask_max_tokens
+  if (options?.parent_id) body.parent_id = options.parent_id
 
   fetch(`${BASE}/api/conversations/${conversationId}/chat/stream`, {
     method: 'POST',

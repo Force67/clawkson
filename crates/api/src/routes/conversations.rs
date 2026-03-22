@@ -8,7 +8,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use clawkson_core::{Conversation, LlmConnector, LlmProviderType, Message, MessageRole};
+use clawkson_core::{BranchInfo, BranchPoint, Conversation, LlmConnector, LlmProviderType, Message, MessageRole, UsageSummaryWithCost};
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -26,6 +26,10 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/chat", axum::routing::post(chat))
         .route("/{id}/chat/stream", axum::routing::post(chat_stream).get(subscribe_stream))
         .route("/{id}/chat/stop", axum::routing::post(stop_generation))
+        .route("/{id}/cost", get(get_conversation_cost))
+        .route("/{id}/branches", get(list_branches))
+        .route("/{id}/branch-points", get(list_branch_points))
+        .route("/{id}/switch-branch", axum::routing::post(switch_branch))
 }
 
 // ── Request / Response types ───────────────────────────────────────
@@ -81,6 +85,9 @@ pub struct ChatRequest {
     /// Per-message subtask max-tokens override. Falls back to agent default.
     #[serde(default)]
     pub subtask_max_tokens: Option<u32>,
+    /// Branch from a specific message. The new user message becomes a child of this message.
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
 }
 
 fn default_true() -> bool {
@@ -109,6 +116,7 @@ fn conv_to_api(row: clawkson_db::conversation::Conversation) -> Conversation {
         owner_id: row.owner_id,
         pinned: row.pinned,
         archived: row.archived,
+        active_leaf_id: row.active_leaf_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -118,6 +126,7 @@ fn msg_to_api(row: clawkson_db::message::Message) -> Message {
     Message {
         id: row.id,
         conversation_id: row.conversation_id,
+        parent_id: row.parent_id,
         role: match row.role {
             clawkson_db::message::MessageRole::User => MessageRole::User,
             clawkson_db::message::MessageRole::Assistant => MessageRole::Assistant,
@@ -340,7 +349,11 @@ async fn clear_messages(
         return StatusCode::FORBIDDEN;
     }
     match clawkson_db::message::clear_for_conversation(&state.db, id).await {
-        Ok(_) => StatusCode::NO_CONTENT,
+        Ok(_) => {
+            // Reset active branch since all messages are gone
+            let _ = clawkson_db::conversation::set_active_leaf(&state.db, id, None).await;
+            StatusCode::NO_CONTENT
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -378,9 +391,21 @@ async fn list_messages(
     if !has_access {
         return Err(StatusCode::FORBIDDEN);
     }
-    let rows = clawkson_db::message::list_for_conversation(&state.db, id)
+
+    // Branch-aware: if conversation has an active_leaf_id, return only the branch path
+    let conv = clawkson_db::conversation::get_by_id(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let rows = if let Some(Some(leaf_id)) = conv.map(|c| c.active_leaf_id) {
+        clawkson_db::message::get_branch_path(&state.db, leaf_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        clawkson_db::message::list_for_conversation(&state.db, id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
 
     let pool = state.db.pool();
     let mut messages: Vec<Message> = Vec::with_capacity(rows.len());
@@ -433,13 +458,14 @@ async fn send_message(
 async fn save_message(
     state: &AppState,
     conv_id: Uuid,
+    parent_id: Option<Uuid>,
     role: MessageRole,
     content: &str,
 ) -> Result<Message, StatusCode> {
     let row = clawkson_db::message::create(
         &state.db,
         conv_id,
-        None,
+        parent_id,
         role_to_db(&role),
         content,
         None,
@@ -1027,10 +1053,25 @@ fn row_to_llm_connector(row: clawkson_db::llm_connector::LlmConnectorRow) -> Llm
 pub(crate) type HistoryEntry = (MessageRole, String, Vec<clawkson_db::chat_attachment::ChatAttachmentRow>);
 
 /// Load message history from DB for a conversation, including attachment metadata per message.
+/// If the conversation has an active_leaf_id, loads only the branch path to that leaf.
+/// Falls back to linear loading for legacy conversations.
 pub(crate) async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<HistoryEntry>, StatusCode> {
-    let rows = clawkson_db::message::list_for_conversation(&state.db, conv_id)
+    // Check if conversation has an active branch
+    let conv = clawkson_db::conversation::get_by_id(&state.db, conv_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let rows = if let Some(Some(leaf_id)) = conv.map(|c| c.active_leaf_id) {
+        // Branch-aware: walk from leaf to root
+        clawkson_db::message::get_branch_path(&state.db, leaf_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        // Linear fallback
+        clawkson_db::message::list_for_conversation(&state.db, conv_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
 
     let pool = state.db.pool();
     let mut result = Vec::with_capacity(rows.len());
@@ -1041,7 +1082,6 @@ pub(crate) async fn load_history(state: &AppState, conv_id: Uuid) -> Result<Vec<
             clawkson_db::message::MessageRole::System => MessageRole::System,
             clawkson_db::message::MessageRole::Tool => MessageRole::Tool,
         };
-        // Only user messages ever have attachments, but querying for all is safe and cheap.
         let attachments = clawkson_db::chat_attachment::list_for_message(pool, m.id)
             .await
             .unwrap_or_default();
@@ -1750,8 +1790,11 @@ async fn chat(
     // 2. Expand skill references in user message
     let expanded_content = expand_skill_references(&state, agent_id, &req.content).await;
 
+    // Resolve parent_id for branching: explicit parent > active_leaf > None
+    let user_parent_id = req.parent_id.or(conversation.active_leaf_id);
+
     // 3. Save user message (with expanded skill instructions)
-    let user_msg = match save_message(&state, conv_id, MessageRole::User, &expanded_content).await {
+    let user_msg = match save_message(&state, conv_id, user_parent_id, MessageRole::User, &expanded_content).await {
         Ok(m) => m,
         Err(s) => return (s, Json(serde_json::json!({"error": "failed to save message"}))).into_response(),
     };
@@ -1825,7 +1868,7 @@ async fn chat(
         resolve_connector_id(&state, agent_id).await
     };
     let Some(connector_id) = connector_id else {
-        let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
+        let err_msg = save_message(&state, conv_id, Some(user_msg.id), MessageRole::Assistant,
             "No LLM connector configured for this agent. Please add an inference connector in Settings and assign it to the agent."
         ).await.unwrap_or(user_msg.clone());
         return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
@@ -1853,7 +1896,7 @@ async fn chat(
     }
     let connector = load_llm_connector(&state, connector_id).await;
     let Some(connector) = connector else {
-        let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
+        let err_msg = save_message(&state, conv_id, Some(user_msg.id), MessageRole::Assistant,
             "Configured LLM connector not found. Please check your connector settings."
         ).await.unwrap_or(user_msg.clone());
         return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
@@ -1864,7 +1907,7 @@ async fn chat(
         match clawkson_db::llm_connector::has_access(&state.db, connector_id, auth.id()).await {
             Ok(true) => {}
             Ok(false) => {
-                let err_msg = save_message(&state, conv_id, MessageRole::Assistant,
+                let err_msg = save_message(&state, conv_id, Some(user_msg.id), MessageRole::Assistant,
                     "You do not have access to the LLM connector configured for this agent. Please contact an administrator."
                 ).await.unwrap_or(user_msg.clone());
                 return Json(ChatResponse { user_message: user_msg, assistant_message: err_msg }).into_response();
@@ -1931,18 +1974,20 @@ async fn chat(
         });
     }
 
-    // 7. Save assistant message + touch conversation
-    let mut assistant_msg = save_message(&state, conv_id, MessageRole::Assistant, &assistant_content)
+    // 7. Save assistant message + touch conversation + update active_leaf
+    let mut assistant_msg = save_message(&state, conv_id, Some(user_msg.id), MessageRole::Assistant, &assistant_content)
         .await
         .unwrap_or(Message {
             id: Uuid::new_v4(),
             conversation_id: conv_id,
+            parent_id: Some(user_msg.id),
             role: MessageRole::Assistant,
             content: assistant_content.clone(),
             created_at: chrono::Utc::now(),
             attachments: Vec::new(),
         });
     let _ = clawkson_db::conversation::touch(&state.db, conv_id).await;
+    let _ = clawkson_db::conversation::set_active_leaf(&state.db, conv_id, Some(assistant_msg.id)).await;
 
     // 7b. Debounced: buffer chat turn for memory embedding
     {
@@ -2016,9 +2061,12 @@ async fn chat_stream(
     // Expand skill references in user message
     let expanded_content = expand_skill_references(&state, agent_id, &req.content).await;
 
+    // Resolve parent_id for branching: explicit parent > active_leaf > None
+    let user_parent_id = req.parent_id.or(conversation.active_leaf_id);
+
     // Save user message (with expanded skill instructions)
     let user_msg_id = match clawkson_db::message::create(
-        &state.db, conv_id, None,
+        &state.db, conv_id, user_parent_id,
         clawkson_db::message::MessageRole::User,
         &expanded_content, None, None,
     ).await {
@@ -2286,9 +2334,9 @@ async fn chat_stream(
             });
         }
 
-        // Save assistant message to DB
+        // Save assistant message to DB (parent = user message for branching)
         let msg_id = match clawkson_db::message::create(
-            &state2.db, conv_id, None,
+            &state2.db, conv_id, user_msg_id,
             clawkson_db::message::MessageRole::Assistant,
             &assistant_content, None, None,
         ).await {
@@ -2299,6 +2347,7 @@ async fn chat_stream(
             }
         };
         let _ = clawkson_db::conversation::touch(&state2.db, conv_id).await;
+        let _ = clawkson_db::conversation::set_active_leaf(&state2.db, conv_id, Some(msg_id)).await;
 
         // Debounced: buffer chat turn for memory embedding
         {
@@ -2432,5 +2481,130 @@ async fn stop_generation(
     } else {
         StatusCode::NOT_FOUND
     }
+}
+
+// ── Cost endpoint ──────────────────────────────────────────────────
+
+/// GET /api/conversations/{id}/cost — token usage and cost for a conversation
+async fn get_conversation_cost(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+) -> Result<Json<Vec<UsageSummaryWithCost>>, StatusCode> {
+    match can_access(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return Err(StatusCode::FORBIDDEN),
+        Err(status) => return Err(status),
+    }
+
+    let rows = clawkson_db::token_usage::get_conversation_summary(&state.db, conv_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let summaries: Vec<UsageSummaryWithCost> = rows
+        .into_iter()
+        .map(|r| UsageSummaryWithCost {
+            model: r.model,
+            prompt_tokens: r.prompt_tokens,
+            completion_tokens: r.completion_tokens,
+            total_tokens: r.total_tokens,
+            estimated_cost_usd: r.estimated_cost_usd,
+        })
+        .collect();
+
+    Ok(Json(summaries))
+}
+
+// ── Branch endpoints ──────────────────────────────────────────────
+
+/// GET /api/conversations/{id}/branches — list all branch leaf messages
+async fn list_branches(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+) -> Result<Json<Vec<BranchInfo>>, StatusCode> {
+    match can_access(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return Err(StatusCode::FORBIDDEN),
+        Err(status) => return Err(status),
+    }
+
+    let leaves = clawkson_db::message::get_leaf_messages(&state.db, conv_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut branches = Vec::with_capacity(leaves.len());
+    for leaf in leaves {
+        let path = clawkson_db::message::get_branch_path(&state.db, leaf.id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let msg_count = path.len() as i64;
+        let preview = leaf.content.chars().take(100).collect::<String>();
+        branches.push(BranchInfo {
+            leaf_id: leaf.id,
+            message_count: msg_count,
+            last_message_at: Some(leaf.created_at),
+            last_content_preview: Some(preview),
+        });
+    }
+
+    Ok(Json(branches))
+}
+
+/// GET /api/conversations/{id}/branch-points — messages with multiple children
+async fn list_branch_points(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+) -> Result<Json<Vec<BranchPoint>>, StatusCode> {
+    match can_access(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return Err(StatusCode::FORBIDDEN),
+        Err(status) => return Err(status),
+    }
+
+    let points = clawkson_db::message::list_branch_points(&state.db, conv_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let result: Vec<BranchPoint> = points
+        .into_iter()
+        .map(|(msg_id, count)| BranchPoint {
+            message_id: msg_id,
+            child_count: count,
+        })
+        .collect();
+
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SwitchBranchRequest {
+    pub leaf_id: Uuid,
+}
+
+/// POST /api/conversations/{id}/switch-branch — change active branch
+async fn switch_branch(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(conv_id): Path<Uuid>,
+    Json(req): Json<SwitchBranchRequest>,
+) -> Result<Json<Conversation>, StatusCode> {
+    match can_write(&state, conv_id, auth.id(), auth.is_admin()).await {
+        Ok(true) => {}
+        Ok(false) => return Err(StatusCode::FORBIDDEN),
+        Err(status) => return Err(status),
+    }
+
+    clawkson_db::conversation::set_active_leaf(&state.db, conv_id, Some(req.leaf_id))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let conv = clawkson_db::conversation::get_by_id(&state.db, conv_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(conv_to_api(conv)))
 }
 

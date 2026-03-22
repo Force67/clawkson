@@ -373,6 +373,41 @@
   flex-shrink: 0;
 }
 
+.costBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.branchBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(74, 108, 247, 0.06);
+  border: 1px solid rgba(74, 108, 247, 0.15);
+  border-radius: 10px;
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+
+.msgActionBtnBranch {
+  color: var(--accent);
+}
+
+.msgActionBtnBranch:hover {
+  color: var(--accent);
+  background: rgba(74, 108, 247, 0.08);
+}
+
 .chatHeaderActions {
   display: flex;
   align-items: center;
@@ -2138,8 +2173,24 @@
   color: var(--text-secondary);
 }
 
+.mermaidSourceDetails {
+  margin-top: 6px;
+}
+
+.mermaidSourceDetails summary {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mermaidSourceDetails summary:hover {
+  color: var(--text-secondary);
+}
+
 .mermaidSource {
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--md-code-bg);

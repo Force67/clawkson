@@ -19,6 +19,7 @@ import { ProfilePage } from './pages/Profile'
 import { ScheduledTasksPage } from './pages/ScheduledTasks'
 import { CredentialsPage } from './pages/Credentials'
 import { ActivityLogPage } from './pages/ActivityLog'
+import { WebhooksPage } from './pages/Webhooks'
 
 function ThemeLoader() {
   useEffect(() => {
@@ -76,6 +77,7 @@ function AppRoutes() {
         <Route path="/credentials" element={<CredentialsPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
+        <Route path="/webhooks" element={<WebhooksPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/profile" element={<ProfilePage />} />

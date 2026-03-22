@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   KeyRound,
   Activity,
+  Webhook,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import styles from './Sidebar.module.css'
@@ -48,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/conversations', label: 'Conversations', icon: MessagesSquare },
       { path: '/calendar', label: 'Calendar', icon: CalendarDays },
       { path: '/scheduled-tasks', label: 'Scheduled Tasks', icon: Timer },
+      { path: '/webhooks', label: 'Webhooks', icon: Webhook },
     ],
   },
   {

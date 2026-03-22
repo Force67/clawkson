@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{Duration, Utc};
-use clawkson_core::{LlmAccessEntry, TokenUsageSummary, User, UserRole, UserTokenUsage};
+use clawkson_core::{LlmAccessEntry, ModelPricing, TokenUsageSummary, UsageTimeBucket, User, UserRole, UserTokenUsage};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -22,7 +22,13 @@ pub fn router() -> Router<AppState> {
             get(get_connector_access).put(set_connector_access),
         )
         .route("/usage", get(get_usage))
+        .route("/usage/time-series", get(get_usage_time_series))
         .route("/usage/{user_id}", get(get_user_usage))
+        .route(
+            "/pricing",
+            get(list_pricing).post(upsert_pricing),
+        )
+        .route("/pricing/{id}", axum::routing::delete(delete_pricing))
 }
 
 /// GET /api/admin/users — list all users (admin only)
@@ -249,6 +255,133 @@ async fn get_user_usage(
         .collect();
 
     Ok(Json(summaries))
+}
+
+// ── Time-series Usage ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TimeSeriesQuery {
+    pub since: Option<String>,
+    pub bucket: Option<String>,
+}
+
+/// GET /api/admin/usage/time-series — time-bucketed usage with cost
+async fn get_usage_time_series(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Query(q): Query<TimeSeriesQuery>,
+) -> Result<Json<Vec<UsageTimeBucket>>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let since = q
+        .since
+        .as_deref()
+        .and_then(parse_since)
+        .unwrap_or_else(|| Utc::now() - Duration::days(7));
+    let bucket = q.bucket.as_deref().unwrap_or("day");
+
+    let rows = clawkson_db::token_usage::get_time_series(&state.db, None, since, bucket)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let buckets: Vec<UsageTimeBucket> = rows
+        .into_iter()
+        .map(|r| UsageTimeBucket {
+            bucket: r.bucket,
+            model: r.model,
+            prompt_tokens: r.prompt_tokens,
+            completion_tokens: r.completion_tokens,
+            total_tokens: r.total_tokens,
+            estimated_cost_usd: r.estimated_cost_usd,
+        })
+        .collect();
+
+    Ok(Json(buckets))
+}
+
+// ── Model Pricing ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertPricingRequest {
+    pub model: String,
+    pub prompt_cost_per_million: f64,
+    pub completion_cost_per_million: f64,
+}
+
+/// GET /api/admin/pricing — list all model pricing
+async fn list_pricing(
+    auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ModelPricing>>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let rows = clawkson_db::model_pricing::list(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let pricing: Vec<ModelPricing> = rows
+        .into_iter()
+        .map(|r| ModelPricing {
+            id: r.id,
+            model: r.model,
+            prompt_cost_per_million: r.prompt_cost_per_million,
+            completion_cost_per_million: r.completion_cost_per_million,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        })
+        .collect();
+
+    Ok(Json(pricing))
+}
+
+/// POST /api/admin/pricing — upsert model pricing
+async fn upsert_pricing(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Json(req): Json<UpsertPricingRequest>,
+) -> Result<Json<ModelPricing>, StatusCode> {
+    if !auth.is_admin() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let row = clawkson_db::model_pricing::upsert(
+        &state.db,
+        &req.model,
+        req.prompt_cost_per_million,
+        req.completion_cost_per_million,
+    )
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ModelPricing {
+        id: row.id,
+        model: row.model,
+        prompt_cost_per_million: row.prompt_cost_per_million,
+        completion_cost_per_million: row.completion_cost_per_million,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }))
+}
+
+/// DELETE /api/admin/pricing/{id} — delete a pricing entry
+async fn delete_pricing(
+    auth: AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> StatusCode {
+    if !auth.is_admin() {
+        return StatusCode::FORBIDDEN;
+    }
+
+    match clawkson_db::model_pricing::delete(&state.db, id).await {
+        Ok(true) => StatusCode::NO_CONTENT,
+        Ok(false) => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 fn row_to_user(row: &clawkson_db::user::UserRow) -> User {
