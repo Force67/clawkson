@@ -343,10 +343,24 @@ impl WasmRuntime {
             .unwrap_or_else(|_| "0.0.0".to_string());
 
         // Try to call list_tools -> JSON string
-        let tools_json = self.call_string_export(&mut store, &instance, "list_tools")
-            .unwrap_or_else(|_| "[]".to_string());
+        let tools_json = match self.call_string_export(&mut store, &instance, "list_tools") {
+            Ok(json) => {
+                tracing::debug!(json_len = json.len(), json_preview = &json[..json.len().min(200)], "list_tools returned");
+                json
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "list_tools export failed, plugin will have no tools");
+                "[]".to_string()
+            }
+        };
 
-        let tools: Vec<WasmToolDef> = serde_json::from_str(&tools_json).unwrap_or_default();
+        let tools: Vec<WasmToolDef> = match serde_json::from_str(&tools_json) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(error = %e, raw = &tools_json[..tools_json.len().min(300)], "failed to parse list_tools JSON");
+                Vec::new()
+            }
+        };
 
         Ok((name, desc, version, tools))
     }
