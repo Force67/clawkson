@@ -1,0 +1,69 @@
+/// Clawkson WASM Plugin Interface
+///
+/// Plugins export these functions to provide tools to agents.
+/// The host provides capabilities (fetch, filesystem, logging) that
+/// plugins can call during execution.
+
+package clawkson:plugin@0.1.0;
+
+/// Host-provided capabilities available to plugins.
+interface host {
+    /// Log a message at the given level ("debug", "info", "warn", "error").
+    log: func(level: string, message: string);
+
+    /// Fetch a URL and return the response body as text.
+    /// Returns error string on failure.
+    fetch-url: func(url: string) -> result<string, string>;
+
+    /// Read a file from the plugin workspace. Path is relative to workspace root.
+    read-file: func(path: string) -> result<string, string>;
+
+    /// Write a file to the plugin workspace.
+    write-file: func(path: string, content: string) -> result<_, string>;
+
+    /// List files in a directory (relative to workspace root).
+    list-dir: func(path: string) -> result<list<string>, string>;
+
+    /// Get a configuration value by key (set by the user in plugin settings).
+    get-config: func(key: string) -> option<string>;
+}
+
+/// A tool definition that a plugin provides.
+record tool-def {
+    /// Unique tool name.
+    name: string,
+    /// Human-readable description for the LLM.
+    description: string,
+    /// JSON Schema for the tool's parameters (as a JSON string).
+    parameters-schema: string,
+}
+
+/// Result of a tool invocation.
+record tool-result {
+    /// JSON-encoded result value.
+    output: string,
+    /// Whether the invocation succeeded.
+    success: bool,
+    /// Error message if success is false.
+    error: option<string>,
+}
+
+/// The interface that plugins must export.
+interface plugin {
+    /// Return metadata about this plugin.
+    get-name: func() -> string;
+    get-description: func() -> string;
+    get-version: func() -> string;
+
+    /// Return the tools this plugin provides.
+    list-tools: func() -> list<tool-def>;
+
+    /// Invoke a tool by name with JSON-encoded arguments.
+    invoke-tool: func(tool-name: string, arguments-json: string) -> tool-result;
+}
+
+/// The world that plugins target.
+world clawkson-plugin {
+    import host;
+    export plugin;
+}
