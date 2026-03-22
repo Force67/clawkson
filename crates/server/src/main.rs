@@ -135,6 +135,19 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Reload persisted WASM plugins from previous runs
+    match wasm_runtime.reload_persisted().await {
+        Ok(plugins) if !plugins.is_empty() => {
+            tracing::info!(
+                count = plugins.len(),
+                names = ?plugins.iter().map(|p| &p.name).collect::<Vec<_>>(),
+                "reloaded persisted WASM plugins"
+            );
+        }
+        Ok(_) => {} // no persisted plugins
+        Err(e) => tracing::warn!("failed to reload persisted WASM plugins: {e}"),
+    }
+
     // ── HTTP server ───────────────────────────────────────────────
     let state = clawkson_api::state::AppState::new(db, container_manager.clone(), s3, plugin_registry, wasm_runtime);
 

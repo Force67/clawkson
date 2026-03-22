@@ -20,7 +20,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_wasm_plugins))
         .route("/load", post(load_wasm_plugin))
-        .route("/{name}", axum::routing::delete(unload_wasm_plugin))
+        .route("/{name}", get(get_wasm_plugin_source).delete(unload_wasm_plugin))
         .route("/{name}/invoke", post(invoke_wasm_tool))
 }
 
@@ -29,6 +29,8 @@ struct WasmPluginResponse {
     name: String,
     description: String,
     version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_filename: Option<String>,
     wasm_path: String,
     tools: Vec<WasmToolResponse>,
 }
@@ -52,6 +54,7 @@ async fn list_wasm_plugins(
                 name: p.name,
                 description: p.description,
                 version: p.version,
+                source_filename: p.source_filename,
                 wasm_path: p.wasm_path,
                 tools: p
                     .tools
@@ -127,6 +130,50 @@ async fn load_wasm_plugin(
         version: info.version,
         tools: info.tools.into_iter().map(|t| t.name).collect(),
     }))
+}
+
+/// GET /api/wasm-plugins/{name} — get plugin details including source code if available.
+async fn get_wasm_plugin_source(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let plugins = state.wasm.list_plugins().await;
+    let plugin = plugins.iter().find(|p| p.name == name).ok_or(StatusCode::NOT_FOUND)?;
+
+    // Try to read the source file from the persisted workspace
+    let workspace = std::path::PathBuf::from(&plugin.wasm_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf();
+
+    let source = if let Some(ref filename) = plugin.source_filename {
+        tokio::fs::read_to_string(workspace.join(filename)).await.ok()
+    } else {
+        // Try common source filenames
+        let mut found = None;
+        for ext in &["source.wat", "source.rs", "source.c", "source.ts"] {
+            if let Ok(code) = tokio::fs::read_to_string(workspace.join(ext)).await {
+                found = Some(code);
+                break;
+            }
+        }
+        found
+    };
+
+    // Read manifest if available
+    let manifest = tokio::fs::read_to_string(workspace.join("manifest.json")).await.ok();
+
+    Ok(Json(serde_json::json!({
+        "name": plugin.name,
+        "description": plugin.description,
+        "version": plugin.version,
+        "wasm_path": plugin.wasm_path,
+        "source_filename": plugin.source_filename,
+        "source_code": source,
+        "manifest": manifest.and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok()),
+        "tools": plugin.tools,
+    })))
 }
 
 async fn unload_wasm_plugin(

@@ -22,6 +22,21 @@ pub struct WasmPluginInfo {
     pub tools: Vec<WasmToolDef>,
     /// Path to the .wasm file.
     pub wasm_path: String,
+    /// Original source filename (if provided by agent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_filename: Option<String>,
+}
+
+/// Persisted manifest stored alongside the .wasm binary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedManifest {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub config: HashMap<String, String>,
+    pub network_enabled: bool,
+    #[serde(default)]
+    pub source_filename: Option<String>,
 }
 
 /// A tool definition exported by a WASM plugin.
@@ -70,6 +85,7 @@ impl WasmRuntime {
     }
 
     /// Load a WASM plugin from a file path.
+    /// Also looks for source files next to the .wasm (e.g., .wat, .rs, .c).
     pub async fn load_plugin(
         &self,
         wasm_path: &Path,
@@ -80,17 +96,53 @@ impl WasmRuntime {
             .await
             .context("read wasm file")?;
 
-        self.load_plugin_bytes(&wasm_bytes, wasm_path.to_string_lossy().to_string(), config, network_enabled)
-            .await
+        // Try to find source code next to the .wasm file
+        let mut source_code = None;
+        let mut source_filename = None;
+        let parent = wasm_path.parent().unwrap_or(Path::new("."));
+        let stem = wasm_path.file_stem().unwrap_or_default().to_string_lossy();
+        for ext in &["wat", "rs", "c", "ts", "as"] {
+            let src = parent.join(format!("{stem}.{ext}"));
+            if src.exists() {
+                if let Ok(code) = tokio::fs::read_to_string(&src).await {
+                    source_filename = Some(format!("{stem}.{ext}"));
+                    source_code = Some(code);
+                    break;
+                }
+            }
+        }
+
+        self.load_plugin_bytes_with_source(
+            &wasm_bytes,
+            wasm_path.to_string_lossy().to_string(),
+            config,
+            network_enabled,
+            source_code.as_deref(),
+            source_filename.as_deref(),
+        ).await
     }
 
     /// Load a WASM plugin from raw bytes.
+    /// Optionally pass source_code + source_filename to persist the original source.
     pub async fn load_plugin_bytes(
         &self,
         wasm_bytes: &[u8],
         source_path: String,
         config: HashMap<String, String>,
         network_enabled: bool,
+    ) -> Result<WasmPluginInfo> {
+        self.load_plugin_bytes_with_source(wasm_bytes, source_path, config, network_enabled, None, None).await
+    }
+
+    /// Load a WASM plugin with optional source code preservation.
+    pub async fn load_plugin_bytes_with_source(
+        &self,
+        wasm_bytes: &[u8],
+        source_path: String,
+        config: HashMap<String, String>,
+        network_enabled: bool,
+        source_code: Option<&str>,
+        source_filename: Option<&str>,
     ) -> Result<WasmPluginInfo> {
         // Compile the module
         let module = Module::new(&self.engine, wasm_bytes)
@@ -112,6 +164,33 @@ impl WasmRuntime {
         std::fs::create_dir_all(&workspace)
             .context("create plugin workspace")?;
 
+        // ── Persist plugin artifacts ─────────────────────────────
+        // Save the .wasm binary
+        let wasm_persist_path = workspace.join("plugin.wasm");
+        std::fs::write(&wasm_persist_path, wasm_bytes)
+            .context("persist plugin.wasm")?;
+
+        // Save the manifest
+        let manifest = PersistedManifest {
+            name: name.clone(),
+            description: description.clone(),
+            version: version.clone(),
+            config: config.clone(),
+            network_enabled,
+            source_filename: source_filename.map(String::from),
+        };
+        let manifest_json = serde_json::to_string_pretty(&manifest)?;
+        std::fs::write(workspace.join("manifest.json"), &manifest_json)
+            .context("persist manifest.json")?;
+
+        // Save source code if provided
+        if let Some(code) = source_code {
+            let filename = source_filename.unwrap_or("source.wat");
+            std::fs::write(workspace.join(filename), code)
+                .context("persist source code")?;
+            tracing::info!(plugin = %name, file = %filename, "source code persisted");
+        }
+
         let host_state = PluginHostState::new(
             name.clone(),
             workspace,
@@ -124,7 +203,8 @@ impl WasmRuntime {
             description,
             version,
             tools,
-            wasm_path: source_path,
+            wasm_path: wasm_persist_path.to_string_lossy().to_string(),
+            source_filename: source_filename.map(String::from),
         };
 
         let loaded = Arc::new(LoadedPlugin {
@@ -138,10 +218,77 @@ impl WasmRuntime {
         tracing::info!(
             plugin = %name,
             tools = info.tools.len(),
-            "WASM plugin loaded"
+            persisted = %wasm_persist_path.display(),
+            "WASM plugin loaded and persisted"
         );
 
         Ok(info)
+    }
+
+    /// Reload all persisted plugins from the workspace root.
+    /// Called at server startup to restore previously installed plugins.
+    pub async fn reload_persisted(&self) -> Result<Vec<WasmPluginInfo>> {
+        let mut loaded = Vec::new();
+
+        let entries = match std::fs::read_dir(&self.workspace_root) {
+            Ok(e) => e,
+            Err(_) => return Ok(loaded), // No plugins dir yet
+        };
+
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+
+            let wasm_path = dir.join("plugin.wasm");
+            let manifest_path = dir.join("manifest.json");
+
+            if !wasm_path.exists() || !manifest_path.exists() {
+                continue;
+            }
+
+            let manifest_json = match std::fs::read_to_string(&manifest_path) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::warn!(path = %manifest_path.display(), error = %e, "skip persisted plugin: bad manifest");
+                    continue;
+                }
+            };
+
+            let manifest: PersistedManifest = match serde_json::from_str(&manifest_json) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(path = %manifest_path.display(), error = %e, "skip persisted plugin: invalid manifest");
+                    continue;
+                }
+            };
+
+            let wasm_bytes = match std::fs::read(&wasm_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!(plugin = %manifest.name, error = %e, "skip persisted plugin: bad wasm");
+                    continue;
+                }
+            };
+
+            match self.load_plugin_bytes(
+                &wasm_bytes,
+                wasm_path.to_string_lossy().to_string(),
+                manifest.config,
+                manifest.network_enabled,
+            ).await {
+                Ok(info) => {
+                    tracing::info!(plugin = %info.name, tools = info.tools.len(), "reloaded persisted WASM plugin");
+                    loaded.push(info);
+                }
+                Err(e) => {
+                    tracing::warn!(plugin = %manifest.name, error = %e, "failed to reload persisted plugin");
+                }
+            }
+        }
+
+        Ok(loaded)
     }
 
     /// Invoke a tool on a loaded plugin.

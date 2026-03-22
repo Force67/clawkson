@@ -56,6 +56,16 @@ impl KernelFunction for InstallWasmPluginTool {
                 .with_description("Whether to allow network access (default: false)")
                 .optional(),
         );
+        def.add_parameter(
+            FunctionParameter::new("source_code", json!({"type": "string"}))
+                .with_description("Original source code that produced the .wasm (preserved for future reference/editing)")
+                .optional(),
+        );
+        def.add_parameter(
+            FunctionParameter::new("source_filename", json!({"type": "string"}))
+                .with_description("Filename for the source code (e.g. 'plugin.wat', 'plugin.rs')")
+                .optional(),
+        );
 
         def
     }
@@ -67,6 +77,8 @@ impl KernelFunction for InstallWasmPluginTool {
             .get("network_enabled")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let source_code = arguments.get("source_code").and_then(|v| v.as_str());
+        let source_filename = arguments.get("source_filename").and_then(|v| v.as_str());
 
         // Parse config
         let config: std::collections::HashMap<String, String> = arguments
@@ -92,7 +104,14 @@ impl KernelFunction for InstallWasmPluginTool {
                 Ok(b) => b,
                 Err(e) => return Ok(json!({"error": format!("base64 decode: {e}")})),
             };
-            match self.runtime.load_plugin_bytes(&bytes, "<base64>".to_string(), config, network_enabled).await {
+            match self.runtime.load_plugin_bytes_with_source(
+                &bytes,
+                "<base64>".to_string(),
+                config,
+                network_enabled,
+                source_code,
+                source_filename,
+            ).await {
                 Ok(info) => info,
                 Err(e) => return Ok(json!({"error": format!("load failed: {e}")})),
             }
