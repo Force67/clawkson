@@ -2,13 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { CommandPalette } from './CommandPalette'
-import { CommandSwitcher } from './CommandSwitcher'
 import styles from './Layout.module.css'
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false)
-  const [paletteOpen, setPaletteOpen] = useState(false)
-  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [spotlightOpen, setSpotlightOpen] = useState(false)
   const layoutRef = useRef<HTMLDivElement>(null)
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -21,21 +19,18 @@ export function Layout() {
     el.style.setProperty('--mouse-y', `${y}%`)
   }, [])
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts — Cmd+K, Ctrl+K, Cmd+Shift+P, Ctrl+Shift+P
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Cmd+K / Ctrl+K — search
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'k') {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key === 'k') {
         e.preventDefault()
-        setSwitcherOpen(false)
-        setPaletteOpen(prev => !prev)
+        setSpotlightOpen(prev => !prev)
         return
       }
-      // Cmd+Shift+P / Ctrl+Shift+P — command switcher
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'P') {
+      if (mod && e.shiftKey && e.key === 'P') {
         e.preventDefault()
-        setPaletteOpen(false)
-        setSwitcherOpen(prev => !prev)
+        setSpotlightOpen(prev => !prev)
         return
       }
     }
@@ -43,9 +38,9 @@ export function Layout() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // Custom event: other components can open the palette
+  // Custom event: other components can open the spotlight
   useEffect(() => {
-    const handler = () => { setSwitcherOpen(false); setPaletteOpen(true) }
+    const handler = () => setSpotlightOpen(true)
     window.addEventListener('open-command-palette', handler)
     return () => window.removeEventListener('open-command-palette', handler)
   }, [])
@@ -62,8 +57,7 @@ export function Layout() {
           <Outlet />
         </div>
       </main>
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      <CommandSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+      <CommandPalette open={spotlightOpen} onClose={() => setSpotlightOpen(false)} />
     </div>
   )
 }

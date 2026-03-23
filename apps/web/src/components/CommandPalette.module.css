@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════
-   Command Palette (Cmd+K)
+   Spotlight — unified search + command palette
    ══════════════════════════════════════════════════════════════════ */
 
 .overlay {
@@ -9,7 +9,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: min(20vh, 160px);
+  padding-top: min(18vh, 140px);
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -23,7 +23,7 @@
 
 .palette {
   width: 100%;
-  max-width: 580px;
+  max-width: 600px;
   background: var(--glass-bg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -39,7 +39,7 @@
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* ── Search input area ─────────────────────────────────────────── */
+/* ── Input ─────────────────────────────────────────────────────── */
 
 .inputWrap {
   display: flex;
@@ -92,16 +92,16 @@
   flex-shrink: 0;
 }
 
-/* ── Results area ──────────────────────────────────────────────── */
+/* ── Results ───────────────────────────────────────────────────── */
 
 .results {
-  max-height: 420px;
+  max-height: 440px;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 4px 0;
 }
 
 .empty {
-  padding: 32px 16px;
+  padding: 28px 16px;
   text-align: center;
   color: var(--text-tertiary);
   font-size: 13px;
@@ -110,7 +110,13 @@
 /* ── Section ───────────────────────────────────────────────────── */
 
 .section {
-  padding: 4px 0;
+  padding: 2px 0;
+}
+
+.section + .section {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 2px;
+  padding-top: 4px;
 }
 
 .sectionLabel {
@@ -125,18 +131,13 @@
   color: var(--text-tertiary);
 }
 
-.sectionCount {
-  font-weight: 400;
-  opacity: 0.7;
-}
-
-/* ── Result item ───────────────────────────────────────────────── */
+/* ── Generic item row ──────────────────────────────────────────── */
 
 .item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 16px;
+  padding: 8px 16px;
   cursor: pointer;
   transition: background 0.1s;
   border-left: 2px solid transparent;
@@ -151,6 +152,8 @@
   border-left-color: var(--accent);
 }
 
+/* ── Boxed icon (search results) ───────────────────────────────── */
+
 .itemIcon {
   width: 32px;
   height: 32px;
@@ -163,16 +166,35 @@
   flex-shrink: 0;
 }
 
-.itemIconConv {
+.itemIconConv { color: var(--accent); }
+.itemIconAgent { color: var(--success); }
+.itemIconKb { color: var(--warning); }
+.itemIconMemory { color: #a855f7; }
+
+/* ── Inline icon (actions / nav) ───────────────────────────────── */
+
+.itemIconSmall {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.itemSelected .itemIconSmall {
   color: var(--accent);
 }
 
-.itemIconAgent {
-  color: var(--success);
-}
+/* ── Item text ─────────────────────────────────────────────────── */
 
-.itemIconKb {
-  color: var(--warning);
+.itemLabel {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .itemBody {
@@ -215,6 +237,29 @@
   white-space: nowrap;
 }
 
+.itemScore {
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--accent-text);
+  background: var(--accent-muted);
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.currentBadge {
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
 /* ── Footer ────────────────────────────────────────────────────── */
 
 .footer {
@@ -251,7 +296,6 @@
     padding-left: 8px;
     padding-right: 8px;
   }
-
   .palette {
     max-width: 100%;
   }

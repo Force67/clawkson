@@ -856,10 +856,21 @@ export interface SearchKnowledgeBaseHit {
   entry_count: number
 }
 
+export interface SearchKnowledgeEntryHit {
+  id: string
+  knowledge_base_id: string
+  kb_name: string
+  title: string
+  content: string
+  score: number
+  source: 'memory' | 'standard'
+}
+
 export interface GlobalSearchResponse {
   conversations: SearchConversationHit[]
   agents: SearchAgentHit[]
   knowledge_bases: SearchKnowledgeBaseHit[]
+  knowledge_entries: SearchKnowledgeEntryHit[]
 }
 
 // ── API client ─────────────────────────────────────────────────────
