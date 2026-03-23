@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
-  Plus, Database, Trash2, Share2, Zap, X, Upload,
+  Plus, Database, Trash2, Share2, Zap, X, Upload, Search,
   ChevronLeft, Users, Bot, FileText, CheckCircle, AlertCircle, Loader2,
   Brain, Sparkles, Lock,
 } from 'lucide-react'
-import { api, type KnowledgeBase, type KnowledgeEntry, type KbShareInfo, type Agent } from '../lib/api'
+import { api, type KnowledgeBase, type KnowledgeEntry, type KnowledgeSearchResult, type KbShareInfo, type Agent } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { PageHeader } from '../components/PageHeader'
 import { Card } from '../components/Card'
@@ -53,6 +53,12 @@ export function KnowledgeBasePage() {
   const [embedResult, setEmbedResult] = useState<{ embedded: number; failed: number } | null>(null)
   const [embedError, setEmbedError] = useState('')
 
+  // Search within KB
+  const [kbSearchQuery, setKbSearchQuery] = useState('')
+  const [kbSearchResults, setKbSearchResults] = useState<KnowledgeSearchResult[] | null>(null)
+  const [kbSearching, setKbSearching] = useState(false)
+  const kbSearchTimer = useRef<ReturnType<typeof setTimeout>>()
+
   const loadBases = useCallback(async () => {
     try {
       const [data, memories] = await Promise.all([
@@ -81,10 +87,31 @@ export function KnowledgeBasePage() {
     return { agentKbs: agent, userKbs: userOwned }
   }, [bases])
 
+  const handleKbSearch = useCallback((q: string, kbId: string) => {
+    setKbSearchQuery(q)
+    if (kbSearchTimer.current) clearTimeout(kbSearchTimer.current)
+    if (q.trim().length < 2) {
+      setKbSearchResults(null)
+      return
+    }
+    kbSearchTimer.current = setTimeout(async () => {
+      setKbSearching(true)
+      try {
+        const results = await api.knowledge.search(kbId, q, 20)
+        setKbSearchResults(results)
+      } catch {
+        setKbSearchResults(null)
+      }
+      setKbSearching(false)
+    }, 300)
+  }, [])
+
   const openKb = useCallback(async (kb: KnowledgeBase) => {
     setSelectedKb(kb)
     setView('detail')
     setEmbedResult(null)
+    setKbSearchQuery('')
+    setKbSearchResults(null)
     try {
       const [ents, agentIds, allAgents] = await Promise.all([
         api.knowledge.listEntries(kb.id),
@@ -574,45 +601,91 @@ export function KnowledgeBasePage() {
         </Card>
       )}
 
-      {/* Entries list */}
-      {entries.length === 0 ? (
-        <EmptyState
-          icon={FileText}
-          title="No entries yet"
-          description={isMemoryKb
-            ? "This agent hasn't built any memory yet. Start a conversation to populate it."
-            : "Add knowledge entries — text documents, notes, or reference material."
-          }
-        />
-      ) : (
-        <div className={styles.entriesList}>
-          {entries.map(entry => (
-            <div key={entry.id} className={styles.entryCard}>
-              <div className={styles.entryTop}>
-                <div className={styles.entryTitleRow}>
-                  <FileText size={16} className={styles.entryIcon} />
-                  <h4 className={styles.entryTitle}>{entry.title}</h4>
-                </div>
-                <div className={styles.entryStatus}>
-                  {entry.has_embedding ? (
-                    <span className={styles.embeddedBadge}><CheckCircle size={12} /> Embedded</span>
-                  ) : (
-                    <span className={styles.pendingBadge}><AlertCircle size={12} /> Pending</span>
-                  )}
-                  {!isMemoryKb && isOwner && (
-                    <button
-                      className={styles.deleteEntryBtn}
-                      onClick={() => handleDeleteEntry(entry.id)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              </div>
-              <p className={styles.entryContent}>{entry.content}</p>
-            </div>
-          ))}
+      {/* Search within KB */}
+      {entries.length > 0 && (
+        <div className={styles.kbSearchWrap}>
+          <Search size={15} className={styles.kbSearchIcon} />
+          <input
+            className={styles.kbSearchInput}
+            value={kbSearchQuery}
+            onChange={e => selectedKb && handleKbSearch(e.target.value, selectedKb.id)}
+            placeholder="Search entries..."
+          />
+          {kbSearching && <Loader2 size={14} className={styles.spinning} />}
+          {kbSearchQuery && (
+            <button
+              className={styles.kbSearchClear}
+              onClick={() => { setKbSearchQuery(''); setKbSearchResults(null) }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Search results */}
+      {kbSearchResults !== null ? (
+        kbSearchResults.length === 0 ? (
+          <div className={styles.kbSearchEmpty}>No matching entries</div>
+        ) : (
+          <div className={styles.entriesList}>
+            {kbSearchResults.map(r => (
+              <div key={r.entry.id} className={styles.entryCard}>
+                <div className={styles.entryTop}>
+                  <div className={styles.entryTitleRow}>
+                    <FileText size={16} className={styles.entryIcon} />
+                    <h4 className={styles.entryTitle}>{r.entry.title}</h4>
+                  </div>
+                  <div className={styles.entryStatus}>
+                    <span className={styles.scoreBadge}>{(r.score * 100).toFixed(0)}% match</span>
+                  </div>
+                </div>
+                <p className={styles.entryContent}>{r.entry.content}</p>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        /* Entries list */
+        entries.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title="No entries yet"
+            description={isMemoryKb
+              ? "This agent hasn't built any memory yet. Start a conversation to populate it."
+              : "Add knowledge entries — text documents, notes, or reference material."
+            }
+          />
+        ) : (
+          <div className={styles.entriesList}>
+            {entries.map(entry => (
+              <div key={entry.id} className={styles.entryCard}>
+                <div className={styles.entryTop}>
+                  <div className={styles.entryTitleRow}>
+                    <FileText size={16} className={styles.entryIcon} />
+                    <h4 className={styles.entryTitle}>{entry.title}</h4>
+                  </div>
+                  <div className={styles.entryStatus}>
+                    {entry.has_embedding ? (
+                      <span className={styles.embeddedBadge}><CheckCircle size={12} /> Embedded</span>
+                    ) : (
+                      <span className={styles.pendingBadge}><AlertCircle size={12} /> Pending</span>
+                    )}
+                    {!isMemoryKb && isOwner && (
+                      <button
+                        className={styles.deleteEntryBtn}
+                        onClick={() => handleDeleteEntry(entry.id)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className={styles.entryContent}>{entry.content}</p>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
       {showUpload && selectedKb && (

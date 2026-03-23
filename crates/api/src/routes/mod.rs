@@ -13,6 +13,7 @@ pub mod plugins;
 pub mod polls;
 pub mod reactions;
 pub mod scheduled_tasks;
+pub mod search;
 pub mod shares;
 pub mod skills;
 pub mod tools;
@@ -53,6 +54,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/webhooks", webhooks::router())
         .nest("/plugins", plugins::router())
         .nest("/wasm-plugins", wasm_plugins::router())
+        .nest("/search", search::router())
         .merge(reactions::router())
         .merge(polls::router())
         .merge(shares::router())

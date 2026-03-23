@@ -361,3 +361,59 @@ pub async fn kb_list_agents(pool: &PgPool, knowledge_base_id: Uuid) -> Result<Ve
     .await?;
     Ok(rows.into_iter().map(|r| r.0).collect())
 }
+
+// ── Search ──────────────────────────────────────────────────────
+
+/// A knowledge base search hit.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct KnowledgeBaseSearchHit {
+    pub id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub entry_count: i64,
+}
+
+/// Search knowledge bases by name/description (ILIKE), respecting user access.
+pub async fn search_by_text(
+    pool: &PgPool,
+    user_id: Uuid,
+    is_admin: bool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<KnowledgeBaseSearchHit>, sqlx::Error> {
+    let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+
+    if is_admin {
+        sqlx::query_as::<_, KnowledgeBaseSearchHit>(
+            "SELECT kb.id, kb.name, kb.description, COALESCE(c.cnt, 0) AS entry_count
+             FROM knowledge_bases kb
+             LEFT JOIN (SELECT knowledge_base_id, COUNT(*) AS cnt FROM knowledge_entries GROUP BY knowledge_base_id) c
+                ON c.knowledge_base_id = kb.id
+             WHERE (kb.name ILIKE $1 OR kb.description ILIKE $1)
+             ORDER BY kb.updated_at DESC
+             LIMIT $2",
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    } else {
+        sqlx::query_as::<_, KnowledgeBaseSearchHit>(
+            "SELECT kb.id, kb.name, kb.description, COALESCE(c.cnt, 0) AS entry_count
+             FROM knowledge_bases kb
+             LEFT JOIN (SELECT knowledge_base_id, COUNT(*) AS cnt FROM knowledge_entries GROUP BY knowledge_base_id) c
+                ON c.knowledge_base_id = kb.id
+             WHERE (kb.name ILIKE $1 OR kb.description ILIKE $1)
+               AND (kb.owner_id = $2 OR kb.id IN (
+                   SELECT knowledge_base_id FROM knowledge_base_shares WHERE shared_with = $2
+               ))
+             ORDER BY kb.updated_at DESC
+             LIMIT $3",
+        )
+        .bind(&pattern)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+}

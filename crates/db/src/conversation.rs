@@ -242,3 +242,59 @@ pub async fn delete(db: &Db, id: Uuid) -> Result<bool, DbError> {
 
     Ok(result.rows_affected() > 0)
 }
+
+// ── Search ──────────────────────────────────────────────────────
+
+/// A conversation matched by title search.
+#[derive(Debug, Clone, FromRow, serde::Serialize)]
+pub struct ConversationTitleHit {
+    pub id: Uuid,
+    pub title: String,
+    pub agent_id: Option<Uuid>,
+    pub agent_name: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Search conversations by title (ILIKE), respecting user access.
+pub async fn search_by_title(
+    db: &Db,
+    user_id: Uuid,
+    is_admin: bool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<ConversationTitleHit>, DbError> {
+    let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+
+    let rows = if is_admin {
+        sqlx::query_as::<_, ConversationTitleHit>(
+            "SELECT c.id, c.title, c.agent_id, a.name AS agent_name, c.updated_at
+             FROM conversations c
+             LEFT JOIN agents a ON a.id = c.agent_id
+             WHERE c.title ILIKE $1 AND c.archived = FALSE
+             ORDER BY c.updated_at DESC
+             LIMIT $2",
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(db.pool())
+        .await?
+    } else {
+        sqlx::query_as::<_, ConversationTitleHit>(
+            "SELECT c.id, c.title, c.agent_id, a.name AS agent_name, c.updated_at
+             FROM conversations c
+             LEFT JOIN agents a ON a.id = c.agent_id
+             WHERE c.title ILIKE $1 AND c.archived = FALSE
+               AND (c.owner_id = $2 OR c.id IN (
+                   SELECT conversation_id FROM conversation_shares WHERE shared_with = $2
+               ))
+             ORDER BY c.updated_at DESC
+             LIMIT $3",
+        )
+        .bind(&pattern)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(db.pool())
+        .await?
+    };
+    Ok(rows)
+}

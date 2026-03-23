@@ -831,6 +831,37 @@ export interface WasmPlugin {
   tools: WasmPluginTool[]
 }
 
+// ── Global search types ──────────────────────────────────────────────
+
+export interface SearchConversationHit {
+  id: string
+  title: string
+  agent_id: string | null
+  agent_name: string | null
+  updated_at: string
+  message_snippet: string | null
+}
+
+export interface SearchAgentHit {
+  id: string
+  name: string
+  description: string
+  status: AgentStatus
+}
+
+export interface SearchKnowledgeBaseHit {
+  id: string
+  name: string
+  description: string | null
+  entry_count: number
+}
+
+export interface GlobalSearchResponse {
+  conversations: SearchConversationHit[]
+  agents: SearchAgentHit[]
+  knowledge_bases: SearchKnowledgeBaseHit[]
+}
+
 // ── API client ─────────────────────────────────────────────────────
 
 export const api = {
@@ -1283,6 +1314,14 @@ export const api = {
     delete: (id: string) =>
       request<void>(`/api/uploads/${id}`, { method: 'DELETE' }),
     downloadUrl: (id: string) => `${BASE}/api/uploads/${id}`,
+  },
+
+  search: {
+    global: (query: string, limit?: number) =>
+      request<GlobalSearchResponse>('/api/search', {
+        method: 'POST',
+        body: JSON.stringify({ query, limit }),
+      }),
   },
 }
 

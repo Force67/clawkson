@@ -347,10 +347,16 @@ export function DashboardPage() {
       <div className={styles.header}>
         <h1 className={styles.title}>// Overview</h1>
         <div className={styles.headerRight}>
-          <div className={styles.searchBox}>
+          <button
+            className={styles.searchBox}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
+          >
             <Search size={14} />
-            <input placeholder="Search..." className={styles.searchInput} />
-          </div>
+            <span className={styles.searchPlaceholder}>Search...</span>
+            <kbd className={styles.searchKbd}>
+              {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl+'}K
+            </kbd>
+          </button>
           {/* Notification bell */}
           <button className={styles.bellButton} onClick={() => {
             const el = document.getElementById('notif-box')

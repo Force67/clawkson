@@ -287,3 +287,84 @@ pub async fn clear_for_conversation(db: &Db, conversation_id: Uuid) -> Result<u6
 
     Ok(result.rows_affected())
 }
+
+// ── Full-text search ────────────────────────────────────────────
+
+/// A conversation-level search hit with a matching message snippet.
+#[derive(Debug, Clone, FromRow, serde::Serialize)]
+pub struct MessageSearchHit {
+    pub conversation_id: Uuid,
+    pub conversation_title: String,
+    pub agent_id: Option<Uuid>,
+    pub agent_name: Option<String>,
+    pub message_snippet: String,
+    pub message_role: MessageRole,
+    pub message_created_at: DateTime<Utc>,
+    pub conversation_updated_at: DateTime<Utc>,
+}
+
+/// Search message content across all conversations visible to a user.
+/// Returns one hit per conversation (the most recent matching message).
+pub async fn search_content(
+    db: &Db,
+    user_id: Uuid,
+    is_admin: bool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<MessageSearchHit>, DbError> {
+    let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+
+    let rows = if is_admin {
+        sqlx::query_as::<_, MessageSearchHit>(
+            "SELECT DISTINCT ON (c.id)
+                c.id AS conversation_id,
+                c.title AS conversation_title,
+                c.agent_id,
+                a.name AS agent_name,
+                LEFT(m.content, 200) AS message_snippet,
+                m.role AS message_role,
+                m.created_at AS message_created_at,
+                c.updated_at AS conversation_updated_at
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+             LEFT JOIN agents a ON a.id = c.agent_id
+             WHERE m.role IN ('user', 'assistant')
+               AND m.content ILIKE $1
+             ORDER BY c.id, m.created_at DESC",
+        )
+        .bind(&pattern)
+        .fetch_all(db.pool())
+        .await?
+    } else {
+        sqlx::query_as::<_, MessageSearchHit>(
+            "SELECT DISTINCT ON (c.id)
+                c.id AS conversation_id,
+                c.title AS conversation_title,
+                c.agent_id,
+                a.name AS agent_name,
+                LEFT(m.content, 200) AS message_snippet,
+                m.role AS message_role,
+                m.created_at AS message_created_at,
+                c.updated_at AS conversation_updated_at
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+             LEFT JOIN agents a ON a.id = c.agent_id
+             WHERE m.role IN ('user', 'assistant')
+               AND m.content ILIKE $1
+               AND (c.owner_id = $2 OR c.id IN (
+                   SELECT conversation_id FROM conversation_shares WHERE shared_with = $2
+               ))
+             ORDER BY c.id, m.created_at DESC",
+        )
+        .bind(&pattern)
+        .bind(user_id)
+        .fetch_all(db.pool())
+        .await?
+    };
+
+    // Sort by most recently updated conversation, then take limit
+    let mut rows = rows;
+    rows.sort_by(|a, b| b.conversation_updated_at.cmp(&a.conversation_updated_at));
+    rows.truncate(limit as usize);
+    Ok(rows)
+}

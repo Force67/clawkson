@@ -730,3 +730,78 @@
   overflow: hidden;
   white-space: pre-wrap;
 }
+
+/* ── KB Detail Search ──────────────────────────────────────────── */
+
+.kbSearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  transition: border-color 0.2s;
+}
+
+.kbSearchWrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.kbSearchIcon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.kbSearchInput {
+  flex: 1;
+  border: none;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.kbSearchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+.kbSearchClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.kbSearchClear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.kbSearchEmpty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+.scoreBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
